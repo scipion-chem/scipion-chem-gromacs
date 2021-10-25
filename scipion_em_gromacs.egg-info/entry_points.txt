@@ -1,3 +1,0 @@
-[pyworkflow.plugin]
-gromacs = gromacs
-
