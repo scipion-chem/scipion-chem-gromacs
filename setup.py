@@ -24,11 +24,11 @@ with open('requirements.txt') as f:
 # Fields marked as "Optional" may be commented out.
 
 setup(
-    name='scipion-em-gromacs',  # Required
+    name='scipion-chem-gromacs',  # Required
     version='0.1',  # Required
     description='Scipion plugin for gromacs.',  # Required
     long_description=long_description,  # Optional
-    url='https://github.com/scipion-em/scipion-em-template',  # Optional
+    url='https://github.com/scipion-chem/scipion-chem-gromacs',  # Optional
     author='you',  # Optional
     author_email='pedrofebrer98@gmail.com',  # Optional
     keywords='scipion cryoem imageprocessing scipion-3.0',  # Optional

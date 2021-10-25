@@ -8,14 +8,14 @@ In order to use this plug-in, you need to have Scipion3 installed (https://scipi
 
 .. code-block::
 
-    git clone https://github.com/Pefema/scipion-em-gromacs-TFM.git
+    git clone https://github.com/Pefema/scipion-chem-gromacs.git
 
 
 **Install the plugin in devel mode**
 
 .. code-block::
 
-    scipion3 installp -p path_to_scipion-em-gromacs-TFM --devel
+    scipion3 installp -p path_to_scipion-chem-gromacs --devel
     
 OR
     
@@ -23,4 +23,4 @@ OR
 
 .. code-block::
 
-    scipion3 installp -p path_to_scipion-em-gromacs-TFM
+    scipion3 installp -p path_to_scipion-chem-gromacs

@@ -1,8 +1,8 @@
 Metadata-Version: 1.0
-Name: scipion-em-gromacs
+Name: scipion-chem-gromacs
 Version: 0.1
 Summary: Scipion plugin for gromacs.
-Home-page: https://github.com/scipion-em/scipion-em-template
+Home-page: https://github.com/scipion-chem/scipion-chem-gromacs
 Author: you
 Author-email: pedrofebrer98@gmail.com
 License: UNKNOWN
