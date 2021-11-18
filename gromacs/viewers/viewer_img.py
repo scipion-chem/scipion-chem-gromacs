@@ -50,7 +50,7 @@ def errorWindow(tkParent, msg):
         print(("Error:", msg))
 
 
-class DARCViewer(ProtocolViewer):
+class DARCViewerGromacs(ProtocolViewer):
     """ Viewer for Rosetta program DARC
     """
     _label = 'Gromacs IMG Viewer'

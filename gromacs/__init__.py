@@ -1,8 +1,8 @@
 # **************************************************************************
 # *
-# * Authors:     you (you@yourinstitution.email)
+# * Authors:      Daniel Del Hoyo (ddelhoyo@cnb.csic.es)
 # *
-# * your institution
+# * Biocomputing Unit, CNB-CSIC
 # *
 # * This program is free software; you can redistribute it and/or modify
 # * it under the terms of the GNU General Public License as published by
@@ -24,11 +24,63 @@
 # *
 # **************************************************************************
 import pwem
+from .constants import *
+from os.path import join
 
 _logo = "icon.png"
 _references = ['Abraham2015']
 
 from .object import *
 class Plugin(pwem.Plugin):
-    pass
+    _homeVar = GROMACS_HOME
+    _pathVars = [GROMACS_HOME]
+    _supportedVersions = [V2020]
+    _gromacsName = GROMACS + '-' + GROMACS_DEFAULT_VERSION
+    _pluginHome = join(pwem.Config.EM_ROOT, _gromacsName)
+
+    @classmethod
+    def _defineVariables(cls):
+        """ Return and write a variable in the config file.
+        """
+        cls._defineEmVar(GROMACS_HOME, cls._gromacsName)
+
+    @classmethod
+    def defineBinaries(cls, env):
+        cMakeCmd = 'mkdir build && cd build && '
+        cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON ' \
+                           '-DCMAKE_INSTALL_PREFIX={} > cMake.log'.format(cls._pluginHome)
+        makeCmd = 'cd build && make -j 8 > make.log && make check'
+        makeInstallCmd = 'cd build && make install'
+
+        # Creating validation file
+        GROMACS_INSTALLED = '%s_installed' % GROMACS
+        installationCmd = 'touch %s' % GROMACS_INSTALLED  # Flag installation finished
+
+        env.addPackage(GROMACS,
+                       version=GROMACS_DEFAULT_VERSION,
+                       url=cls._getGromacsDownloadUrl(),
+                       commands=[(cMakeCmd, []),
+                                 (makeCmd, []),
+                                 (makeInstallCmd, []),
+                                 (installationCmd, GROMACS_INSTALLED)],
+                       default=True)
+
+    @classmethod
+    def runGromacs(cls, protocol, program, args, cwd=None):
+        """ Run Gromacs command from a given protocol. """
+        protocol.runJob(join(cls._pluginHome, 'bin/{}'.format(program)), args, cwd=cwd)
+
+    @classmethod  # Test that
+    def getEnviron(cls):
+        pass
+
+    @classmethod
+    def _getGromacsDownloadUrl(cls):
+        return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(GROMACS_DEFAULT_VERSION)
+
+    @classmethod
+    def _getGromacsTar(cls):
+        return cls._pluginHome + '/' + cls._gromacsName + '.tar.gz'
+
+    # ---------------------------------- Utils functions  -----------------------
 
