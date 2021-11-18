@@ -8,7 +8,7 @@ In order to use this plug-in, you need to have Scipion3 installed (https://scipi
 
 .. code-block::
 
-    git clone https://github.com/Pefema/scipion-chem-gromacs.git
+    git clone https://github.com/scipion-chem/scipion-chem-gromacs.git
 
 
 **Install the plugin in devel mode**
