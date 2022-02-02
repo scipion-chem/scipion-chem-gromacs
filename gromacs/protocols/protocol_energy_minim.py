@@ -84,11 +84,14 @@ class GromacsEnergyMinimization(EMProtocol):
                        label="Choose GPU IDs",
                        help="Add a list of GPU devices that can be used")
 
+        form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
+                      pointerClass='GromacsSystem',
+                      allowsNull=True,
+                      help='Gro file which will be used to do energy minimization')
+
         form.addParam('ScipionOrLocalParams', params.BooleanParam,
                       label="Use default parameters",
                       default=True,
-                      expertLevel=LEVEL_NORMAL,
-                      condition="expertLevel == LEVEL_NORMAL",
                       help="'Yes' = It uses the default params for energy minimization: \n"
                         "integrator = steep ; Algorithm (steep = steepest descent minimization)\n"
                         "emtol = 1000.0 ; Stop minimization when the maximum force < 1000.0 kJ/mol/nm\n"
@@ -206,11 +209,6 @@ class GromacsEnergyMinimization(EMProtocol):
                            "Multiplied by dt, it gives the ps of the simulation. e.g. 50000 nsteps * 0.002 dt = 100 ps."
                            " It depends on the system, but for NVT equilibration, 100 ps should be enough")
 
-        form.addParam('UseGroFiles', params.PointerParam, label="Input Gro File",
-                      pointerClass='GroFiles',
-                      allowsNull=True,
-                      help='Gro file which will be used to do energy minimization')
-
 
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
@@ -230,8 +228,8 @@ class GromacsEnergyMinimization(EMProtocol):
         self._insertFunctionStep('createOutputStep')
 
     def getGromppParams(self):
-        UseGroFile = os.path.abspath(self.UseGroFiles.get().getGro())
-        UseTopolFile = os.path.abspath(self.UseGroFiles.get().getTopol())
+        UseGroFile = os.path.abspath(self.gromacsSystem.get().getSystemFile())
+        UseTopolFile = os.path.abspath(self.gromacsSystem.get().getTopologyFile())
         program = os.path.join("", '/usr/local/gromacs/bin/gmx')
         nsteps = self.nsteps.get()
         working_dir = self.getWorkingDir()
@@ -346,8 +344,8 @@ class GromacsEnergyMinimization(EMProtocol):
             pass
 
     def getGromppParams2(self):
-        UseGroFile = os.path.abspath(self.UseGroFiles.get().getGro())
-        UseTopolFile = os.path.abspath(self.UseGroFiles.get().getTopol())
+        UseGroFile = os.path.abspath(self.gromacsSystem.get().getSystemFile())
+        UseTopolFile = os.path.abspath(self.gromacsSystem.get().getTopologyFile())
         program = os.path.join("", '/usr/local/gromacs/bin/gmx')
         nsteps = self.nsteps.get()
         working_dir = self.getWorkingDir()
@@ -415,8 +413,8 @@ class GromacsEnergyMinimization(EMProtocol):
         self.runJob(program, params_genion_3, cwd=self._getPath())
 
     def getGromppParams3(self):
-        UseGroFile = os.path.abspath(self.UseGroFiles.get().getGro())
-        UseTopolFile = os.path.abspath(self.UseGroFiles.get().getTopol())
+        UseGroFile = os.path.abspath(self.gromacsSystem.get().getSystemFile())
+        UseTopolFile = os.path.abspath(self.gromacsSystem.get().getTopologyFile())
         program = os.path.join("", '/usr/local/gromacs/bin/gmx')
         nsteps = self.nsteps.get()
         working_dir = self.getWorkingDir()
@@ -477,7 +475,7 @@ class GromacsEnergyMinimization(EMProtocol):
                                        em_tpr=em_tpr_localPath)
 
         self._defineOutputs(outputEM=em_object)
-        self._defineSourceRelation(self.UseGroFiles, em_object)
+        self._defineSourceRelation(self.gromacsSystem, em_object)
 
 
     # --------------------------- INFO functions -----------------------------------

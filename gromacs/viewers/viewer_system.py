@@ -1,8 +1,8 @@
 # **************************************************************************
 # *
-# * Authors:     Jose Gutierrez (jose.gutierrez@cnb.csic.es)
+# * Authors:     Daniel Del Hoyo (ddelhoyo@cnb.csic.es)
 # *
-# * Unidad de Bioinformatica of Centro Nacional de Biotecnologia , CSIC
+# * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
 # * This program is free software; you can redistribute it and/or modify
 # * it under the terms of the GNU General Public License as published by
@@ -24,28 +24,20 @@
 # *
 # **************************************************************************
 
-import numpy as np
+import os
+import pyworkflow.viewer as pwviewer
+from pwchem.viewers import PyMolViewer
+from ..objects import GromacsSystem
 
-from pwem.emlib.image import ImageHandler
-from pwem.convert import AtomicStructHandler
-from pwem.wizards.wizard import EmWizard
+class GromacsSystemViewer(pwviewer.Viewer):
+  _label = 'Viewer Gromacs system'
+  _environments = [pwviewer.DESKTOP_TKINTER]
+  _targets = [GromacsSystem]
 
-from pwem.wizards.wizards_3d.mask_structure_wizard import MaskStructureWizard
-from gromacs.protocols.protocol_system_prep import GromacsSystemPrep
+  def _visualize(self, obj, **kwargs):
+    groFile = os.path.abspath(obj.getSystemFile())
+
+    pymolV = PyMolViewer(project=self.getProject())
+    return pymolV._visualize(groFile, cwd=os.path.dirname(groFile))
 
 
-class ProtTestWizard_2(EmWizard):
-    _targets = [(GromacsSystemPrep, ['radius_2', 'x', 'y', 'z'])]
-
-    def show(self, form):
-        protocol = form.protocol
-        structure = protocol.inputStructure.get()
-        if not structure:
-            print('You must specify input structure')
-            return
-        plt = MaskStructureWizard(structure.getFileName())
-        plt.initializePlot()
-        form.setVar('radius_2', plt.radius)
-        form.setVar('x', plt.origin[0])
-        form.setVar('y', plt.origin[1])
-        form.setVar('z', plt.origin[2])

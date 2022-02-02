@@ -30,7 +30,7 @@ from os.path import join
 _logo = "icon.png"
 _references = ['Abraham2015']
 
-from .object import *
+from .objects import *
 class Plugin(pwem.Plugin):
     _homeVar = GROMACS_HOME
     _pathVars = [GROMACS_HOME]
