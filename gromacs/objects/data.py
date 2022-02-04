@@ -225,6 +225,7 @@ class GromacsSystem(data.EMFile):
         super().__init__(filename=filename, **kwargs)
         self._topoFile = pwobj.String(kwargs.get('topoFile', None))
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
+        self._trjFile = pwobj.String(kwargs.get('trjFile', None))
 
     def __str__(self):
         return '{} ({})'.format(self.getClassName(), os.path.basename(self.getSystemFile()))
@@ -246,6 +247,12 @@ class GromacsSystem(data.EMFile):
 
     def setRestrainsFile(self, value):
         self._restrFile.set(value)
+
+    def getTrajectoryFile(self):
+        return self._trjFile.get()
+
+    def setTrajectoryFile(self, value):
+        self._trjFile.set(value)
 
     def defineNewRestriction(self, energy, restrainSuffix='_low'):
         '''Define a new position restriction and stores it in the topology file'''
