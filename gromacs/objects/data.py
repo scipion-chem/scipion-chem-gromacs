@@ -228,7 +228,8 @@ class GromacsSystem(data.EMFile):
         self._trjFile = pwobj.String(kwargs.get('trjFile', None))
 
     def __str__(self):
-        return '{} ({})'.format(self.getClassName(), os.path.basename(self.getSystemFile()))
+        return '{} ({}, hasTrj={})'.format(self.getClassName(), os.path.basename(self.getSystemFile()),
+                                           self.hasTrajectory())
 
     def getSystemFile(self):
         return self.getFileName()
@@ -247,6 +248,12 @@ class GromacsSystem(data.EMFile):
 
     def setRestrainsFile(self, value):
         self._restrFile.set(value)
+
+    def hasTrajectory(self):
+        if self.getTrajectoryFile():
+            return True
+        else:
+            return False
 
     def getTrajectoryFile(self):
         return self._trjFile.get()

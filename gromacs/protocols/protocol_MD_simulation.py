@@ -205,16 +205,15 @@ class GromacsMDSimulation(EMProtocol):
       mdpFile = self.generateMDPFile(msjDic, i)
 
       tprFile = self.callGROMPP(mdpFile)
-      self.callMDRun(tprFile)
+      self.callMDRun(tprFile, saveTrj=msjDic['saveTrj'])
 
     def createOutputStep(self):
-        trjFiles = self.getTrjFiles()
-        outTrj = self.concatTrjFiles(trjFiles, outTrj='outputTrajectory.trr')
-
-        lastGroFile, lastTopoFile = self.getPrevFinishedStageFiles()
+        lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile)
         shutil.copyfile(lastTopoFile, localTopFile)
+
+        outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
         outSystem = GromacsSystem(filename=localGroFile)
         outSystem.setTopologyFile(localTopFile)
@@ -235,6 +234,39 @@ class GromacsMDSimulation(EMProtocol):
           summary.append(line.rstrip())
         fhSummary.close()
       return summary
+
+    def createSummary(self, msjDic=None):
+        '''Creates the displayed summary from the internal state of the steps'''
+        sumStr = ''
+        if not msjDic:
+            for i, dicLine in enumerate(self.workFlowSteps.get().split('\n')):
+                if dicLine != '':
+                    msjDic = eval(dicLine)
+                    msjDic = self.addDefaultForMissing(msjDic)
+                    method, ensemType = msjDic['thermostat'], msjDic['ensemType']
+                    sumStr += '{}) Sim. time ({}): {} ps, {} ensemble'.\
+                      format(i+1, msjDic['integrator'], msjDic['simTime'], ensemType)
+
+                    if msjDic['restrains'] != 'None':
+                        sumStr += ', restrain on {}'.format(msjDic['restrains'])
+                    sumStr += ', {} K\n'.format(msjDic['temperature'])
+        else:
+            msjDic = self.addDefaultForMissing(msjDic)
+            method, ensemType = msjDic['thermostat'], msjDic['ensemType']
+            sumStr += 'Sim. time ({}): {} ps, {} ensemble'. \
+              format(msjDic['simTime'], msjDic['integrator'], ensemType, method)
+
+            if msjDic['restrains'] != 'None':
+              sumStr += ', restrain on {}'.format(msjDic['restrains'])
+            sumStr += ', {} K\n'.format(msjDic['temperature'])
+        return sumStr
+
+    def createGUISummary(self):
+        with open(self._getExtraPath("summary.txt"), 'w') as f:
+            if self.workFlowSteps.get():
+                f.write(self.createSummary())
+            else:
+                f.write(self.createSummary(self.createMSJDic()))
 
     def _methods(self):
         methods = []
@@ -265,45 +297,12 @@ class GromacsMDSimulation(EMProtocol):
                 print('Something is wrong with parameter ', pName)
         return msjDic
 
-    def createSummary(self, msjDic=None):
-        '''Creates the displayed summary from the internal state of the steps'''
-        sumStr = ''
-        if not msjDic:
-            for i, dicLine in enumerate(self.workFlowSteps.get().split('\n')):
-                if dicLine != '':
-                    msjDic = eval(dicLine)
-                    msjDic = self.addDefaultForMissing(msjDic)
-                    method, ensemType = msjDic['thermostat'], msjDic['ensemType']
-                    sumStr += '{}) Sim. time: {} ps, {} ensemble with {} method'.\
-                      format(i+1, msjDic['simTime'], ensemType, method)
-
-                    if msjDic['restrains'] != 'None':
-                        sumStr += ', restrain on {}'.format(msjDic['restrains'])
-                    sumStr += ', {} K\n'.format(msjDic['temperature'])
-        else:
-            msjDic = self.addDefaultForMissing(msjDic)
-            method, ensemType = msjDic['thermostat'], msjDic['ensemType']
-            sumStr += 'Sim. time: {} ps, {} ensemble with {} method'. \
-              format(msjDic['simTime'], ensemType, method)
-
-            if msjDic['restrains'] != 'None':
-              sumStr += ', restrain on {}'.format(msjDic['restrains'])
-            sumStr += ', {} K\n'.format(msjDic['temperature'])
-        return sumStr
-
     def addDefaultForMissing(self, msjDic):
         '''Add default values for missing parameters in the msjDic'''
         for pName in [*self._paramNames, *self._enumParamNames]:
             if not pName in msjDic:
                 msjDic[pName] = self._defParams[pName]
         return msjDic
-
-    def createGUISummary(self):
-        with open(self._getExtraPath("summary.txt"), 'w') as f:
-            if self.workFlowSteps.get():
-                f.write(self.createSummary())
-            else:
-                f.write(self.createSummary(self.createMSJDic()))
 
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
@@ -346,12 +345,11 @@ class GromacsMDSimulation(EMProtocol):
                 velStr = 'yes'
                 velParStr = VEL_GEN.format(msjDic['temperature'])
 
+        nTrj = round(msjDic['trajInterval'] / tSteps)
         if msjDic['saveTrj']:
-            #todo: compressed-x-grps to save trajectory?
-            nTrj = round(msjDic['trajInterval'] / tSteps)
             outControlStr = OUTPUT_CONTROL.format(*[nTrj]*4)
         else:
-            outControlStr = ''
+            outControlStr = OUTPUT_CONTROL.format(*[0]*3, nTrj)
 
         title = 'Stage {}: {}, {} ps'.format(mdpStage, msjDic['ensemType'], msjDic['simTime'])
         mdpStr = MDP_STR.format(title, restrStr, integStr, nSteps, tStepsStr, dispCorrStr, outControlStr, bondParStr,
@@ -366,7 +364,7 @@ class GromacsMDSimulation(EMProtocol):
         stageDir = os.path.dirname(mdpFile)
         stage = os.path.split(stageDir)[-1]
         stageNum = stage.replace('stage_', '').strip()
-        groFile, topFile = self.getPrevFinishedStageFiles(stage)
+        groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
         outFile = '{}.tpr'.format(stage)
 
         if self.checkIfPrevTrj(stageNum):
@@ -380,7 +378,7 @@ class GromacsMDSimulation(EMProtocol):
         self.runJob(program, command, cwd=stageDir)
         return os.path.join(stageDir, outFile)
 
-    def callMDRun(self, tprFile):
+    def callMDRun(self, tprFile, saveTrj=True):
         stageDir = os.path.dirname(tprFile)
         stage = os.path.split(stageDir)[-1]
         gpuStr = ''
@@ -389,30 +387,37 @@ class GromacsMDSimulation(EMProtocol):
 
         command = 'mdrun -v -deffnm {} {}'.format(stage, gpuStr)
         self.runJob(program, command, cwd=stageDir)
+        if not saveTrj:
+            trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
+            os.remove(trjFile)
 
-    def getPrevFinishedStageFiles(self, stageDir=None):
+    def getPrevFinishedStageFiles(self, stage=None, reverse=False):
         '''Return the previous .gro and topology files if number stage is provided.
         If not, returns the ones of the lastest stage'''
         topFile = self.gromacsSystem.get().getTopologyFile()
         #todo: copy topology to extra and modify there if new restrictions
-        if stageDir:
-            stageNum = stageDir.replace('stage_', '').strip()
+        if stage:
+            stageNum = stage.replace('stage_', '').strip()
             if stageNum == '1':
                 groFile = os.path.abspath(self.gromacsSystem.get().getSystemFile())
+                tprFile = None
 
             else:
                 prevDir = self._getExtraPath('stage_{}'.format(int(stageNum) - 1))
                 for file in os.listdir(prevDir):
                     if '.gro' in file:
                         groFile = os.path.join(prevDir, file)
+                    elif '.tpr' in file:
+                      tprFile = os.path.join(prevDir, file)
         else:
-            stageDirs = natural_sort(glob.glob(self._getExtraPath('stage_*')))
+            stageDirs = natural_sort(glob.glob(self._getExtraPath('stage_*')), rev=reverse)
             for file in os.listdir(stageDirs[-1]):
                 if '.gro' in file:
                     groFile = os.path.join(stageDirs[-1], file)
-                    break
+                elif '.tpr' in file:
+                    tprFile = os.path.join(stageDirs[-1], file)
 
-        return os.path.abspath(groFile),  os.path.abspath(topFile)
+        return os.path.abspath(groFile),  os.path.abspath(topFile), tprFile
 
     def checkIfPrevTrj(self, stageNum):
         if stageNum == '1':
@@ -439,7 +444,16 @@ class GromacsMDSimulation(EMProtocol):
         trjFiles.reverse()
         return trjFiles
 
-    def concatTrjFiles(self, trjFiles, outTrj):
-        command = 'trjcat -f {} -cat -o {}'.format(' '.join(trjFiles), outTrj)
-        self.runJob(program, command, cwd=self._getPath())
+    def concatTrjFiles(self, outTrj, tprFile):
+        trjFiles = self.getTrjFiles()
+        tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
+        #Concatenates trajectory
+        comProg = 'printf "{}\n" | '.format('\n'.join(['c']*len(trjFiles))) + program
+        command = 'trjcat -f {} -settime -o {}'.format(' '.join(trjFiles), tmpTrj)
+        self.runJob(comProg, command)
+        #Fixes and center trajectory
+        command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
+          format(os.path.abspath(tprFile), tmpTrj, outTrj)
+        comProg = 'printf "Protein\nSystem\n" | ' + program
+        self.runJob(comProg, command, cwd=self._getPath())
         return self._getPath(outTrj)
