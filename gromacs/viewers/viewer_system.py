@@ -274,7 +274,7 @@ class GromacsSimulationViewer(pwviewer.ProtocolViewer):
             os.remove(oPath)
 
         tprFile, trjFile = self.getStageFiles(stage)
-        args = ' hbond -s %s -f %s %s %s -tu ns' % (os.path.abspath(tprFile), os.path.abspath(trjFile),
+        args = ' hbond -s %s -f %s %s %s' % (os.path.abspath(tprFile), os.path.abspath(trjFile),
                                              outOptions[self.hbondOut.get()], oFile)
         subprocess.check_call(self.getCommandProgram() + args, shell=True, cwd=oDir)
         return oPath
