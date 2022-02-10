@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # **************************************************************************
 # *
-# * Authors:     Pedro Febrer Martinez (pedrofebrer98@gmail.com)
+# * Authors:     Daniel Del Hoyo Gomez (ddelhoyo@cnb.csic.es)
 # *
-# * your institution
+# * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
 # * This program is free software; you can redistribute it and/or modify
 # * it under the terms of the GNU General Public License as published by
@@ -38,15 +38,6 @@ import gromacs.objects as grobj
 from pwem.protocols import EMProtocol
 import shutil
 import json
-
-ION_NA = 0
-ION_K = 1
-
-ION_NAME = dict()
-ION_NAME[ION_NA] = 'NA'
-ION_NAME[ION_K] = 'K'
-
-ION_LIST = [ION_NAME[ION_NA], ION_NAME[ION_K]]
 
 GROMACS_AMBER03 = 0
 GROMACS_AMBER94 = 1
@@ -124,6 +115,9 @@ class GromacsSystemPrep(EMProtocol):
     IMPORT_MDP_FILE = 0
     IMPORT_MDP_SCIPION = 1
 
+    _cations = ['K+', 'NA+', 'CA2+', 'MG2+', 'ZN2+', 'CU+', 'CU2+', 'LI+', 'CS+']
+    _anions = ['CL-', 'F-', 'BR-', 'I-']
+
     # -------------------------- DEFINE constants ----------------------------
 
 
@@ -135,170 +129,159 @@ class GromacsSystemPrep(EMProtocol):
 
         form.addSection(label=Message.LABEL_INPUT)
 
-        form.addParam('UsePDBFile', params.PointerParam,
-                      label=" PDB to use", allowsNull=False,
-                      important=True,
-                      pointerClass='AtomStruct',
-                      help='This PDB file will be used to do pdb2gmx')
-
-        form.addParam('mainForceField', params.EnumParam,
-                      choices=GROMACS_LIST,
-                      default=GROMACS_AMBER03,
-                      label='Main Force Field', important=True,
-                      help='Force field applied to the system. Force fields are sets of potential functions and '
-                           'parametrized interactions that can be used to study physical systems.')
-
-        form.addParam('waterForceFieldList', params.EnumParam,
-                      choices=GROMACS_WATERS_LIST,
-                      default=GROMACS_TIP3P,
-                      label='Water Force Field', important=True,
-                      help='Force field applied to the waters')
-
-        form.addParam('boxsize', params.FloatParam,
-                      label="Insert distance from protein to box (nm)",
-                      default=1.0, important=True,
-                      help='This value should be between 1.0 and 1.5 nm. The higher the value, the higher the '
-                           'computational cost. It depends on the force field chosen.'\
-                           'The box is a cube.')
+        form.addParam('inputStructure', params.PointerParam,
+                      label="Input structure: ", allowsNull=False,
+                      important=True, pointerClass='AtomStruct',
+                      help='Atom structure to convert to gromacs system')
 
         form.addParam('energy', params.IntParam,
-                      label="Insert energy restriction",
-                      default=1000, important=True,
-                      allowsnull=False,
-                      help='Force constant for position restraints applied to heavy atoms in the system.' 
+                      label="Insert energy restriction: ",
+                      default=1000, allowsnull=False,
+                      help='Force constant for position restraints applied to heavy atoms in the system.'
                            '\nThis value should be between 1000 and 50000.')
 
-        form.addParam('addIonCharges', params.EnumParam,
-                      label="Add Ion types",
-                      choices=('NA+/Cl-','K+/Cl-'),
-                      allowsNull=False, important=True,
-                      default=1,
-                      help='Ions which will be added to the system in order to make it neutral. Some random water'
-                           'molecules will be replaced by some ions. ')
+        group = form.addGroup('Boundary box')
+        group.addParam('boxsize', params.FloatParam,
+                       label="Buffer distance to box (nm): ", default=1.0,
+                       help='This value should be between 1.0 and 1.5 nm. The higher the value, the higher the '
+                            'computational cost. It depends on the force field chosen.' \
+                            'The box is a cube.')
+
+        group = form.addGroup('Solvation model')
+        group.addParam('waterForceFieldList', params.EnumParam,
+                       choices=GROMACS_WATERS_LIST, default=GROMACS_TIP3P,
+                       label='Water Force Field: ',
+                       help='Force field applied to the waters')
+
+        form.addSection('Charges')
+        group = form.addGroup('Ions')
+        group.addParam('placeIons', params.EnumParam, default=0,
+                       label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
+                       help='Whether to add ions to the system.'
+                            'https://manual.gromacs.org/documentation/5.1/onlinehelp/gmx-genion.html')
+        line = group.addLine('Cation type:', condition='placeIons!=0',
+                             help='Type of the cations to add')
+        line.addParam('cationType', params.EnumParam, condition='placeIons!=0',
+                      label='Cation to add: ', choices=self._cations, default=0,
+                      help='Which anion to add in the system')
+        line.addParam('cationNum', params.IntParam, condition='placeIons==2',
+                      label='Number of cations to add: ',
+                      help='Number of cations to add')
+
+        line = group.addLine('Anion type:', condition='placeIons!=0',
+                             help='Type of the anions to add')
+        line.addParam('anionType', params.EnumParam, condition='placeIons!=0',
+                      label='Anions to add: ', choices=self._anions, default=0,
+                      help='Which anion to add in the system')
+        line.addParam('anionNum', params.IntParam, condition='placeIons==2',
+                      label='Number of anions to add: ',
+                      help='Number of anions to add')
+
+        group.addParam('addSalt', params.BooleanParam, default=False,
+                       condition='placeIons==1',
+                       label='Add a salt into the system: ',
+                       help='Add a salt into the system')
+        group.addParam('saltConc', params.FloatParam, condition='addSalt and placeIons==1',
+                       default=0.15,
+                       label='Salt concentration (M): ',
+                       help='Salt concentration')
+
+        group = form.addGroup('Force field')
+        group.addParam('mainForceField', params.EnumParam, choices=GROMACS_LIST,
+                       default=GROMACS_AMBER03,
+                       label='Main Force Field: ',
+                       help='Force field applied to the system. Force fields are sets of potential functions and '
+                            'parametrized interactions that can be used to study physical systems.')
 
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        self._insertFunctionStep('getPDB2GMXParams')
-        self._insertFunctionStep('getEditconfParams')
-        self._insertFunctionStep('getEditconfParams')
-        self._insertFunctionStep('getSolvateParams')
-        self._insertFunctionStep('getGromppParams')
-        self._insertFunctionStep('getGenionParams')
-        self._insertFunctionStep('getGenrestrParams')
+        self._insertFunctionStep('PDB2GMXStep')
+        self._insertFunctionStep('editConfStep')
+        self._insertFunctionStep('solvateStep')
+        if self.placeIons.get() != 0:
+            self._insertFunctionStep('addIonsStep')
         self._insertFunctionStep('createOutputStep')
 
-    def getPDB2GMXParams(self):
-        UsePDBFile = os.path.abspath(self.UsePDBFile.get().getFileName())
-        OutputPDBFile = os.path.basename(UsePDBFile.split(".")[0])
-        print(OutputPDBFile)
+    def PDB2GMXStep(self):
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        systemBasename = os.path.basename(inputStructure.split(".")[0])
         Waterff = GROMACS_WATERFF_NAME[self.waterForceFieldList.get()]
         Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
         energy = self.energy.get()
         program = os.path.join("",'/usr/local/gromacs/bin/gmx')
-        print(program)
         params = ' pdb2gmx -f %s ' \
                  '-o %s_processed.gro ' \
                  '-water %s ' \
                  '-ff %s ' \
-                 '-posrefc %d' % (UsePDBFile, OutputPDBFile, Waterff, Mainff, energy)
+                 '-posrefc %d' % (inputStructure, systemBasename, Waterff, Mainff, energy)
         self.runJob(program, params, cwd=self._getPath())
 
-    def getEditconfParams(self):
-        UsePDBFile = os.path.abspath(self.UsePDBFile.get().getFileName())
-        OutputPDBFile = os.path.basename(UsePDBFile.split(".")[0])
+    def editConfStep(self):
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        systemBasename = os.path.basename(inputStructure.split(".")[0])
         program = os.path.join("", '/usr/local/gromacs/bin/gmx')
         params = ' editconf -f %s_processed.gro ' \
                  '-o %s_newbox.gro ' \
-                 '-c -d %s -bt cubic' % (OutputPDBFile, OutputPDBFile, self.boxsize.get())
+                 '-c -d %s -bt cubic' % (systemBasename, systemBasename, self.boxsize.get())
 
         self.runJob(program, params, cwd=self._getPath())
 
-    def getSolvateParams(self):
-        UsePDBFile = os.path.abspath(self.UsePDBFile.get().getFileName())
-        OutputPDBFile = os.path.basename(UsePDBFile.split(".")[0])
+    def solvateStep(self):
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        systemBasename = os.path.basename(inputStructure.split(".")[0])
         program = os.path.join("", '/usr/local/gromacs/bin/gmx')
 
         params_solvate = ' solvate -cp %s_newbox.gro -cs spc216.gro -o %s_solv.gro' \
-                         ' -p topol.top' % (OutputPDBFile, OutputPDBFile)
+                         ' -p topol.top' % (systemBasename, systemBasename)
 
         self.runJob(program, params_solvate, cwd=self._getPath())
 
-    def getGromppParams(self):
-        UsePDBFile = os.path.abspath(self.UsePDBFile.get().getFileName())
-        OutputPDBFile = os.path.basename(UsePDBFile.split(".")[0])
-        program = os.path.join("", '/usr/local/gromacs/bin/gmx')
-        working_dir = self.getWorkingDir()
-        ions_mdp = '%s/ions.mdp' % (working_dir)
-        ions_mdp_file = "integrator = steep \n" \
-                        "emtol = 1000.0 \n" \
-                        "emstep = 0.01 \n" \
-                        "nsteps = 50000 \n" \
-                        "\n" \
-                        "nstlist = 1 \n" \
-                        "cutoff-scheme = Verlet \n" \
-                        "ns_type = grid \n" \
-                        "coulombtype = cutoff \n" \
-                        "rcoulomb = 1.0 \n" \
-                        "rvdw = 1.0 \n" \
-                        "pbc = xyz"
-        f = open(ions_mdp, "w")
-        f.write(ions_mdp_file)
-        f.close()
+    def addIonsStep(self):
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        systemBasename = os.path.basename(inputStructure.split(".")[0])
+        program = os.path.join("", 'printf "13" | /usr/local/gromacs/bin/gmx')
+        ions_mdp = os.path.abspath(self.buildIonsMDP())
 
-        params_grompp = 'grompp -f ions.mdp -c %s_solv.gro -p ' \
-                        'topol.top -o ions.tpr' % (OutputPDBFile)
+        params_grompp = 'grompp -f %s -c %s_solv.gro -p ' \
+                        'topol.top -o ions.tpr' % (ions_mdp, systemBasename)
         self.runJob(program, params_grompp, cwd=self._getPath())
 
-    def getGenionParams(self):
-        UsePDBFile = os.path.abspath(self.UsePDBFile.get().getFileName())
-        OutputPDBFile = os.path.basename(UsePDBFile.split(".")[0])
-        program = os.path.join("", 'printf "13" | /usr/local/gromacs/bin/gmx')
-        ION = ION_NAME[self.addIonCharges.get()]
+        cation = self.parseIon(self.getEnumText('cationType'))[0]
+        anion = self.parseIon(self.getEnumText('anionType'))[0]
 
-        params_genion = 'genion -s ions.tpr ' \
-                 '-o %s_solv_ions.gro ' \
-                 '-p topol.top -pname %s -nname CL -neutral' % (OutputPDBFile, ION)
-        self.runJob(program, params_genion, cwd=self._getPath())
+        genStr = 'genion -s ions.tpr -o %s_solv_ions.gro -p topol.top ' \
+                 '-pname %s -nname %s' % (systemBasename, cation, anion)
+        if self.placeIons.get() == 1:
+          genStr += ' -neutral '
+        elif self.placeIons.get() == 2:
+          genStr += ' -np {} -nn {}'.format(self.cationNum.get(), self.anionNum.get())
 
-    def getGenrestrParams(self):
-        UsePDBFile = os.path.abspath(self.UsePDBFile.get().getFileName())
-        OutputPDBFile = os.path.basename(UsePDBFile.split(".")[0])
-        energy = (self.energy.get())/3.2
-        program = os.path.join("", 'printf "2" | /usr/local/gromacs/bin/gmx')
-        params_genrestr = 'genrestr -f %s_solv_ions.gro -o posre_low.itp -fc %d %d %d' % (OutputPDBFile,
-                                                                                                energy, energy, energy)
-        self.runJob(program, params_genrestr, cwd=self._getPath())
-        program = "sed "
-        sed_params = """-i '/; Include Position restraint file/a #ifdef POSRES_LOW' topol.top"""
-        self.runJob(program, sed_params, cwd=self._getPath())
-        sed_params = """-i '/#ifdef POSRES_LOW/a #include "posre_low.itp"' topol.top"""
-        self.runJob(program, sed_params, cwd=self._getPath())
-        sed_params = """-i '/#include "posre_low.itp"/a #endif' topol.top"""
-        self.runJob(program, sed_params, cwd=self._getPath())
+        if self.addSalt:
+          genStr += ' -conc {}'.format(self.saltConc.get())
 
+        self.runJob(program, genStr, cwd=self._getPath())
 
     def createOutputStep(self):
-        UsePDBFile = os.path.abspath(self.UsePDBFile.get().getFileName())
-        OutputPDBFile = os.path.basename(UsePDBFile.split(".")[0])
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        systemBasename = os.path.basename(inputStructure.split(".")[0])
 
-        gro_baseName = '%s_solv_ions.gro' % (OutputPDBFile)
+        if self.placeIons.get() != 0:
+            gro_baseName = '%s_solv_ions.gro' % (systemBasename)
+        else:
+            gro_baseName = '%s_solv.gro' % (systemBasename)
         topol_baseName = 'topol.top'
         posre_baseName = 'posre.itp'
-        posre_h_baseName = 'posre_low.itp'
 
         topol_localPath = relpath(abspath(self._getPath(topol_baseName)))
         gro_localPath = relpath(abspath(self._getPath(gro_baseName)))
         posre_localPath = relpath(abspath(self._getPath(posre_baseName)))
-        posre_h_localPath = relpath(abspath(self._getPath(posre_h_baseName)))
 
-        gro_files = grobj.GroFiles(gro=gro_localPath,
-                                    topol=topol_localPath,
-                                    posre_h=posre_h_localPath,
-                                    posre=posre_localPath)
+        gro_files = grobj.GromacsSystem(filename=gro_localPath, topoFile=topol_localPath,
+                                        restrFile=posre_localPath)
 
-        self._defineOutputs(outputGroFiles=gro_files)
-        self._defineSourceRelation(self.UsePDBFile, gro_files)
+        self._defineOutputs(outputSystem=gro_files)
+        self._defineSourceRelation(self.inputStructure, gro_files)
 
     # --------------------------- INFO functions -----------------------------------
 
@@ -332,3 +315,28 @@ class GromacsSystemPrep(EMProtocol):
                            ' are created.' )
 
         return methods
+
+    def buildIonsMDP(self):
+        outFile = self._getPath('ions.mdp')
+        ions_mdp_file = "integrator = steep \n" \
+                        "emtol = 1000.0 \n" \
+                        "emstep = 0.01 \n" \
+                        "nsteps = 50000 \n\n" \
+                        "nstlist = 1 \n" \
+                        "cutoff-scheme = Verlet \n" \
+                        "ns_type = grid \n" \
+                        "coulombtype = cutoff \n" \
+                        "rcoulomb = 1.0 \n" \
+                        "rvdw = 1.0 \n" \
+                        "pbc = xyz"
+        with open(outFile, 'w') as f:
+            f.write(ions_mdp_file)
+        return outFile
+
+    def parseIon(self, ion):
+        if ion[-2].isdigit():
+            name, charge = ion[:-2], int(ion[-2])
+        else:
+            name, charge = ion[:-1], 1
+        return name, charge
+

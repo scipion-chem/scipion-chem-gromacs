@@ -25,6 +25,8 @@
 # *
 # **************************************************************************
 
+import os
+from subprocess import check_call
 import pwem.objects.data as data
 import pyworkflow.object as pwobj
 
@@ -54,7 +56,10 @@ class GroFiles(data.EMObject):
     def __str__(self):
         return ", ".join([self.getPosre_h(), self.getPosre(), self.getTopol(), self.getGro()])
     def getPosre_h(self):
-        return self.Posre_h.get()
+        if self.Posre_h.get():
+            return self.Posre_h.get()
+        else:
+            return ''
     def getPosre(self):
         return self.Posre.get()
     def getTopol(self):
@@ -210,3 +215,61 @@ class SetEMgroFile(data.EMSet):
 class TopolFile(TopolStruct):
     def __init__(self, filename=None, **kwargs):
         TopolStruct.__init__(self, filename, **kwargs)
+
+class GromacsSystem(data.EMFile):
+    """A system atom structure (prepared for MD) in the file format of GROMACS
+    _topoFile: topology file .top
+    _restrFile: default position restrains file .itp"""
+
+    def __init__(self, filename=None, **kwargs):
+        super().__init__(filename=filename, **kwargs)
+        self._topoFile = pwobj.String(kwargs.get('topoFile', None))
+        self._restrFile = pwobj.String(kwargs.get('restrFile', None))
+        self._trjFile = pwobj.String(kwargs.get('trjFile', None))
+
+    def __str__(self):
+        return '{} ({}, hasTrj={})'.format(self.getClassName(), os.path.basename(self.getSystemFile()),
+                                           self.hasTrajectory())
+
+    def getSystemFile(self):
+        return self.getFileName()
+
+    def setSystemFile(self, value):
+        self.setFileName(value)
+
+    def getTopologyFile(self):
+        return self._topoFile.get()
+
+    def setTopologyFile(self, value):
+        self._topoFile.set(value)
+
+    def getRestrainsFile(self):
+        return self._restrFile.get()
+
+    def setRestrainsFile(self, value):
+        self._restrFile.set(value)
+
+    def hasTrajectory(self):
+        if self.getTrajectoryFile():
+            return True
+        else:
+            return False
+
+    def getTrajectoryFile(self):
+        return self._trjFile.get()
+
+    def setTrajectoryFile(self, value):
+        self._trjFile.set(value)
+
+    def defineNewRestriction(self, energy, restrainSuffix='_low'):
+        '''Define a new position restriction and stores it in the topology file'''
+        outDir = os.path.dirname(self.getSystemFile())
+        program = os.path.join("", 'printf "2" | /usr/local/gromacs/bin/gmx ')
+        params_genrestr = 'genrestr -f %s -o %s.itp -fc %d %d %d' % \
+                          (self.getSystemFile(), 'posre' + restrainSuffix.lower(), energy, energy, energy)
+        check_call(program + params_genrestr, cwd=outDir, shell=True)
+        program = "sed "
+        inStr = '#ifdef POSRES{}\\n#include "posre{}.itp"\\n#endif'.\
+            format(restrainSuffix.upper(), restrainSuffix.lower())
+        sed_params = """-i '/; Include Position restraint file/a {}' {}""".format(inStr, self.getTopologyFile())
+        check_call(program + sed_params, cwd=outDir, shell=True)
