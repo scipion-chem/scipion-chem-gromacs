@@ -30,19 +30,17 @@
 This module will perform energy minimizations for the system
 """
 import os, glob, shutil
-from os.path import exists, basename, abspath, relpath, join
-import pyworkflow.utils as pwutils
+
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
-import pwem.objects as emobj
-from pwchem.utils import natural_sort
-import gromacs.objects as grobj
-from gromacs.objects import *
-from gromacs.constants import *
 from pyworkflow.protocol.params import (LEVEL_ADVANCED, LEVEL_NORMAL, USE_GPU)
 from pwem.protocols import EMProtocol
 
-program = os.path.join("", '/usr/local/gromacs/bin/gmx')
+from pwchem.utils import natural_sort
+
+from gromacs.objects import *
+from gromacs.constants import *
+from gromacs import Plugin as gromacsPlugin
 
 
 class GromacsMDSimulation(EMProtocol):
@@ -375,7 +373,7 @@ class GromacsMDSimulation(EMProtocol):
         command = 'grompp -f %s -c %s -r %s -p ' \
                   '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, topFile,
                                    prevTrjStr, outFile)
-        self.runJob(program, command, cwd=stageDir)
+        gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
         return os.path.join(stageDir, outFile)
 
     def callMDRun(self, tprFile, saveTrj=True):
@@ -386,7 +384,7 @@ class GromacsMDSimulation(EMProtocol):
             gpuStr = ' -nb gpu'
 
         command = 'mdrun -v -deffnm {} {}'.format(stage, gpuStr)
-        self.runJob(program, command, cwd=stageDir)
+        gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
         if not saveTrj:
             trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
             os.remove(trjFile)
@@ -448,12 +446,12 @@ class GromacsMDSimulation(EMProtocol):
         trjFiles = self.getTrjFiles()
         tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
         #Concatenates trajectory
-        comProg = 'printf "{}\n" | '.format('\n'.join(['c']*len(trjFiles))) + program
         command = 'trjcat -f {} -settime -o {}'.format(' '.join(trjFiles), tmpTrj)
-        self.runJob(comProg, command)
+        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['c'] * len(trjFiles),
+                                       args=command, cwd=self._getPath())
         #Fixes and center trajectory
         command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
           format(os.path.abspath(tprFile), tmpTrj, outTrj)
-        comProg = 'printf "Protein\nSystem\n" | ' + program
-        self.runJob(comProg, command, cwd=self._getPath())
+        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['Protein\nSystem\n'] * len(trjFiles),
+                                       args=command, cwd=self._getPath())
         return self._getPath(outTrj)

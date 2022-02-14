@@ -31,13 +31,15 @@ This module will prepare the system for the simumlation
 """
 import os
 from os.path import abspath, relpath
-from pyworkflow.protocol import Protocol, params, Integer
-from pyworkflow.utils import Message, runJob, createLink
-import pwem.objects as emobj
-import gromacs.objects as grobj
+
+from pyworkflow.protocol import params
+from pyworkflow.utils import Message
 from pwem.protocols import EMProtocol
-import shutil
-import json
+
+from pwchem.utils import runOpenBabel
+
+from gromacs import Plugin as gromacsPlugin
+import gromacs.objects as grobj
 
 GROMACS_AMBER03 = 0
 GROMACS_AMBER94 = 1
@@ -205,47 +207,47 @@ class GromacsSystemPrep(EMProtocol):
 
     def PDB2GMXStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        if not inputStructure.endswith('.pdb'):
+            inputStructure = self.convertReceptor2PDB(inputStructure)
+
         systemBasename = os.path.basename(inputStructure.split(".")[0])
         Waterff = GROMACS_WATERFF_NAME[self.waterForceFieldList.get()]
         Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
         energy = self.energy.get()
-        program = os.path.join("",'/usr/local/gromacs/bin/gmx')
         params = ' pdb2gmx -f %s ' \
                  '-o %s_processed.gro ' \
                  '-water %s ' \
                  '-ff %s ' \
                  '-posrefc %d' % (inputStructure, systemBasename, Waterff, Mainff, energy)
-        self.runJob(program, params, cwd=self._getPath())
+        gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def editConfStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
         systemBasename = os.path.basename(inputStructure.split(".")[0])
-        program = os.path.join("", '/usr/local/gromacs/bin/gmx')
         params = ' editconf -f %s_processed.gro ' \
                  '-o %s_newbox.gro ' \
                  '-c -d %s -bt cubic' % (systemBasename, systemBasename, self.boxsize.get())
 
-        self.runJob(program, params, cwd=self._getPath())
+        gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def solvateStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
         systemBasename = os.path.basename(inputStructure.split(".")[0])
-        program = os.path.join("", '/usr/local/gromacs/bin/gmx')
 
         params_solvate = ' solvate -cp %s_newbox.gro -cs spc216.gro -o %s_solv.gro' \
                          ' -p topol.top' % (systemBasename, systemBasename)
 
-        self.runJob(program, params_solvate, cwd=self._getPath())
+        gromacsPlugin.runGromacs(self, 'gmx', params_solvate, cwd=self._getPath())
 
     def addIonsStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
         systemBasename = os.path.basename(inputStructure.split(".")[0])
-        program = os.path.join("", 'printf "13" | /usr/local/gromacs/bin/gmx')
         ions_mdp = os.path.abspath(self.buildIonsMDP())
 
         params_grompp = 'grompp -f %s -c %s_solv.gro -p ' \
                         'topol.top -o ions.tpr' % (ions_mdp, systemBasename)
-        self.runJob(program, params_grompp, cwd=self._getPath())
+        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['13'],
+                                       args=params_grompp, cwd=self._getPath())
 
         cation = self.parseIon(self.getEnumText('cationType'))[0]
         anion = self.parseIon(self.getEnumText('anionType'))[0]
@@ -260,7 +262,8 @@ class GromacsSystemPrep(EMProtocol):
         if self.addSalt:
           genStr += ' -conc {}'.format(self.saltConc.get())
 
-        self.runJob(program, genStr, cwd=self._getPath())
+        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['13'],
+                                       args=genStr, cwd=self._getPath())
 
     def createOutputStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
@@ -339,4 +342,13 @@ class GromacsSystemPrep(EMProtocol):
         else:
             name, charge = ion[:-1], 1
         return name, charge
+
+    def convertReceptor2PDB(self, proteinFile):
+        inName, inExt = os.path.splitext(os.path.basename(proteinFile))
+        oFile = os.path.abspath(os.path.join(self._getTmpPath(inName + '.pdb')))
+
+        args = ' -i{} {} -opdb -O {}'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
+        runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+
+        return oFile
 

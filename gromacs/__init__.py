@@ -70,6 +70,13 @@ class Plugin(pwem.Plugin):
         """ Run Gromacs command from a given protocol. """
         protocol.runJob(join(cls._pluginHome, 'bin/{}'.format(program)), args, cwd=cwd)
 
+    @classmethod
+    def runGromacsPrintf(cls, protocol, program, printfValues, args, cwd=None):
+      """ Run Gromacs command from a given protocol. """
+      gmxPath = join(cls._pluginHome, 'bin/{}'.format(program))
+      program = 'printf {} | {}'.format(' '.join(printfValues), gmxPath)
+      protocol.runJob(program, args, cwd=cwd)
+
     @classmethod  # Test that
     def getEnviron(cls):
         pass
