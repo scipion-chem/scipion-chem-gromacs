@@ -33,7 +33,6 @@ import os, glob, shutil
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
-from pyworkflow.protocol.params import (LEVEL_ADVANCED, LEVEL_NORMAL, USE_GPU)
 from pwem.protocols import EMProtocol
 
 from pwchem.utils import natural_sort
@@ -87,7 +86,7 @@ class GromacsMDSimulation(EMProtocol):
                            "to use GPU")
 
         form.addHidden(params.GPU_LIST, params.StringParam, default='0',
-                       expertLevel=LEVEL_ADVANCED,
+                       expertLevel=params.LEVEL_ADVANCED,
                        label="Choose GPU IDs",
                        help="Add a list of GPU devices that can be used")
 
@@ -101,7 +100,7 @@ class GromacsMDSimulation(EMProtocol):
                        help='Type of integrator to use in simulation.')
 
         form.addParam('paramsFromFile', params.BooleanParam, default=False,
-                      label="Use parameters from file (.mdp): ", expertLevel=LEVEL_ADVANCED,
+                      label="Use parameters from file (.mdp): ", expertLevel=params.LEVEL_ADVANCED,
                       help='Load simulation parameters from a local file.')
         form.addParam('ParamsFile', params.PathParam,
                       label='Parameters file: ',
@@ -124,7 +123,7 @@ class GromacsMDSimulation(EMProtocol):
                        label='Simulation time (ps):',
                        help='Total time of the simulation stage (ps)')
         group.addParam('timeStep', params.FloatParam, default=0.002,
-                       label='Simulation time steps, dt (ps):', expertLevel=LEVEL_ADVANCED,
+                       label='Simulation time steps, dt (ps):', expertLevel=params.LEVEL_ADVANCED,
                        help='Time of the steps for simulation, dt (ps)')
 
         group = form.addGroup('Ensemble')
@@ -139,9 +138,9 @@ class GromacsMDSimulation(EMProtocol):
         line.addParam('temperature', params.FloatParam, default=300, condition='ensemType!=0',
                       label='Temperature: ')
         line.addParam('thermostat', params.EnumParam, default=0, condition='ensemType!=0',
-                      label='Thermostat type: ', choices=self._thermostats, expertLevel=LEVEL_ADVANCED)
+                      label='Thermostat type: ', choices=self._thermostats, expertLevel=params.LEVEL_ADVANCED)
         line.addParam('tempRelaxCons', params.FloatParam, default=0.1,
-                      label='Temperature time constant (ps): ', expertLevel=LEVEL_ADVANCED)
+                      label='Temperature time constant (ps): ', expertLevel=params.LEVEL_ADVANCED)
 
         line = group.addLine('Pressure settings: ', condition='ensemType==2',
                              help='Pressure during the simulation (bar)\nBarostat type\n'
@@ -149,12 +148,12 @@ class GromacsMDSimulation(EMProtocol):
         line.addParam('pressure', params.FloatParam, default=1.0,
                       label='   Pressure (bar):   ')
         line.addParam('barostat', params.EnumParam, default=0,
-                      label='  Barostat type:   ', choices=self._barostats, expertLevel=LEVEL_ADVANCED)
+                      label='  Barostat type:   ', choices=self._barostats, expertLevel=params.LEVEL_ADVANCED)
         line.addParam('presRelaxCons', params.FloatParam, default=2.0,
-                      label='   Pressure time constant (ps):   ', expertLevel=LEVEL_ADVANCED)
+                      label='   Pressure time constant (ps):   ', expertLevel=params.LEVEL_ADVANCED)
         group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
                        label='Pressure coupling style: ', choices=self._coupleStyle,
-                       expertLevel=LEVEL_ADVANCED)
+                       expertLevel=params.LEVEL_ADVANCED)
 
         group = form.addGroup('Restrains')
         group.addParam('restrains', params.EnumParam, default=0,
@@ -452,6 +451,6 @@ class GromacsMDSimulation(EMProtocol):
         #Fixes and center trajectory
         command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
           format(os.path.abspath(tprFile), tmpTrj, outTrj)
-        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['Protein\nSystem\n'] * len(trjFiles),
+        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['Protein', 'System'] * len(trjFiles),
                                        args=command, cwd=self._getPath())
         return self._getPath(outTrj)

@@ -74,7 +74,7 @@ class Plugin(pwem.Plugin):
     def runGromacsPrintf(cls, protocol, program, printfValues, args, cwd=None):
       """ Run Gromacs command from a given protocol. """
       gmxPath = join(cls._pluginHome, 'bin/{}'.format(program))
-      program = 'printf {} | {}'.format(' '.join(printfValues), gmxPath)
+      program = 'printf "{}\n" | {}'.format('\n'.join(printfValues), gmxPath)
       protocol.runJob(program, args, cwd=cwd)
 
     @classmethod  # Test that
