@@ -27,7 +27,7 @@
 import os, glob, subprocess
 import pyworkflow.viewer as pwviewer
 import pyworkflow.protocol.params as params
-from pwem.viewers import VmdView
+from pwchem.viewers import VmdViewPopen
 from pwem.objects import SetOfAtomStructs, AtomStruct
 from pwem.viewers import ChimeraViewer
 
@@ -69,6 +69,11 @@ class GromacsSimulationViewer(pwviewer.ProtocolViewer):
                      help='Display System in Pymol GUI.'
                      )
       group = form.addGroup('Open MD simulation')
+      group.addParam('chooseStage', params.EnumParam,
+                     choices=self._getStagesWTrj(), default=0,
+                     label='Choose the stage to analyze: ',
+                     help='Choose the simulation stage to analyze'
+                     )
       group.addParam('displayMdPymol', params.LabelParam,
                      label='Display trajectory with PyMol: ',
                      help='Display trajectory with Pymol. \n'
@@ -81,11 +86,6 @@ class GromacsSimulationViewer(pwviewer.ProtocolViewer):
                      )
 
       group = form.addGroup('Gromacs analysis')
-      group.addParam('chooseStage', params.EnumParam,
-                     choices=self._getStagesWTrj(), default=0,
-                     label='Choose the stage to analyze: ',
-                     help='Choose the simulation stage to analyze'
-                     )
       group.addParam('displayAnalysis', params.EnumParam,
                      choices=self._analysis, default=0,
                      label='Choose the analysis to display: ',
@@ -152,23 +152,27 @@ class GromacsSimulationViewer(pwviewer.ProtocolViewer):
       return GromacsSystemViewer(project=self.getProject())._visualize(system)
 
     def _showMdPymol(self, paramName=None):
+        stage = self.getEnumText('chooseStage')
+        _, trjFile = self.getStageFiles(stage)
         system = self.protocol.outputSystem
         outPml = self.protocol._getExtraPath('pymolSimulation.pml')
         with open(outPml, 'w') as f:
           f.write(PML_MD_STR.format(os.path.abspath(system.getSystemFile()),
-                                    os.path.abspath(system.getTrajectoryFile())))
+                                    os.path.abspath(trjFile)))
 
         return [PyMolView(os.path.abspath(outPml), cwd=self.protocol._getPath())]
 
     def _showMdVMD(self, paramName=None):
+      stage = self.getEnumText('chooseStage')
+      _, trjFile = self.getStageFiles(stage)
       system = self.protocol.outputSystem
 
       outTcl = self.protocol._getExtraPath('vmdSimulation.tcl')
       with open(outTcl, 'w') as f:
-          f.write(TCL_MD_STR % (system.getSystemFile(), system.getTrajectoryFile()))
+          f.write(TCL_MD_STR % (system.getSystemFile(), trjFile))
       args = '-e {}'.format(outTcl)
 
-      return [VmdView(args)]
+      return [VmdViewPopen(args)]
 
     def _showAnalysis(self, paramName=None):
         stage = self.getEnumText('chooseStage')
