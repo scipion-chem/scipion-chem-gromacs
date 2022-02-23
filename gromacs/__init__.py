@@ -49,7 +49,7 @@ class Plugin(pwem.Plugin):
         cMakeCmd = 'mkdir build && cd build && '
         cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON ' \
                            '-DCMAKE_INSTALL_PREFIX={} > cMake.log'.format(cls._pluginHome)
-        makeCmd = 'cd build && make -j 8 > make.log && make check'
+        makeCmd = 'cd build && make -j {} > make.log && make check'.format(env.getProcessors())
         makeInstallCmd = 'cd build && make install'
 
         # Creating validation file

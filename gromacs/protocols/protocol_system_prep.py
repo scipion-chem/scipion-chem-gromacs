@@ -143,11 +143,26 @@ class GromacsSystemPrep(EMProtocol):
                            '\nThis value should be between 1000 and 50000.')
 
         group = form.addGroup('Boundary box')
-        group.addParam('boxsize', params.FloatParam,
-                       label="Buffer distance to box (nm): ", default=1.0,
+        group.addParam('boxType', params.EnumParam,
+                       choices=['Cubic', 'Orthorhombic'],
+                       label="Buffer distance to box: ", default=1,
                        help='This value should be between 1.0 and 1.5 nm. The higher the value, the higher the '
                             'computational cost. It depends on the force field chosen.' \
                             'The box is a cube.')
+        group.addParam('sizeType', params.EnumParam,
+                       choices=['Absolute', 'Buffer'], display=params.EnumParam.DISPLAY_HLIST,
+                       label="System size type: ", default=1,
+                       help='Absolute: absolute size of the box (diameter)\n'
+                            'Buffer: distance from the solute to the edge of the box')
+
+        line = group.addLine('Box size (nm):',
+                             help='Distances of the bounding box (nm)')
+        line.addParam('distA', params.FloatParam,
+                      default=10.0, label='A: ')
+        line.addParam('distB', params.FloatParam, condition='boxType == 1 and sizeType == 0',
+                      default=10.0, label='B: ')
+        line.addParam('distC', params.FloatParam, condition='boxType == 1 and sizeType == 0',
+                      default=10.0, label='C: ')
 
         group = form.addGroup('Solvation model')
         group.addParam('waterForceFieldList', params.EnumParam,
@@ -224,9 +239,12 @@ class GromacsSystemPrep(EMProtocol):
     def editConfStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
         systemBasename = os.path.basename(inputStructure.split(".")[0])
+        boxType = self.getEnumText('boxType').lower() if self.boxType.get() != 1 else 'triclinic'
         params = ' editconf -f %s_processed.gro ' \
                  '-o %s_newbox.gro ' \
-                 '-c -d %s -bt cubic' % (systemBasename, systemBasename, self.boxsize.get())
+                 '-c -bt %s' % (systemBasename, systemBasename, boxType)
+
+        params += self.getDistanceArgs()
 
         gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
@@ -351,4 +369,14 @@ class GromacsSystemPrep(EMProtocol):
         runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
 
         return oFile
+
+    def getDistanceArgs(self):
+        if self.sizeType.get() == 1:
+            distArg = ' -d {}'.format(self.distA.get())
+        else:
+            if self.boxType.get() == 1:
+                distArg = ' -box {} {} {}'.format(self.distA.get(), self.distB.get(), self.distC.get())
+            else:
+                distArg = ' -box {}'.format(self.distA.get())
+        return distArg
 
