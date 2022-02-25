@@ -33,11 +33,13 @@ from pwem.viewers import ChimeraViewer
 
 from pwchem.viewers import PyMolViewer, PyMolView
 from pwchem.utils import natural_sort
+
+from gromacs import Plugin
 from ..objects import GromacsSystem
 from ..protocols import GromacsMDSimulation
 from ..constants import *
 
-program = os.path.join("", '/usr/local/gromacs/bin/gmx')
+program = Plugin.getGromacsBin()
 
 class GromacsSystemViewer(pwviewer.Viewer):
   _label = 'Viewer Gromacs system'
@@ -93,12 +95,12 @@ class GromacsSimulationViewer(pwviewer.ProtocolViewer):
                      )
       line = group.addLine('Groups for analysis: ')
       line.addParam('chooseRef', params.EnumParam,
-                     choices=self._ndxGroups, default=0,
+                     choices=self._ndxGroups, default=1,
                      label='Reference group: ',
                      help='Reference structure group to calculate the analysis against'
                      )
       line.addParam('chooseLsq', params.EnumParam,
-                    choices=self._ndxGroups, default=0,
+                    choices=self._ndxGroups, default=1,
                     label='Least squares group: ', condition='displayAnalysis in [0, 5]',
                     help='Structure group to calculate the analysis in'
                     )

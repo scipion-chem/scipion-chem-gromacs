@@ -88,7 +88,6 @@ GROMACS_SPCE = 1
 GROMACS_TIP3P = 2
 GROMACS_TIP4P = 3
 GROMACS_TIP5P = 4
-GROMACS_NONE = 5
 
 GROMACS_WATERFF_NAME = dict()
 GROMACS_WATERFF_NAME[GROMACS_SPC] = 'spc'
@@ -96,12 +95,13 @@ GROMACS_WATERFF_NAME[GROMACS_SPCE] = 'spce'
 GROMACS_WATERFF_NAME[GROMACS_TIP3P] = 'tip3p'
 GROMACS_WATERFF_NAME[GROMACS_TIP4P] = 'tip4p'
 GROMACS_WATERFF_NAME[GROMACS_TIP5P] = 'tip5p'
-GROMACS_WATERFF_NAME[GROMACS_NONE] = 'none'
 
 GROMACS_WATERS_LIST = [GROMACS_WATERFF_NAME[GROMACS_SPC], GROMACS_WATERFF_NAME[GROMACS_SPCE],
 GROMACS_WATERFF_NAME[GROMACS_TIP3P], GROMACS_WATERFF_NAME[GROMACS_TIP4P],
-GROMACS_WATERFF_NAME[GROMACS_TIP5P],
-GROMACS_WATERFF_NAME[GROMACS_NONE]]
+GROMACS_WATERFF_NAME[GROMACS_TIP5P]]
+
+BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
+                                                       'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
 
 class GromacsSystemPrep(EMProtocol):
     """
@@ -117,8 +117,8 @@ class GromacsSystemPrep(EMProtocol):
     IMPORT_MDP_FILE = 0
     IMPORT_MDP_SCIPION = 1
 
-    _cations = ['K+', 'NA+', 'CA2+', 'MG2+', 'ZN2+', 'CU+', 'CU2+', 'LI+', 'CS+']
-    _anions = ['CL-', 'F-', 'BR-', 'I-']
+    _cations = [CA, CS, CU, CU2, K, LI, MG, NA, RB, ZN]
+    _anions = [BR, CL, F, I]
 
     # -------------------------- DEFINE constants ----------------------------
 
@@ -164,13 +164,18 @@ class GromacsSystemPrep(EMProtocol):
         line.addParam('distC', params.FloatParam, condition='boxType == 1 and sizeType == 0',
                       default=10.0, label='C: ')
 
-        group = form.addGroup('Solvation model')
-        group.addParam('waterForceFieldList', params.EnumParam,
+        form.addSection('Charges')
+        group = form.addGroup('Force field')
+        group.addParam('mainForceField', params.EnumParam, choices=GROMACS_LIST,
+                       default=GROMACS_AMBER03,
+                       label='Main Force Field: ',
+                       help='Force field applied to the system. Force fields are sets of potential functions and '
+                            'parametrized interactions that can be used to study physical systems.')
+        group.addParam('waterForceField', params.EnumParam,
                        choices=GROMACS_WATERS_LIST, default=GROMACS_TIP3P,
                        label='Water Force Field: ',
                        help='Force field applied to the waters')
 
-        form.addSection('Charges')
         group = form.addGroup('Ions')
         group.addParam('placeIons', params.EnumParam, default=0,
                        label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
@@ -203,13 +208,6 @@ class GromacsSystemPrep(EMProtocol):
                        label='Salt concentration (M): ',
                        help='Salt concentration')
 
-        group = form.addGroup('Force field')
-        group.addParam('mainForceField', params.EnumParam, choices=GROMACS_LIST,
-                       default=GROMACS_AMBER03,
-                       label='Main Force Field: ',
-                       help='Force field applied to the system. Force fields are sets of potential functions and '
-                            'parametrized interactions that can be used to study physical systems.')
-
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
@@ -226,7 +224,7 @@ class GromacsSystemPrep(EMProtocol):
             inputStructure = self.convertReceptor2PDB(inputStructure)
 
         systemBasename = os.path.basename(inputStructure.split(".")[0])
-        Waterff = GROMACS_WATERFF_NAME[self.waterForceFieldList.get()]
+        Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
         Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
         energy = self.energy.get()
         params = ' pdb2gmx -f %s ' \
@@ -234,7 +232,12 @@ class GromacsSystemPrep(EMProtocol):
                  '-water %s ' \
                  '-ff %s ' \
                  '-posrefc %d' % (inputStructure, systemBasename, Waterff, Mainff, energy)
-        gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
+        try:
+            gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
+        except:
+            print('Conversion to gro failed, trying to convert it ignoring the current hydrogens')
+            params += ' -ignh'
+            gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def editConfStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
@@ -252,8 +255,12 @@ class GromacsSystemPrep(EMProtocol):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
         systemBasename = os.path.basename(inputStructure.split(".")[0])
 
-        params_solvate = ' solvate -cp %s_newbox.gro -cs spc216.gro -o %s_solv.gro' \
-                         ' -p topol.top' % (systemBasename, systemBasename)
+        waterModel = self.getEnumText('waterForceField')
+        if waterModel in ['spc', 'spce', 'tip3p']:
+            waterModel = 'spc216'
+
+        params_solvate = ' solvate -cp %s_newbox.gro -cs %s.gro -o %s_solv.gro' \
+                         ' -p topol.top' % (systemBasename, waterModel, systemBasename)
 
         gromacsPlugin.runGromacs(self, 'gmx', params_solvate, cwd=self._getPath())
 
@@ -264,14 +271,21 @@ class GromacsSystemPrep(EMProtocol):
 
         params_grompp = 'grompp -f %s -c %s_solv.gro -p ' \
                         'topol.top -o ions.tpr' % (ions_mdp, systemBasename)
+        if 'gromos' in self.getEnumText('mainForceField'):
+            params_grompp += ' -maxwarn 1'
         gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['13'],
                                        args=params_grompp, cwd=self._getPath())
 
-        cation = self.parseIon(self.getEnumText('cationType'))[0]
-        anion = self.parseIon(self.getEnumText('anionType'))[0]
+        cation, cc = self.parseIon(self.getEnumText('cationType'))
+        anion, ac = self.parseIon(self.getEnumText('anionType'))
 
         genStr = 'genion -s ions.tpr -o %s_solv_ions.gro -p topol.top ' \
                  '-pname %s -nname %s' % (systemBasename, cation, anion)
+        if cc == 2:
+            genStr += ' -pq {}'.format(cc)
+        if ac == 2:
+            genStr += ' -nq {}'.format(ac)
+
         if self.placeIons.get() == 1:
           genStr += ' -neutral '
         elif self.placeIons.get() == 2:
@@ -299,13 +313,36 @@ class GromacsSystemPrep(EMProtocol):
         posre_localPath = relpath(abspath(self._getPath(posre_baseName)))
 
         gro_files = grobj.GromacsSystem(filename=gro_localPath, topoFile=topol_localPath,
-                                        restrFile=posre_localPath)
+                                        restrFile=posre_localPath, ff=self.getEnumText('mainForceField'),
+                                        wff=self.getEnumText('waterForceField'))
 
         self._defineOutputs(outputSystem=gro_files)
         self._defineSourceRelation(self.inputStructure, gro_files)
 
     # --------------------------- INFO functions -----------------------------------
+    def _validate(self):
+        vals = []
+        ionsDic = {'amber': [CA, CL, CS, K, LI, MG, NA, RB, ZN],
+                   'gromos': [CA, CL, CU, CU2, MG, NA, ZN],
+                   'oplsaa': [BR, CA, CL, CS, F, I, K, LI, NA, RB],
+                   'charmm': [CA, CL, CS, K, MG, NA, ZN]}
+        for key in ionsDic:
+            if self.getEnumText('mainForceField').startswith(key):
+                if not self.getEnumText('cationType') in ionsDic[key]:
+                    vals.append('{} cation not available for force field {}.\nAvailable ions: {}'.format(
+                      self.getEnumText('cationType'), self.getEnumText('mainForceField'), ', '.join(ionsDic[key])
+                    ))
 
+                if not self.getEnumText('anionType') in ionsDic[key]:
+                    vals.append('{} anion not available for force field {}.\nAvailable ions: {}'.format(
+                      self.getEnumText('anionType'), self.getEnumText('mainForceField'), ', '.join(ionsDic[key])
+                    ))
+        if self.getEnumText('mainForceField').startswith('gromos') and \
+                self.getEnumText('waterForceField').startswith('tip'):
+            vals.append('GROMOS force fields were parametrized for use with SPC water model.'
+                        'They will not behave well with TIP models')
+        
+        return vals
 
     def _summary(self):
         """ Summarize what the protocol has done"""
@@ -314,7 +351,7 @@ class GromacsSystemPrep(EMProtocol):
         if self.isFinished():
             summary.append("This protocol has created a processed gro file with Main force field: *%s* and " \
                            "Water Force Field *%s*." % (GROMACS_MAINFF_NAME[self.mainForceField.get()],
-                                                      GROMACS_WATERFF_NAME[self.waterForceFieldList.get()]))
+                                                      GROMACS_WATERFF_NAME[self.waterForceField.get()]))
 
         else:
             summary.append("The protocol has not finished.")
@@ -343,9 +380,8 @@ class GromacsSystemPrep(EMProtocol):
                         "emtol = 1000.0 \n" \
                         "emstep = 0.01 \n" \
                         "nsteps = 50000 \n\n" \
-                        "nstlist = 1 \n" \
+                        "nstlist = 10 \n" \
                         "cutoff-scheme = Verlet \n" \
-                        "ns_type = grid \n" \
                         "coulombtype = cutoff \n" \
                         "rcoulomb = 1.0 \n" \
                         "rvdw = 1.0 \n" \
@@ -359,6 +395,8 @@ class GromacsSystemPrep(EMProtocol):
             name, charge = ion[:-2], int(ion[-2])
         else:
             name, charge = ion[:-1], 1
+            if name == 'CU':
+                name = 'CU1'
         return name, charge
 
     def convertReceptor2PDB(self, proteinFile):

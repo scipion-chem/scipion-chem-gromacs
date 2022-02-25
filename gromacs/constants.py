@@ -77,8 +77,7 @@ VEL_GEN = '''gen_temp                = {}       ; temperature for Maxwell distri
 gen_seed                = -1        ; generate a random seed'''
 
 
-MDP_STR = '''title = {} 
-; Parameters describing what to do, when to stop and what to save
+MDP_STR = '''; Parameters describing what to do, when to stop and what to save
 ; position restrains
 {}  
 
@@ -89,9 +88,8 @@ nsteps      = {}         ; Maximum number of steps to perform
 {}                       
 
 ; Nonbonded settings 
-nstlist         = 1         ; Frequency to update the neighbor list and long range forces (fs)
+nstlist         = 10         ; Frequency to update the neighbor list and long range forces (fs)
 cutoff-scheme   = Verlet    ; Buffered neighbor searching
-ns_type         = grid      ; Method to determine neighbor list (simple, grid)
 rcoulomb        = 1.0       ; Short-range electrostatic cut-off (nm)
 rvdw            = 1.0       ; Short-range Van der Waals cut-off (nm)
 pbc             = xyz       ; Periodic Boundary Conditions in all 3 dimensions

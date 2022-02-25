@@ -349,7 +349,7 @@ class GromacsMDSimulation(EMProtocol):
             outControlStr = OUTPUT_CONTROL.format(*[0]*3, nTrj)
 
         title = 'Stage {}: {}, {} ps'.format(mdpStage, msjDic['ensemType'], msjDic['simTime'])
-        mdpStr = MDP_STR.format(title, restrStr, integStr, nSteps, tStepsStr, dispCorrStr, outControlStr, bondParStr,
+        mdpStr = MDP_STR.format(restrStr, integStr, nSteps, tStepsStr, dispCorrStr, outControlStr, bondParStr,
                                 electroStr, tempStr, presStr, velStr, velParStr)
 
         with open(mdpFile, 'w') as f:
@@ -372,6 +372,8 @@ class GromacsMDSimulation(EMProtocol):
         command = 'grompp -f %s -c %s -r %s -p ' \
                   '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, topFile,
                                    prevTrjStr, outFile)
+        if str(self.gromacsSystem.get().getForceField()).startswith('gromos'):
+            command += ' -maxwarn 1'
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
         return os.path.join(stageDir, outFile)
 

@@ -48,7 +48,7 @@ class Plugin(pwem.Plugin):
     def defineBinaries(cls, env):
         cMakeCmd = 'mkdir build && cd build && '
         cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON ' \
-                           '-DCMAKE_INSTALL_PREFIX={} > cMake.log'.format(cls._pluginHome)
+                    '-DCMAKE_INSTALL_PREFIX={} -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.format(cls._pluginHome)
         makeCmd = 'cd build && make -j {} > make.log && make check'.format(env.getProcessors())
         makeInstallCmd = 'cd build && make install'
 
@@ -68,14 +68,17 @@ class Plugin(pwem.Plugin):
     @classmethod
     def runGromacs(cls, protocol, program, args, cwd=None):
         """ Run Gromacs command from a given protocol. """
-        protocol.runJob(join(cls._pluginHome, 'bin/{}'.format(program)), args, cwd=cwd)
+        protocol.runJob(cls.getGromacsBin(program), args, cwd=cwd)
 
     @classmethod
     def runGromacsPrintf(cls, protocol, program, printfValues, args, cwd=None):
       """ Run Gromacs command from a given protocol. """
-      gmxPath = join(cls._pluginHome, 'bin/{}'.format(program))
-      program = 'printf "{}\n" | {}'.format('\n'.join(printfValues), gmxPath)
+      program = 'printf "{}\n" | {}'.format('\n'.join(printfValues), cls.getGromacsBin(program))
       protocol.runJob(program, args, cwd=cwd)
+
+    @classmethod
+    def getGromacsBin(cls, program='gmx'):
+        return join(cls._pluginHome, 'bin/{}'.format(program))
 
     @classmethod  # Test that
     def getEnviron(cls):
