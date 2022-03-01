@@ -136,12 +136,6 @@ class GromacsSystemPrep(EMProtocol):
                       important=True, pointerClass='AtomStruct',
                       help='Atom structure to convert to gromacs system')
 
-        form.addParam('energy', params.IntParam,
-                      label="Insert energy restriction: ",
-                      default=1000, allowsnull=False,
-                      help='Force constant for position restraints applied to heavy atoms in the system.'
-                           '\nThis value should be between 1000 and 50000.')
-
         group = form.addGroup('Boundary box')
         group.addParam('boxType', params.EnumParam,
                        choices=['Cubic', 'Orthorhombic'],
@@ -226,12 +220,10 @@ class GromacsSystemPrep(EMProtocol):
         systemBasename = os.path.basename(inputStructure.split(".")[0])
         Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
         Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
-        energy = self.energy.get()
         params = ' pdb2gmx -f %s ' \
                  '-o %s_processed.gro ' \
                  '-water %s ' \
-                 '-ff %s ' \
-                 '-posrefc %d' % (inputStructure, systemBasename, Waterff, Mainff, energy)
+                 '-ff %s ' % (inputStructure, systemBasename, Waterff, Mainff)
         try:
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
         except:

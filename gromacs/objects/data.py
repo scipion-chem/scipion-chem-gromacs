@@ -25,7 +25,7 @@
 # *
 # **************************************************************************
 
-import os
+import os, shutil
 from subprocess import check_call
 import pwem.objects.data as data
 import pyworkflow.object as pwobj
@@ -275,15 +275,25 @@ class GromacsSystem(data.EMFile):
     def setWaterForceField(self, value):
         self._wff.set(value)
 
-    def defineNewRestriction(self, energy, restrainSuffix='_low'):
+    def defineNewRestriction(self, energy, restrainSuffix='low', outDir=None):
         '''Define a new position restriction and stores it in the topology file'''
-        outDir = os.path.dirname(self.getSystemFile())
-        program = os.path.join("", 'printf "2" | /usr/local/gromacs/bin/gmx ')
+        from gromacs import Plugin as gromacsPlugin
+        outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
+        program = os.path.join("", 'printf "2" | {} '.format(gromacsPlugin.getGromacsBin()))
         params_genrestr = 'genrestr -f %s -o %s.itp -fc %d %d %d' % \
-                          (self.getSystemFile(), 'posre' + restrainSuffix.lower(), energy, energy, energy)
+                          (os.path.abspath(self.getSystemFile()),
+                           'posre_' + restrainSuffix.lower(), energy, energy, energy)
         check_call(program + params_genrestr, cwd=outDir, shell=True)
+
+        topFile = self.getTopologyFile()
+        if outDir:
+            topFile = os.path.join(outDir, os.path.basename(self.getTopologyFile()))
+            shutil.copy(self.getTopologyFile(), topFile)
+            self.setTopologyFile(topFile)
+
         program = "sed "
-        inStr = '#ifdef POSRES{}\\n#include "posre{}.itp"\\n#endif'.\
+        inStr = '#ifdef POSRES_{}\\n#include "posre_{}.itp"\\n#endif'.\
             format(restrainSuffix.upper(), restrainSuffix.lower())
-        sed_params = """-i '/; Include Position restraint file/a {}' {}""".format(inStr, self.getTopologyFile())
+        sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
+            format(inStr, os.path.abspath(topFile))
         check_call(program + sed_params, cwd=outDir, shell=True)

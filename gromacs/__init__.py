@@ -47,8 +47,8 @@ class Plugin(pwem.Plugin):
     @classmethod
     def defineBinaries(cls, env):
         cMakeCmd = 'mkdir build && cd build && '
-        cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON ' \
-                    '-DCMAKE_INSTALL_PREFIX={} -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.format(cls._pluginHome)
+        cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
+                    '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.format(cls._pluginHome)
         makeCmd = 'cd build && make -j {} > make.log && make check'.format(env.getProcessors())
         makeInstallCmd = 'cd build && make install'
 

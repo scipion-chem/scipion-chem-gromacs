@@ -101,7 +101,9 @@ class GromacsWatchRelaxStepWizard(pwizard.Wizard):
                 if pName in protocol._paramNames:
                     form.setVar(pName, msjDic[pName])
                 elif pName in protocol._enumParamNames:
-                    if pName == 'ensemType':
+                    if pName == 'integrator':
+                        idx = protocol._integrators.index(msjDic[pName])
+                    elif pName == 'ensemType':
                         idx = protocol._ensemTypes.index(msjDic[pName])
                     elif pName == 'thermostat':
                         idx = protocol._thermostats.index(msjDic[pName])

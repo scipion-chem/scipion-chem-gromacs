@@ -37,7 +37,7 @@ PYMOL_HOME = 'PYMOL_HOME'
 
 
 ###################################### MDP GENERATION #####################################
-RESTR_STR = '''define = -DPOSRES'''
+RESTR_STR = '''define = -DPOSRES_{}'''
 
 TSTEP_EM = '''emtol = 1000.0        ; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
 emstep = {}          ; Minimization step size'''
@@ -64,14 +64,17 @@ fourierspacing          = 0.16      ; grid spacing for FFT'''
 TEMP_SETTING = '''tcoupl                  = {}             ; thermostat
 tc-grps                 = Protein Non-Protein   ; two coupling groups - more accurate
 ref_t                   = {}     {}           ; reference temperature, one for each group, in K
-tau_t                   = {}     {}           ; time constant, in ps'''
+tau_t                   = {}     {}           ; time constant, in ps
+nsttcouple              = {}                  ; Frequency for temperature coupling
+nstcomm                 = {}                  ; number of steps for center of mass motion removal'''
 
 PRES_SETTING =  '''pcoupl                  = {}     ; Pressure coupling 
 pcoupltype              = {}             ; uniform scaling of box vectors
 ref_p                   = {}                  ; reference pressure, in bar
 tau_p                   = {}                   ; time constant, in ps
 compressibility         = 4.5e-5                ; isothermal compressibility of water, bar^-1
-refcoord_scaling        = com'''
+refcoord_scaling        = com
+nstpcouple              = {}                  ; Frequency for pressure coupling'''
 
 VEL_GEN = '''gen_temp                = {}       ; temperature for Maxwell distribution
 gen_seed                = -1        ; generate a random seed'''
@@ -88,7 +91,7 @@ nsteps      = {}         ; Maximum number of steps to perform
 {}                       
 
 ; Nonbonded settings 
-nstlist         = 10         ; Frequency to update the neighbor list and long range forces (fs)
+nstlist         = {}         ; Frequency to update the neighbor list and long range forces (fs)
 cutoff-scheme   = Verlet    ; Buffered neighbor searching
 rcoulomb        = 1.0       ; Short-range electrostatic cut-off (nm)
 rvdw            = 1.0       ; Short-range Van der Waals cut-off (nm)
