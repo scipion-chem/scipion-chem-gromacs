@@ -314,25 +314,26 @@ class GromacsSystemPrep(EMProtocol):
     # --------------------------- INFO functions -----------------------------------
     def _validate(self):
         vals = []
-        ionsDic = {'amber': [CA, CL, CS, K, LI, MG, NA, RB, ZN],
-                   'gromos': [CA, CL, CU, CU2, MG, NA, ZN],
-                   'oplsaa': [BR, CA, CL, CS, F, I, K, LI, NA, RB],
-                   'charmm': [CA, CL, CS, K, MG, NA, ZN]}
-        for key in ionsDic:
-            if self.getEnumText('mainForceField').startswith(key):
-                if not self.getEnumText('cationType') in ionsDic[key]:
-                    vals.append('{} cation not available for force field {}.\nAvailable ions: {}'.format(
-                      self.getEnumText('cationType'), self.getEnumText('mainForceField'), ', '.join(ionsDic[key])
-                    ))
+        if self.placeIons.get() != 0:
+            ionsDic = {'amber': [CA, CL, CS, K, LI, MG, NA, RB, ZN],
+                       'gromos': [CA, CL, CU, CU2, MG, NA, ZN],
+                       'oplsaa': [BR, CA, CL, CS, F, I, K, LI, NA, RB],
+                       'charmm': [CA, CL, CS, K, MG, NA, ZN]}
+            for key in ionsDic:
+                if self.getEnumText('mainForceField').startswith(key):
+                    if not self.getEnumText('cationType') in ionsDic[key]:
+                        vals.append('{} cation not available for force field {}.\nAvailable ions: {}'.format(
+                          self.getEnumText('cationType'), self.getEnumText('mainForceField'), ', '.join(ionsDic[key])
+                        ))
 
-                if not self.getEnumText('anionType') in ionsDic[key]:
-                    vals.append('{} anion not available for force field {}.\nAvailable ions: {}'.format(
-                      self.getEnumText('anionType'), self.getEnumText('mainForceField'), ', '.join(ionsDic[key])
-                    ))
-        if self.getEnumText('mainForceField').startswith('gromos') and \
-                self.getEnumText('waterForceField').startswith('tip'):
-            vals.append('GROMOS force fields were parametrized for use with SPC water model.'
-                        'They will not behave well with TIP models')
+                    if not self.getEnumText('anionType') in ionsDic[key]:
+                        vals.append('{} anion not available for force field {}.\nAvailable ions: {}'.format(
+                          self.getEnumText('anionType'), self.getEnumText('mainForceField'), ', '.join(ionsDic[key])
+                        ))
+            if self.getEnumText('mainForceField').startswith('gromos') and \
+                    self.getEnumText('waterForceField').startswith('tip'):
+                vals.append('GROMOS force fields were parametrized for use with SPC water model.'
+                            'They will not behave well with TIP models')
         
         return vals
 
