@@ -192,9 +192,8 @@ class GromacsMDSimulation(EMProtocol):
         self.createGUISummary()
         i=1
         for wStep in self.workFlowSteps.get().split('\n'):
-            if wStep:
-              self._insertFunctionStep('simulateStageStep', wStep, i)
-              i+=1
+            self._insertFunctionStep('simulateStageStep', wStep, i)
+            i+=1
         self._insertFunctionStep('createOutputStep')
 
     def simulateStageStep(self, wStep, i):
@@ -202,7 +201,7 @@ class GromacsMDSimulation(EMProtocol):
           msjDic = self.createMSJDic()
       else:
           msjDic = eval(wStep)
-      mdpFile = self.generateMDPFile(msjDic, i)
+      mdpFile = self.generateMDPFile(msjDic, str(i))
 
       tprFile = self.callGROMPP(mdpFile)
       self.callMDRun(tprFile, saveTrj=msjDic['saveTrj'])
