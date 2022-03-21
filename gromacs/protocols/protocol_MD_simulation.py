@@ -191,7 +191,7 @@ class GromacsMDSimulation(EMProtocol):
         # Insert processing steps
         self.createGUISummary()
         i=1
-        for wStep in self.workFlowSteps.get().split('\n'):
+        for wStep in self.workFlowSteps.get().strip().split('\n'):
             self._insertFunctionStep('simulateStageStep', wStep, i)
             i+=1
         self._insertFunctionStep('createOutputStep')
