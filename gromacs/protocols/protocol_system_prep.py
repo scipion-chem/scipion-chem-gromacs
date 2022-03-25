@@ -49,13 +49,14 @@ GROMACS_AMBER99SB = 4
 GROMACS_AMBERSB_ILDN = 5
 GROMACS_AMBERGS = 6
 GROMACS_CHARMM27 = 7
-GROMACS_GROMOS43A1 = 8
-GROMACS_GROMOS43A2 = 9
-GROMACS_GROMOS45A3 = 10
-GROMACS_GROMOS53A5 = 11
-GROMACS_GROMOS53A6 = 12
-GROMACS_GROMOS54A7 = 13
-GROMACS_OPLSAA = 14
+GROMACS_CHARMM36 = 8
+GROMACS_GROMOS43A1 = 9
+GROMACS_GROMOS43A2 = 10
+GROMACS_GROMOS45A3 = 11
+GROMACS_GROMOS53A5 = 12
+GROMACS_GROMOS53A6 = 13
+GROMACS_GROMOS54A7 = 14
+GROMACS_OPLSAA = 15
 
 GROMACS_MAINFF_NAME = dict()
 GROMACS_MAINFF_NAME[GROMACS_AMBER03] = 'amber03'
@@ -66,6 +67,7 @@ GROMACS_MAINFF_NAME[GROMACS_AMBER99SB] = 'amber99sb'
 GROMACS_MAINFF_NAME[GROMACS_AMBERSB_ILDN] = 'amber99sb-ildn'
 GROMACS_MAINFF_NAME[GROMACS_AMBERGS] = 'amberGS'
 GROMACS_MAINFF_NAME[GROMACS_CHARMM27] = 'charmm27'
+GROMACS_MAINFF_NAME[GROMACS_CHARMM36] = 'charmm36-feb2021'
 GROMACS_MAINFF_NAME[GROMACS_GROMOS43A1] = 'gromos43a1'
 GROMACS_MAINFF_NAME[GROMACS_GROMOS43A2] = 'gromos43a2'
 GROMACS_MAINFF_NAME[GROMACS_GROMOS45A3] = 'gromos45a3'
@@ -75,13 +77,14 @@ GROMACS_MAINFF_NAME[GROMACS_GROMOS54A7] = 'gromos54a7'
 GROMACS_MAINFF_NAME[GROMACS_OPLSAA] = 'oplsaa'
 
 GROMACS_LIST = [GROMACS_MAINFF_NAME[GROMACS_AMBER03], GROMACS_MAINFF_NAME[GROMACS_AMBER94],
-GROMACS_MAINFF_NAME[GROMACS_AMBER96], GROMACS_MAINFF_NAME[GROMACS_AMBER99],
-GROMACS_MAINFF_NAME[GROMACS_AMBER99SB], GROMACS_MAINFF_NAME[GROMACS_AMBERSB_ILDN],
-GROMACS_MAINFF_NAME[GROMACS_AMBERGS], GROMACS_MAINFF_NAME[GROMACS_CHARMM27],
-GROMACS_MAINFF_NAME[GROMACS_GROMOS43A1], GROMACS_MAINFF_NAME[GROMACS_GROMOS43A2],
-GROMACS_MAINFF_NAME[GROMACS_GROMOS45A3], GROMACS_MAINFF_NAME[GROMACS_GROMOS53A5],
-GROMACS_MAINFF_NAME[GROMACS_GROMOS53A6], GROMACS_MAINFF_NAME[GROMACS_GROMOS54A7],
-GROMACS_MAINFF_NAME[GROMACS_OPLSAA]]
+                GROMACS_MAINFF_NAME[GROMACS_AMBER96], GROMACS_MAINFF_NAME[GROMACS_AMBER99],
+                GROMACS_MAINFF_NAME[GROMACS_AMBER99SB], GROMACS_MAINFF_NAME[GROMACS_AMBERSB_ILDN],
+                GROMACS_MAINFF_NAME[GROMACS_AMBERGS],
+                GROMACS_MAINFF_NAME[GROMACS_CHARMM27], GROMACS_MAINFF_NAME[GROMACS_CHARMM36],
+                GROMACS_MAINFF_NAME[GROMACS_GROMOS43A1], GROMACS_MAINFF_NAME[GROMACS_GROMOS43A2],
+                GROMACS_MAINFF_NAME[GROMACS_GROMOS45A3], GROMACS_MAINFF_NAME[GROMACS_GROMOS53A5],
+                GROMACS_MAINFF_NAME[GROMACS_GROMOS53A6], GROMACS_MAINFF_NAME[GROMACS_GROMOS54A7],
+                GROMACS_MAINFF_NAME[GROMACS_OPLSAA]]
 
 GROMACS_SPC = 0
 GROMACS_SPCE = 1
@@ -158,7 +161,7 @@ class GromacsSystemPrep(EMProtocol):
         line.addParam('distC', params.FloatParam, condition='boxType == 1 and sizeType == 0',
                       default=10.0, label='C: ')
 
-        form.addSection('Charges')
+        form.addSection('Force Field')
         group = form.addGroup('Force field')
         group.addParam('mainForceField', params.EnumParam, choices=GROMACS_LIST,
                        default=GROMACS_AMBER03,
@@ -174,7 +177,8 @@ class GromacsSystemPrep(EMProtocol):
         group.addParam('placeIons', params.EnumParam, default=0,
                        label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
                        help='Whether to add ions to the system.'
-                            'https://manual.gromacs.org/documentation/5.1/onlinehelp/gmx-genion.html')
+                            'https://manual.gromacs.org/documentation/2021.5/onlinehelp/gmx-genion.html')
+
         line = group.addLine('Cation type:', condition='placeIons!=0',
                              help='Type of the cations to add')
         line.addParam('cationType', params.EnumParam, condition='placeIons!=0',
@@ -195,8 +199,8 @@ class GromacsSystemPrep(EMProtocol):
 
         group.addParam('addSalt', params.BooleanParam, default=False,
                        condition='placeIons==1',
-                       label='Add a salt into the system: ',
-                       help='Add a salt into the system')
+                       label='Add more salt into the system: ',
+                       help='Add more salt into the system')
         group.addParam('saltConc', params.FloatParam, condition='addSalt and placeIons==1',
                        default=0.15,
                        label='Salt concentration (M): ',
