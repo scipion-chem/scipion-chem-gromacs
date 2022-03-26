@@ -51,8 +51,8 @@ class Plugin(pwem.Plugin):
         cMakeCmd = 'mkdir build && cd build && '
         cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
                     '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.format(cls._pluginHome)
-        makeCmd = 'cd build && make -j {} > make.log && make check'.format(env.getProcessors())
-        makeInstallCmd = 'cd build && make install'
+        makeCmd = 'cd build && make -j {} > make.log && make check > check.log'.format(env.getProcessors())
+        makeInstallCmd = 'cd build && make install > install.log'
 
         # Creating validation file
         GROMACS_INSTALLED = '%s_installed' % GROMACS
