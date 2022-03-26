@@ -61,10 +61,10 @@ class Plugin(pwem.Plugin):
         env.addPackage(GROMACS,
                        version=GROMACS_DEFAULT_VERSION,
                        url=cls._getGromacsDownloadUrl(),
-                       commands=[(addC36cmd, []), 
-                                 (cMakeCmd, []),
-                                 (makeCmd, []),
-                                 (makeInstallCmd, []),
+                       commands=[(addC36cmd, 'share/top/charmm36-feb2021.ff'), 
+                                 (cMakeCmd, 'build/cMake.log'),
+                                 (makeCmd, 'build/check.log'),
+                                 (makeInstallCmd, 'build/install.log'),
                                  (installationCmd, GROMACS_INSTALLED)],
                        default=True)
 
