@@ -31,6 +31,8 @@ from subprocess import check_call
 import pwem.objects.data as data
 import pyworkflow.object as pwobj
 
+from gromacs.constants import *
+
 class GromacsSystem(data.EMFile):
     """A system atom structure (prepared for MD) in the file format of GROMACS
     _topoFile: topology file .top
@@ -115,3 +117,17 @@ class GromacsSystem(data.EMFile):
         sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
             format(inStr, os.path.abspath(topFile))
         check_call(program + sed_params, cwd=outDir, shell=True)
+
+    def getIons(self):
+        ionsDic, mols = {}, False
+        with open(self.getTopologyFile()) as f:
+            for line in f:
+                if mols:
+                    sline = line.split()
+                    if sline[0] in ION_NAMES:
+                        ionsDic[sline[0]] = int(sline[1])
+                if line.startswith('[ molecules ]'):
+                    mols = True
+        return ionsDic
+
+

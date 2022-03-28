@@ -40,6 +40,7 @@ from pwchem.utils import runOpenBabel
 
 from gromacs import Plugin as gromacsPlugin
 import gromacs.objects as grobj
+from gromacs.constants import *
 
 GROMACS_AMBER03 = 0
 GROMACS_AMBER94 = 1
@@ -103,8 +104,6 @@ GROMACS_WATERS_LIST = [GROMACS_WATERFF_NAME[GROMACS_SPC], GROMACS_WATERFF_NAME[G
 GROMACS_WATERFF_NAME[GROMACS_TIP3P], GROMACS_WATERFF_NAME[GROMACS_TIP4P],
 GROMACS_WATERFF_NAME[GROMACS_TIP5P]]
 
-BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
-                                                       'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
 
 class GromacsSystemPrep(EMProtocol):
     """
@@ -322,7 +321,8 @@ class GromacsSystemPrep(EMProtocol):
             ionsDic = {'amber': [CA, CL, CS, K, LI, MG, NA, RB, ZN],
                        'gromos': [CA, CL, CU, CU2, MG, NA, ZN],
                        'oplsaa': [BR, CA, CL, CS, F, I, K, LI, NA, RB],
-                       'charmm': [CA, CL, CS, K, MG, NA, ZN]}
+                       'charmm27': [CA, CL, CS, K, MG, NA, ZN],
+                       'charmm36': [CA, CL, CS, K, LI, MG, NA, ZN]}
             for key in ionsDic:
                 if self.getEnumText('mainForceField').startswith(key):
                     if not self.getEnumText('cationType') in ionsDic[key]:
