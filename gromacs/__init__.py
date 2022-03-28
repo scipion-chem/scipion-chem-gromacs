@@ -46,11 +46,13 @@ class Plugin(pwem.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
+        addC36cmd = 'cd share/top && wget -O charmm36-feb2021.ff.tgz http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz && '
+        addC36cmd += 'tar -xf charmm36-feb2021.ff.tgz'
         cMakeCmd = 'mkdir build && cd build && '
         cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
                     '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.format(cls._pluginHome)
-        makeCmd = 'cd build && make -j {} > make.log && make check'.format(env.getProcessors())
-        makeInstallCmd = 'cd build && make install'
+        makeCmd = 'cd build && make -j {} > make.log && make check > check.log'.format(env.getProcessors())
+        makeInstallCmd = 'cd build && make install > install.log'
 
         # Creating validation file
         GROMACS_INSTALLED = '%s_installed' % GROMACS
@@ -59,9 +61,10 @@ class Plugin(pwem.Plugin):
         env.addPackage(GROMACS,
                        version=GROMACS_DEFAULT_VERSION,
                        url=cls._getGromacsDownloadUrl(),
-                       commands=[(cMakeCmd, []),
-                                 (makeCmd, []),
-                                 (makeInstallCmd, []),
+                       commands=[(addC36cmd, 'share/top/charmm36-feb2021.ff'), 
+                                 (cMakeCmd, 'build/cMake.log'),
+                                 (makeCmd, 'build/check.log'),
+                                 (makeInstallCmd, 'build/install.log'),
                                  (installationCmd, GROMACS_INSTALLED)],
                        default=True)
 

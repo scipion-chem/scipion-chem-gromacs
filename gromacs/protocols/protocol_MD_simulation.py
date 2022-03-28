@@ -190,10 +190,10 @@ class GromacsMDSimulation(EMProtocol):
     def _insertAllSteps(self):
         # Insert processing steps
         self.createGUISummary()
-        i=1
+        i = 1
         for wStep in self.workFlowSteps.get().strip().split('\n'):
             self._insertFunctionStep('simulateStageStep', wStep, i)
-            i+=1
+            i += 1
         self._insertFunctionStep('createOutputStep')
 
     def simulateStageStep(self, wStep, i):
@@ -280,9 +280,15 @@ class GromacsMDSimulation(EMProtocol):
     def _warnings(self):
         warns = []
         #Global warnings
-        if str(self.gromacsSystem.get().getForceField()).startswith('gromos'):
+        inpSystem = self.gromacsSystem.get()
+        if str(inpSystem.getForceField()).startswith('gromos'):
             warns.append('\nStep all : GROMOS force field is not recommended by GROMACS: '
                          'https://chemrxiv.org/engage/chemrxiv/article-details/60c74701bdbb895afaa38ce2')
+        elif str(inpSystem.getForceField()).startswith('charmm36') and 'CA' in inpSystem.getIons() and \
+                inpSystem.getIons()['CA'] > 20:
+          warns.append('\nStep all : More than 20 non-matching atom names because of (Cal - CA) in charmm36. '
+                       'Cal from topology file will be used')
+
         prevTrj = False
         for step, wStep in enumerate(self.workFlowSteps.get().strip().split('\n')):
             if wStep in ['', None]:
