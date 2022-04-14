@@ -53,7 +53,10 @@ class GromacsWatchRelaxStepWizard(pwizard.Wizard):
 
     def show(self, form, *params):
         protocol = form.protocol
-        index = int(protocol.watchStep.get().strip())
+        watchStep = protocol.watchStep.get().strip()
+        if watchStep == "":
+            watchStep = 0
+        index = int(watchStep)
         if protocol.countSteps() >= index > 0:
             workSteps = protocol.workFlowSteps.get().split('\n')
             msjDic = eval(workSteps[index - 1])
