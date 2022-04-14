@@ -281,7 +281,9 @@ class GromacsMDSimulation(EMProtocol):
         warns = []
         #Global warnings
         inpSystem = self.gromacsSystem.get()
-        if str(inpSystem.getForceField()).startswith('gromos'):
+        if inpSystem is None:
+            warns.append('\nPlease provide a gromacs system as input')            
+        elif str(inpSystem.getForceField()).startswith('gromos'):
             warns.append('\nStep all : GROMOS force field is not recommended by GROMACS: '
                          'https://chemrxiv.org/engage/chemrxiv/article-details/60c74701bdbb895afaa38ce2')
         elif str(inpSystem.getForceField()).startswith('charmm36') and 'CA' in inpSystem.getIons() and \
