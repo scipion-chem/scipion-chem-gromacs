@@ -54,27 +54,28 @@ class GromacsWatchRelaxStepWizard(pwizard.Wizard):
     def show(self, form, *params):
         protocol = form.protocol
         watchStep = protocol.watchStep.get().strip()
-        if watchStep == "":
-            watchStep = 0
-        index = int(watchStep)
-        if protocol.countSteps() >= index > 0:
-            workSteps = protocol.workFlowSteps.get().split('\n')
-            msjDic = eval(workSteps[index - 1])
-            for pName in msjDic:
-                if pName in protocol._paramNames:
-                    form.setVar(pName, msjDic[pName])
-                elif pName in protocol._enumParamNames:
-                    if pName == 'integrator':
-                        idx = protocol._integrators.index(msjDic[pName])
-                    elif pName == 'ensemType':
-                        idx = protocol._ensemTypes.index(msjDic[pName])
-                    elif pName == 'thermostat':
-                        idx = protocol._thermostats.index(msjDic[pName])
-                    elif pName == 'barostat':
-                        idx = protocol._barostats.index(msjDic[pName])
-                    elif pName == 'coupleStyle':
-                        idx = protocol._coupleStyle.index(msjDic[pName])
-                    elif pName == 'restrains':
-                        idx = protocol._restrainTypes.index(msjDic[pName])
-                    form.setVar(pName, idx)
+        try:
+            index = int(watchStep)
+            if protocol.countSteps() >= index > 0:
+                workSteps = protocol.workFlowSteps.get().split('\n')
+                msjDic = eval(workSteps[index - 1])
+                for pName in msjDic:
+                    if pName in protocol._paramNames:
+                        form.setVar(pName, msjDic[pName])
+                    elif pName in protocol._enumParamNames:
+                        if pName == 'integrator':
+                            idx = protocol._integrators.index(msjDic[pName])
+                        elif pName == 'ensemType':
+                            idx = protocol._ensemTypes.index(msjDic[pName])
+                        elif pName == 'thermostat':
+                            idx = protocol._thermostats.index(msjDic[pName])
+                        elif pName == 'barostat':
+                            idx = protocol._barostats.index(msjDic[pName])
+                        elif pName == 'coupleStyle':
+                            idx = protocol._coupleStyle.index(msjDic[pName])
+                        elif pName == 'restrains':
+                            idx = protocol._restrainTypes.index(msjDic[pName])
+                        form.setVar(pName, idx)
+        except:
+            print('Index "{}" not recognized as integer'.format(watchStep))
 

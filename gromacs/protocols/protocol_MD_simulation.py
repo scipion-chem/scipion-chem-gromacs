@@ -92,7 +92,6 @@ class GromacsMDSimulation(EMProtocol):
 
         form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
                       pointerClass='GromacsSystem',
-                      allowsNull=True,
                       help='Gromacs solvated system to be simulated')
         form.addParam('integrator', params.EnumParam,
                        label='Simulation integrator: ',
@@ -281,9 +280,7 @@ class GromacsMDSimulation(EMProtocol):
         warns = []
         #Global warnings
         inpSystem = self.gromacsSystem.get()
-        if inpSystem is None:
-            warns.append('\nPlease provide a gromacs system as input')            
-        elif str(inpSystem.getForceField()).startswith('gromos'):
+        if str(inpSystem.getForceField()).startswith('gromos'):
             warns.append('\nStep all : GROMOS force field is not recommended by GROMACS: '
                          'https://chemrxiv.org/engage/chemrxiv/article-details/60c74701bdbb895afaa38ce2')
         elif str(inpSystem.getForceField()).startswith('charmm36') and 'CA' in inpSystem.getIons() and \
