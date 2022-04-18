@@ -92,7 +92,6 @@ class GromacsMDSimulation(EMProtocol):
 
         form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
                       pointerClass='GromacsSystem',
-                      allowsNull=True,
                       help='Gromacs solvated system to be simulated')
         form.addParam('integrator', params.EnumParam,
                        label='Simulation integrator: ',
