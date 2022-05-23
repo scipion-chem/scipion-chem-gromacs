@@ -26,6 +26,7 @@
 import pwem
 from .constants import *
 from os.path import join
+import subprocess
 
 _logo = "icon.png"
 _references = ['Abraham2015']
@@ -74,10 +75,10 @@ class Plugin(pwem.Plugin):
         protocol.runJob(cls.getGromacsBin(program), args, cwd=cwd)
 
     @classmethod
-    def runGromacsPrintf(cls, protocol, program, printfValues, args, cwd=None):
+    def runGromacsPrintf(cls, printfValues, args, cwd):
       """ Run Gromacs command from a given protocol. """
-      program = 'printf "{}\n" | {}'.format('\n'.join(printfValues), cls.getGromacsBin(program))
-      protocol.runJob(program, args, cwd=cwd)
+      program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin())
+      subprocess.check_call(program + args, cwd=cwd, shell=True)
 
     @classmethod
     def getGromacsBin(cls, program='gmx'):

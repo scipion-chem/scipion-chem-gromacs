@@ -268,7 +268,7 @@ class GromacsSystemPrep(EMProtocol):
                         'topol.top -o ions.tpr' % (ions_mdp, systemBasename)
         if 'gromos' in self.getEnumText('mainForceField'):
             params_grompp += ' -maxwarn 1'
-        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['13'],
+        gromacsPlugin.runGromacsPrintf(printfValues=['SOL'],
                                        args=params_grompp, cwd=self._getPath())
 
         cation, cc = self.parseIon(self.getEnumText('cationType'))
@@ -289,7 +289,7 @@ class GromacsSystemPrep(EMProtocol):
         if self.addSalt:
           genStr += ' -conc {}'.format(self.saltConc.get())
 
-        gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['13'],
+        gromacsPlugin.runGromacsPrintf(printfValues=['SOL'],
                                        args=genStr, cwd=self._getPath())
 
     def createOutputStep(self):

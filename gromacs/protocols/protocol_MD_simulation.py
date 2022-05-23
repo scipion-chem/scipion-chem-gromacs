@@ -508,12 +508,12 @@ class GromacsMDSimulation(EMProtocol):
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
             #Concatenates trajectory
             command = 'trjcat -f {} -settime -o {}'.format(' '.join(trjFiles), tmpTrj)
-            gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['c'] * len(trjFiles),
+            gromacsPlugin.runGromacsPrintf(printfValues=['c'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             #Fixes and center trajectory
             command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
               format(os.path.abspath(tprFile), tmpTrj, outTrj)
-            gromacsPlugin.runGromacsPrintf(self, 'gmx', printfValues=['Protein', 'System'] * len(trjFiles),
+            gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'System'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             return self._getPath(outTrj)
         return None
