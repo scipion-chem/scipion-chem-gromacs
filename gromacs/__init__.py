@@ -30,20 +30,23 @@ import subprocess
 
 _logo = "icon.png"
 _references = ['Abraham2015']
+V2020 = '2020.6'
+V2021 = '2021.5'
+
+GROMACS_DIC = {'name': 'gromacs', 'version': '2021.5', 'home': 'GROMACS_HOME'}
 
 from .objects import *
 class Plugin(pwem.Plugin):
-    _homeVar = GROMACS_HOME
-    _pathVars = [GROMACS_HOME]
+    _homeVar = GROMACS_DIC['home']
+    _pathVars = [GROMACS_DIC['home']]
     _supportedVersions = [V2020]
-    _gromacsName = GROMACS + '-' + GROMACS_DEFAULT_VERSION
-    _pluginHome = join(pwem.Config.EM_ROOT, _gromacsName)
+    _gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
 
     @classmethod
     def _defineVariables(cls):
         """ Return and write a variable in the config file.
         """
-        cls._defineEmVar(GROMACS_HOME, cls._gromacsName)
+        cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
 
     @classmethod
     def defineBinaries(cls, env):
@@ -51,16 +54,17 @@ class Plugin(pwem.Plugin):
         addC36cmd += 'tar -xf charmm36-feb2021.ff.tgz'
         cMakeCmd = 'mkdir build && cd build && '
         cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
-                    '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.format(cls._pluginHome)
+                    '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.\
+          format(cls.getVar(GROMACS_DIC['home']))
         makeCmd = 'cd build && make -j {} > make.log && make check > check.log'.format(env.getProcessors())
         makeInstallCmd = 'cd build && make install > install.log'
 
         # Creating validation file
-        GROMACS_INSTALLED = '%s_installed' % GROMACS
+        GROMACS_INSTALLED = '%s_installed' % GROMACS_DIC['name']
         installationCmd = 'touch %s' % GROMACS_INSTALLED  # Flag installation finished
 
-        env.addPackage(GROMACS,
-                       version=GROMACS_DEFAULT_VERSION,
+        env.addPackage(GROMACS_DIC['name'],
+                       version=GROMACS_DIC['version'],
                        url=cls._getGromacsDownloadUrl(),
                        commands=[(addC36cmd, 'share/top/charmm36-feb2021.ff'), 
                                  (cMakeCmd, 'build/cMake.log'),
@@ -82,7 +86,7 @@ class Plugin(pwem.Plugin):
 
     @classmethod
     def getGromacsBin(cls, program='gmx'):
-        return join(cls._pluginHome, 'bin/{}'.format(program))
+        return join(cls.getVar(GROMACS_DIC['home']), 'bin/{}'.format(program))
 
     @classmethod  # Test that
     def getEnviron(cls):
@@ -90,11 +94,7 @@ class Plugin(pwem.Plugin):
 
     @classmethod
     def _getGromacsDownloadUrl(cls):
-        return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(GROMACS_DEFAULT_VERSION)
-
-    @classmethod
-    def _getGromacsTar(cls):
-        return cls._pluginHome + '/' + cls._gromacsName + '.tar.gz'
+        return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(GROMACS_DIC['version'])
 
     # ---------------------------------- Utils functions  -----------------------
 

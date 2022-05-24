@@ -25,15 +25,6 @@
 # **************************************************************************
 
 
-GROMACS_HOME = 'GROMACS_HOME'
-
-GROMACS = 'gromacs'
-V2020 = '2020.6'
-V2021 = '2021.5'
-GROMACS_DEFAULT_VERSION = V2021
-
-PYMOL_HOME = 'PYMOL_HOME'
-
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
 ION_NAMES = ['BR', 'CA', 'CL', 'CS', 'CU', 'CU2', 'F', 'I', 'K', 'LI', 'MG', 'NA', 'RB', 'ZN']
