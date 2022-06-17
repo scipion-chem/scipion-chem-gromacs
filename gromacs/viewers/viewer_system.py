@@ -119,8 +119,10 @@ class GromacsSystemPViewer(pwviewer.ProtocolViewer):
       system = self._getGromacsSystem()
 
       outTcl = os.path.join(os.path.dirname(system.getTrajectoryFile()), 'vmdSimulation.tcl')
+      systExt = os.path.splitext(system.getSystemFile())[1][1:]
+      trjExt = os.path.splitext(system.getTrajectoryFile())[1][1:]
       with open(outTcl, 'w') as f:
-        f.write(TCL_MD_STR % (system.getSystemFile(), system.getTrajectoryFile()))
+        f.write(TCL_MD_STR % (system.getSystemFile(), systExt, system.getTrajectoryFile(), trjExt))
       args = '-e {}'.format(outTcl)
 
       return [VmdViewPopen(args)]
@@ -228,9 +230,11 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       _, trjFile = self.getStageFiles(stage)
       system = self._getGromacsSystem()
 
+      systExt = os.path.splitext(system.getSystemFile())[1][1:]
+      trjExt = os.path.splitext(trjFile)[1][1:]
       outTcl = self.protocol._getExtraPath('vmdSimulation.tcl')
       with open(outTcl, 'w') as f:
-        f.write(TCL_MD_STR % (system.getSystemFile(), trjFile))
+        f.write(TCL_MD_STR % (system.getSystemFile(), systExt, trjFile, trjExt))
       args = '-e {}'.format(outTcl)
 
       return [VmdViewPopen(args)]

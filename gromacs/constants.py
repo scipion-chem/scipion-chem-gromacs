@@ -116,8 +116,8 @@ gen_vel                 = {}       ; assign velocities from Maxwell distribution
 
 TCL_MD_STR = '''
 mol addrep 0
-mol new {%s} type {gro} first 0 last -1 step 1 waitfor 1
-mol addfile {%s} type {xtc} first 0 last -1 step 1 waitfor 1 0
+mol new {%s} type {%s} first 0 last -1 step 1 waitfor 1
+mol addfile {%s} type {%s} first 0 last -1 step 1 waitfor 1 0
 
 mol color Name
 mol representation NewCartoon 0.300000 10.000000 4.100000 0

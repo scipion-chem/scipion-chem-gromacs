@@ -30,6 +30,7 @@
 This module will prepare the system for the simumlation
 """
 import os
+import shutil
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
@@ -39,11 +40,14 @@ from gromacs import Plugin as gromacsPlugin
 from gromacs.objects import GromacsSystem
 
 
-class GromacsCleanSystem(EMProtocol):
+class GromacsModifySystem(EMProtocol):
     """
-    This protocol cleans a gromacs system trajectory and/or coordinates from waters and ions
+    This protocol modifies a gromacs system trajectory and/or coordinates:
+        - Cleans from waters and ions
+        - Subsamples trajectory and applies filters
+        - Fits trajectory to initial structure
     """
-    _label = 'system cleaning'
+    _label = 'system modification'
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -55,31 +59,83 @@ class GromacsCleanSystem(EMProtocol):
         form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
                       pointerClass='GromacsSystem',
                       help='Gromacs solvated system to be simulated')
+        group = form.addGroup('Cleaning')
+        group.addParam('cleaning', params.BooleanParam, label="Clean protein?: ", default=False,
+                       help='Remove waters and ions from the system, keeping only the protein')
+        group = form.addGroup('Fitting')
+        group.addParam('doFit', params.BooleanParam, label="Fit trajectory?: ", default=False,
+                       help='Fit trajectory to initial structure')
+        group.addParam('fitting', params.EnumParam, label="Fitting type: ", default=0, condition='doFit',
+                       choices=['rot+trans', 'rotxy+transxy', 'translation', 'transxy', 'progressive'],
+                       help='Fitting technique to the initial structure. '
+                            'https://manual.gromacs.org/documentation/5.1/onlinehelp/gmx-trjconv.html')
+
+        group = form.addGroup('Filtering')
+        group.addParam('subsample', params.BooleanParam, label="Subsample trajectory?: ", default=False,
+                       help='Subsample trajectory frames')
+        group.addParam('subsampleF', params.IntParam, label="Subsample factor: ", default=10, condition='subsample',
+                       help='Subsample factor. Take a frame for each x original frames')
+        group.addParam('filtering', params.BooleanParam, label="Filter trajectory?: ", default=False,
+                       help='Perform filter on trajectory frames', condition='not subsample')
+        group.addParam('filter', params.EnumParam, label="Filter trajectory: ", default=0,
+                       choices=['Low pass', 'High pass'], condition='subsample or filtering',
+                       help='Type of filter to use in the trajectory, needed if subsampled')
 
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        self._insertFunctionStep('cleanSystem')
+        self._insertFunctionStep('modifySystem')
         self._insertFunctionStep('createOutputStep')
 
-    def cleanSystem(self):
-        inputStructure = self.gromacsSystem.get().getFileName()
-        inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
+    def modifySystem(self):
+        inputStructure = os.path.abspath(self.gromacsSystem.get().getFileName())
+        inputTrajectory = os.path.abspath(self.gromacsSystem.get().getTrajectoryFile())
 
-        params_grompp = " make_ndx -f {} -o clean.ndx".format(os.path.abspath(inputStructure))
-        gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'q'],
-                                       args=params_grompp, cwd=self._getPath())
-
-        params_grompp = " editconf -f {} -n clean.ndx -o {}".\
-          format(os.path.abspath(inputStructure), self.getCleanStructureFile())
-        gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'q'],
-                                       args=params_grompp, cwd=self._getPath())
-
-        if inputTrajectory:
-            params_grompp = " trjconv -f {} -n clean.ndx -o {}".\
-              format(os.path.abspath(inputTrajectory), self.getCleanTrajectoryFile())
+        if self.cleaning:
+            params_grompp = " make_ndx -f {} -o clean.ndx".format(os.path.abspath(inputStructure))
             gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'q'],
                                            args=params_grompp, cwd=self._getPath())
+
+            params_grompp = " editconf -f {} -n clean.ndx -o {}".\
+              format(inputStructure, self.getCleanStructureFile())
+            gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'q'],
+                                           args=params_grompp, cwd=self._getPath())
+        else:
+            shutil.copy(inputStructure, self.getCleanStructureFile())
+
+        if inputTrajectory:
+
+            auxTrj = os.path.abspath(self._getExtraPath('cleanTrajectory.xtc'))
+            convArgs = " trjconv -f {} -s {} -o {}". \
+                format(inputTrajectory, self.getCleanStructureFile(), auxTrj)
+            if self.cleaning:
+                convArgs += ' -n clean.ndx'
+            if self.doFit:
+                convArgs += ' -fit {}'.format(self.getEnumText('fitting'))
+            if self.cleaning or self.doFit:
+                gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'Protein'],
+                                               args=convArgs, cwd=self._getPath())
+            else:
+                auxTrj = inputTrajectory
+
+            filterArgs = 'filter -f {}'.format(auxTrj)
+
+            if self.subsample:
+                filterArgs += ' -nf {}'.format(self.subsampleF.get())
+                filterArgs += self.getFilteringArgs(self.getCleanTrajectoryFile(), self.getCleanStructureFile())
+            elif self.filtering:
+                filterArgs += self.getFilteringArgs(self.getCleanTrajectoryFile(), self.getCleanStructureFile())
+
+            if self.subsample or self.filtering:
+                if '-fit' in filterArgs:
+                    gromacsPlugin.runGromacsPrintf(printfValues=['Protein'],
+                                                   args=filterArgs, cwd=self._getPath())
+                else:
+                    gromacsPlugin.runGromacs(self, args=filterArgs, cwd=self._getPath())
+            else:
+                shutil.copy(auxTrj, self.getCleanTrajectoryFile())
+
+
 
     def createOutputStep(self):
       outSystem = GromacsSystem(filename=self.getCleanStructureFile())
@@ -106,9 +162,19 @@ class GromacsCleanSystem(EMProtocol):
 
     def getCleanStructureFile(self):
         inputStructure = self.gromacsSystem.get().getFileName()
-        return os.path.abspath(self._getPath(os.path.basename(inputStructure.split(".")[0])) + '.gro')
+        return os.path.abspath(self._getPath(os.path.basename(inputStructure.split(".")[0])) + '.pdb')
 
     def getCleanTrajectoryFile(self):
         inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
         return os.path.abspath(self._getPath(os.path.basename(inputTrajectory.split(".")[0])) + '.xtc')
 
+    def getFilteringArgs(self, trjFile, strFile=''):
+        if self.getEnumText('filter') == 'Low pass':
+            args = ' -ol {}'.format(trjFile)
+        elif self.getEnumText('filter') == 'High pass':
+            args = ' -oh {} -s {}'.format(trjFile, strFile)
+            if not self.doFit:
+                #Trajectory needs to be fitted when using high pass filtering. If not done previously
+                args += ' -fit'
+                print('Do fitting for high pass filtering')
+        return args

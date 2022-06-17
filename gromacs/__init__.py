@@ -39,7 +39,7 @@ from .objects import *
 class Plugin(pwem.Plugin):
     _homeVar = GROMACS_DIC['home']
     _pathVars = [GROMACS_DIC['home']]
-    _supportedVersions = [V2020]
+    _supportedVersions = [V2020, V2021]
     _gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
 
     @classmethod
@@ -74,7 +74,7 @@ class Plugin(pwem.Plugin):
                        default=True)
 
     @classmethod
-    def runGromacs(cls, protocol, program, args, cwd=None):
+    def runGromacs(cls, protocol, program='gmx', args='', cwd=None):
         """ Run Gromacs command from a given protocol. """
         protocol.runJob(cls.getGromacsBin(program), args, cwd=cwd)
 
@@ -82,6 +82,7 @@ class Plugin(pwem.Plugin):
     def runGromacsPrintf(cls, printfValues, args, cwd):
       """ Run Gromacs command from a given protocol. """
       program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin())
+      print('Running: ', program, args)
       subprocess.check_call(program + args, cwd=cwd, shell=True)
 
     @classmethod

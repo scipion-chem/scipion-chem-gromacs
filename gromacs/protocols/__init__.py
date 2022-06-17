@@ -27,4 +27,4 @@
 
 from .protocol_system_prep import GromacsSystemPrep
 from .protocol_MD_simulation import GromacsMDSimulation
-from .protocol_clean_trajectory import GromacsCleanSystem
+from .protocol_clean_trajectory import GromacsModifySystem
