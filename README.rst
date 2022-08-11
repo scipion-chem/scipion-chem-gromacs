@@ -15,7 +15,7 @@ In order to use this plug-in, you need to have Scipion3 installed (https://scipi
 
 .. code-block::
 
-    scipion3 installp -p path_to_scipion-chem-gromacs --devel
+    scipion3 installp -p path_to_scipion-chem-gromacs --devel -j <numberOfProcessors>
     
 OR
     

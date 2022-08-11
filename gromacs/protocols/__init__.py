@@ -25,9 +25,6 @@
 # *
 # **************************************************************************
 
-from .protocol_energy_minim import GromacsEnergyMinimization
 from .protocol_system_prep import GromacsSystemPrep
-from .protocol_NVT_equilibration import GromacsNVTEquilibration
-from .protocol_NPT_equilibration import GromacsNPTEquilibration
-from .protocol_MD_production import GromacsMDProduction
-from .protocol_analysis import GromacsAnalysis
+from .protocol_MD_simulation import GromacsMDSimulation
+from .protocol_clean_trajectory import GromacsModifySystem
