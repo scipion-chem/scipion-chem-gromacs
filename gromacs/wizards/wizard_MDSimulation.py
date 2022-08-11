@@ -35,9 +35,9 @@ information such as name and number of residues.
 # Imports
 from ..protocols.protocol_MD_simulation import *
 import pyworkflow.wizard as pwizard
-from pwchem.wizards import AddElementWizard, DeleteElementWizard
+from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard
 
-AddElementWizard().addTarget(protocol=GromacsMDSimulation,
+AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
                              targets=['insertStep'],
                              inputs=['insertStep'],
                              outputs=['workFlowSteps', 'summarySteps'])
