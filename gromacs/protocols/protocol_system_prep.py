@@ -154,11 +154,11 @@ class GromacsSystemPrep(EMProtocol):
         line = group.addLine('Box size (nm):',
                              help='Distances of the bounding box (nm)')
         line.addParam('distA', params.FloatParam,
-                      default=10.0, label='A: ')
+                      default=5.0, label='A: ')
         line.addParam('distB', params.FloatParam, condition='boxType == 1 and sizeType == 0',
-                      default=10.0, label='B: ')
+                      default=5.0, label='B: ')
         line.addParam('distC', params.FloatParam, condition='boxType == 1 and sizeType == 0',
-                      default=10.0, label='C: ')
+                      default=5.0, label='C: ')
 
         form.addSection('Force Field')
         group = form.addGroup('Force field')
