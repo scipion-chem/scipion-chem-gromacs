@@ -50,27 +50,27 @@ class Plugin(pwem.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        addC36cmd = 'cd share/top && wget -O charmm36-feb2021.ff.tgz http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz && '
-        addC36cmd += 'tar -xf charmm36-feb2021.ff.tgz'
-        cMakeCmd = 'mkdir build && cd build && '
-        cMakeCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
-                    '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log'.\
+        installationCmd = 'wget -O gromacs-{}.tar.gz --no-check-certificate {} && '. \
+          format(GROMACS_DIC['version'], cls._getGromacsDownloadUrl())
+        installationCmd += 'tar -xf gromacs-{}.tar.gz --strip-components 1 && '.\
+          format(GROMACS_DIC['version'], GROMACS_DIC['version'])
+        installationCmd += 'cd share/top && wget -O charmm36-feb2021.ff.tgz http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz && '
+        installationCmd += 'tar -xf charmm36-feb2021.ff.tgz && cd ../.. && '
+        installationCmd += 'mkdir build && cd build && '
+        installationCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
+                    '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log && '.\
           format(cls.getVar(GROMACS_DIC['home']))
-        makeCmd = 'cd build && make -j {} > make.log && make check > check.log'.format(env.getProcessors())
-        makeInstallCmd = 'cd build && make install > install.log'
+        installationCmd += 'make -j {} > make.log && make check > check.log && '.format(env.getProcessors())
+        installationCmd += 'make install > install.log && '
 
         # Creating validation file
         GROMACS_INSTALLED = '%s_installed' % GROMACS_DIC['name']
-        installationCmd = 'touch %s' % GROMACS_INSTALLED  # Flag installation finished
+        installationCmd += 'cd .. && touch %s' % GROMACS_INSTALLED  # Flag installation finished
 
         env.addPackage(GROMACS_DIC['name'],
                        version=GROMACS_DIC['version'],
-                       url=cls._getGromacsDownloadUrl(),
-                       commands=[(addC36cmd, 'share/top/charmm36-feb2021.ff'), 
-                                 (cMakeCmd, 'build/cMake.log'),
-                                 (makeCmd, 'build/check.log'),
-                                 (makeInstallCmd, 'build/install.log'),
-                                 (installationCmd, GROMACS_INSTALLED)],
+                       tar='void.tgz',
+                       commands=[(installationCmd, GROMACS_INSTALLED)],
                        default=True)
 
     @classmethod
