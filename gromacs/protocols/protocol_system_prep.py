@@ -141,10 +141,9 @@ class GromacsSystemPrep(EMProtocol):
         group = form.addGroup('Boundary box')
         group.addParam('boxType', params.EnumParam,
                        choices=['Cubic', 'Orthorhombic'],
-                       label="Buffer distance to box: ", default=1,
-                       help='This value should be between 1.0 and 1.5 nm. The higher the value, the higher the '
-                            'computational cost. It depends on the force field chosen.' \
-                            'The box is a cube.')
+                       label="Shape of the box: ", default=1,
+                       help='Whether to use a Cubic or a Orthorhombic water box')
+
         group.addParam('sizeType', params.EnumParam,
                        choices=['Absolute', 'Buffer'], display=params.EnumParam.DISPLAY_HLIST,
                        label="System size type: ", default=1,
@@ -152,13 +151,16 @@ class GromacsSystemPrep(EMProtocol):
                             'Buffer: distance from the solute to the edge of the box')
 
         line = group.addLine('Box size (nm):',
-                             help='Distances of the bounding box (nm)')
-        line.addParam('distA', params.FloatParam,
-                      default=5.0, label='A: ')
+                             help='Distances of the bounding box (nm).\nIf cubic a=b=c')
+        line.addParam('distA', params.FloatParam, condition='sizeType == 0',
+                      default=5.0, label='a: ')
         line.addParam('distB', params.FloatParam, condition='boxType == 1 and sizeType == 0',
-                      default=5.0, label='B: ')
+                      default=5.0, label='b: ')
         line.addParam('distC', params.FloatParam, condition='boxType == 1 and sizeType == 0',
-                      default=5.0, label='C: ')
+                      default=5.0, label='c: ')
+
+        line.addParam('padDist', params.FloatParam, condition='sizeType == 1',
+                      default=1.0, label='Buffer distance: ')
 
         form.addSection('Force Field')
         group = form.addGroup('Force field')
@@ -407,7 +409,7 @@ class GromacsSystemPrep(EMProtocol):
 
     def getDistanceArgs(self):
         if self.sizeType.get() == 1:
-            distArg = ' -d {}'.format(self.distA.get())
+            distArg = ' -d {}'.format(self.padDist.get())
         else:
             if self.boxType.get() == 1:
                 distArg = ' -box {} {} {}'.format(self.distA.get(), self.distB.get(), self.distC.get())
