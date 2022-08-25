@@ -41,6 +41,7 @@ from gromacs.objects import *
 from gromacs.constants import *
 from gromacs import Plugin as gromacsPlugin
 
+from multiprocessing import cpu_count
 
 class GromacsMDSimulation(EMProtocol):
     """
@@ -75,6 +76,8 @@ class GromacsMDSimulation(EMProtocol):
 
         """ Define the input parameters that will be used.
         """
+        cpus = cpu_count()//2 # don't use everything
+        form.addParallelSection(threads=cpus, mpi=0)
 
         form.addSection(label=Message.LABEL_INPUT)
         form.addHidden(params.USE_GPU, params.BooleanParam,
@@ -444,7 +447,8 @@ class GromacsMDSimulation(EMProtocol):
         if getattr(self, params.USE_GPU):
             gpuStr = ' -nb gpu'
 
-        command = 'mdrun -v -deffnm {} {}'.format(stage, gpuStr)
+        command = 'mdrun -v -deffnm {}{} -nt {} -pin on'.format(stage, gpuStr,
+                                                                self.numberOfThreads.get())
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
         if not saveTrj:
             trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
