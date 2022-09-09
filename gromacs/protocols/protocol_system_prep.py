@@ -229,7 +229,7 @@ class GromacsSystemPrep(EMProtocol):
         params = ' pdb2gmx -f %s ' \
                  '-o %s_processed.gro ' \
                  '-water %s ' \
-                 '-ff %s ' % (inputStructure, systemBasename, Waterff, Mainff)
+                 '-ff %s -merge all' % (inputStructure, systemBasename, Waterff, Mainff)
         try:
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
         except:
