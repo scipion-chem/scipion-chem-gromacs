@@ -175,7 +175,7 @@ class GromacsSystemPrep(EMProtocol):
                        help='Force field applied to the waters')
 
         group = form.addGroup('Ions')
-        group.addParam('placeIons', params.EnumParam, default=0,
+        group.addParam('placeIons', params.EnumParam, default=1,
                        label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
                        help='Whether to add ions to the system.'
                             'https://manual.gromacs.org/documentation/2021.5/onlinehelp/gmx-genion.html')
@@ -183,7 +183,7 @@ class GromacsSystemPrep(EMProtocol):
         line = group.addLine('Cation type:', condition='placeIons!=0',
                              help='Type of the cations to add')
         line.addParam('cationType', params.EnumParam, condition='placeIons!=0',
-                      label='Cation to add: ', choices=self._cations, default=0,
+                      label='Cation to add: ', choices=self._cations, default=7,
                       help='Which anion to add in the system')
         line.addParam('cationNum', params.IntParam, condition='placeIons==2',
                       label='Number of cations to add: ',
@@ -192,7 +192,7 @@ class GromacsSystemPrep(EMProtocol):
         line = group.addLine('Anion type:', condition='placeIons!=0',
                              help='Type of the anions to add')
         line.addParam('anionType', params.EnumParam, condition='placeIons!=0',
-                      label='Anions to add: ', choices=self._anions, default=0,
+                      label='Anions to add: ', choices=self._anions, default=1,
                       help='Which anion to add in the system')
         line.addParam('anionNum', params.IntParam, condition='placeIons==2',
                       label='Number of anions to add: ',
