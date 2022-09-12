@@ -151,7 +151,8 @@ class GromacsSystemPrep(EMProtocol):
                             'Buffer: distance from the solute to the edge of the box')
 
         line = group.addLine('Box size (nm):',
-                             help='Distances of the bounding box (nm).\nIf cubic a=b=c')
+                             help='Distances of the bounding box (nm).\nIf cubic: a=b=c\n'
+                                  'If Orthorhombic: bc=ac=ab=90º')
         line.addParam('distA', params.FloatParam, condition='sizeType == 0',
                       default=5.0, label='a: ')
         line.addParam('distB', params.FloatParam, condition='boxType == 1 and sizeType == 0',
@@ -362,7 +363,7 @@ class GromacsSystemPrep(EMProtocol):
             methods.append("This protocol takes a clean pdb file and it uses the "
                            "GROMACS software in order to transform the file into a gromacs format while applying to it "
                            'the force fields for the system and the water molecules. To do so, it calls "gmx pdb2gmx".'
-                           'It produces a position restrain file, a topology file and a post-processed structure '
+                           'It produces a position restraint file, a topology file and a post-processed structure '
                            'gromacs file.\nThe the protocol runs "gmx editconf" in order to introduce a box from the '
                            'determined size and it runs "gmx solvate" to put water molecules in the box.\nThen the '
                            'command "gmx grompp" is needed to create a tpr file for the command "gmx genion" which will'

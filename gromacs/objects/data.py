@@ -36,7 +36,7 @@ from gromacs.constants import *
 class GromacsSystem(MDSystem):
     """A system atom structure (prepared for MD) in the file format of GROMACS
     _topoFile: topology file .top
-    _restrFile: default position restrains file .itp
+    _restrFile: default position restraints file .itp
     _trjFile: trajectory file (xtc)
     _ff: main force field
     _wff: water force field model"""
@@ -45,20 +45,20 @@ class GromacsSystem(MDSystem):
         super().__init__(filename=filename, **kwargs)
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
 
-    def getRestrainsFile(self):
+    def getRestraintsFile(self):
         return self._restrFile.get()
 
-    def setRestrainsFile(self, value):
+    def setRestraintsFile(self, value):
         self._restrFile.set(value)
 
-    def defineNewRestriction(self, energy, restrainSuffix='low', outDir=None):
+    def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None):
         '''Define a new position restriction and stores it in the topology file'''
         from gromacs import Plugin as gromacsPlugin
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
-        program = os.path.join("", 'printf "2" | {} '.format(gromacsPlugin.getGromacsBin()))
+        program = os.path.join("", 'printf "{}" | {} '.format(index, gromacsPlugin.getGromacsBin()))
         params_genrestr = 'genrestr -f %s -o %s.itp -fc %d %d %d' % \
                           (os.path.abspath(self.getSystemFile()),
-                           'posre_' + restrainSuffix.lower(), energy, energy, energy)
+                           'posre_' + restraintSuffix.lower(), energy, energy, energy)
         check_call(program + params_genrestr, cwd=outDir, shell=True)
 
         topFile = self.getTopologyFile()
@@ -69,7 +69,7 @@ class GromacsSystem(MDSystem):
 
         program = "sed "
         inStr = '#ifdef POSRES_{}\\n#include "posre_{}.itp"\\n#endif'.\
-            format(restrainSuffix.upper(), restrainSuffix.lower())
+            format(restraintSuffix.upper(), restraintSuffix.lower())
         sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
             format(inStr, os.path.abspath(topFile))
         check_call(program + sed_params, cwd=outDir, shell=True)
