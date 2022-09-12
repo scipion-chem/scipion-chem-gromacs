@@ -55,16 +55,16 @@ class GromacsMDSimulation(EMProtocol):
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman']
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
-    _restrainTypes = ['None', 'System', 'Protein', 'Protein-H', 'MainChain', 'BackBone', 'C-alpha']
+    _restraintTypes = ['None', 'Protein', 'Protein-H', 'MainChain', 'BackBone', 'C-alpha']
 
     _paramNames = ['simTime', 'timeStep', 'timeNeigh', 'saveTrj', 'trajInterval', 'temperature', 'tempRelaxCons',
-                   'tempCouple', 'pressure', 'presRelaxCons', 'presCouple', 'restrainForce']
-    _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat', 'restrains']
+                   'tempCouple', 'pressure', 'presRelaxCons', 'presCouple', 'restraintForce']
+    _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat', 'restraints']
     _defParams = {'simTime': 100, 'timeStep': 0.002, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
                   'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'md',
-                  'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,'restrainForce': 50.0,
+                  'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,'restraintForce': 50.0,
                   'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman',
-                  'restrains': 'None'}
+                  'restraints': 'None'}
 
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
@@ -160,13 +160,13 @@ class GromacsMDSimulation(EMProtocol):
         #               label='Pressure coupling style: ', choices=self._coupleStyle,
         #               expertLevel=params.LEVEL_ADVANCED)
 
-        group = form.addGroup('Restrains')
-        group.addParam('restrains', params.EnumParam, default=0,
-                       label='Restrains: ', choices=self._restrainTypes,
-                       help='Restrain movement of specific groups of atoms')
-        group.addParam('restrainForce', params.FloatParam, default=50,
-                       label='Restrain force constant: ', condition='restrains!=0',
-                       help='Restrain force applied to the selection (kcal/mol/Å2)')
+        group = form.addGroup('Restraints')
+        group.addParam('restraints', params.EnumParam, default=0,
+                       label='Restraints: ', choices=self._restraintTypes,
+                       help='Restraint movement of specific groups of atoms')
+        group.addParam('restraintForce', params.FloatParam, default=50,
+                       label='Restraint force constant: ', condition='restraints!=0',
+                       help='Restraint force applied to the selection (kcal/mol/Å2)')
 
         group = form.addGroup('Summary')
         group.addParam('insertStep', params.StringParam, default='',
@@ -249,8 +249,8 @@ class GromacsMDSimulation(EMProtocol):
                     sumStr += '{}) Sim. time ({}): {} ps, {} ensemble'.\
                       format(i+1, msjDic['integrator'], msjDic['simTime'], ensemType)
 
-                    if msjDic['restrains'] != 'None':
-                        sumStr += ', restrain on {}'.format(msjDic['restrains'])
+                    if msjDic['restraints'] != 'None':
+                        sumStr += ', restraint on {}'.format(msjDic['restraints'])
                     sumStr += ', {} K\n'.format(msjDic['temperature'])
         else:
             msjDic = self.addDefaultForMissing(msjDic)
@@ -258,8 +258,8 @@ class GromacsMDSimulation(EMProtocol):
             sumStr += 'Sim. time ({}): {} ps, {} ensemble'. \
               format(msjDic['simTime'], msjDic['integrator'], ensemType, method)
 
-            if msjDic['restrains'] != 'None':
-              sumStr += ', restrain on {}'.format(msjDic['restrains'])
+            if msjDic['restraints'] != 'None':
+              sumStr += ', restraint on {}'.format(msjDic['restraints'])
             sumStr += ', {} K\n'.format(msjDic['temperature'])
         return sumStr
 
@@ -359,11 +359,11 @@ class GromacsMDSimulation(EMProtocol):
         os.mkdir(stageDir)
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
 
-        restr = msjDic['restrains']
+        restr = msjDic['restraints']
         if restr != 'None':
-            rSuffix = msjDic['restrains'] + '_stg%s' % mdpStage
-            self.gromacsSystem.get().defineNewRestriction(energy=msjDic['restrainForce'],
-                                                          restrainSuffix=rSuffix, outDir=stageDir)
+            rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
+            self.gromacsSystem.get().defineNewRestriction(index=msjDic['restraints'], energy=msjDic['restraintForce'],
+                                                          restraintSuffix=rSuffix, outDir=stageDir)
             restrStr = RESTR_STR.format(rSuffix.upper())
         else:
             restrStr = ''
