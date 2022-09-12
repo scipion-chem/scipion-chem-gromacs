@@ -91,7 +91,7 @@ class GromacsMDSimulation(EMProtocol):
         form.addHidden(params.GPU_LIST, params.StringParam, default='0',
                        expertLevel=params.LEVEL_ADVANCED,
                        label="Choose GPU IDs",
-                       help="Add a list of GPU devices that can be used")
+                       help="Add a list of GPU devices that can be used (Comma separated)")
 
         form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
                       pointerClass='GromacsSystem',
@@ -445,7 +445,8 @@ class GromacsMDSimulation(EMProtocol):
         stage = os.path.split(stageDir)[-1]
         gpuStr = ''
         if getattr(self, params.USE_GPU):
-            gpuStr = ' -nb gpu -gpu_id {}'.format(getattr(self, params.GPU_LIST))
+            gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
+            gpuStr = ' -nb gpu -gpu_id {}'.format(gpuList)
 
         command = 'mdrun -v -deffnm {}{} -nt {} -pin on'.format(stage, gpuStr,
                                                                 self.numberOfThreads.get())
