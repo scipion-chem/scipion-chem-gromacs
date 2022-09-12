@@ -359,9 +359,14 @@ class GromacsMDSimulation(EMProtocol):
         restr = msjDic['restrains']
         if restr != 'None':
             rSuffix = msjDic['restrains'] + '_stg%s' % mdpStage
-            self.gromacsSystem.get().defineNewRestriction(energy=msjDic['restrainForce'],
-                                                          restrainSuffix=rSuffix, outDir=stageDir)
-            restrStr = RESTR_STR.format(rSuffix.upper())
+            newSuffixes = self.gromacsSystem.get().defineNewRestrictionWrapper(energy=msjDic['restrainForce'],
+                                                                 restrainSuffix=rSuffix, 
+                                                                 outDir=stageDir)
+            for i, newSuffix in enumerate(newSuffixes):
+                if i == 0:
+                    restrStr = RESTR_STR.format(newSuffix.upper())
+                else:
+                    restrStr += ' -DPOSRES_' + newSuffix.upper()
         else:
             restrStr = ''
 
