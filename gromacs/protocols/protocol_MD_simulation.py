@@ -98,6 +98,11 @@ class GromacsMDSimulation(EMProtocol):
         form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
                       pointerClass='GromacsSystem',
                       help='Gromacs solvated system to be simulated')
+        form.addParam('prevTrj', params.BooleanParam, default=False,
+                      label="Concatenate with previous trajectory: ", expertLevel=params.LEVEL_ADVANCED,
+                      help='Include the trajectory stored in the input system (if found). \n'
+                           'It will only be included if all the stages in this protocol have their trajectories saved,'
+                           ' for the sake of continuity')
 
         group = form.addGroup('Trajectory')
         group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
@@ -226,13 +231,18 @@ class GromacsMDSimulation(EMProtocol):
 
     def createOutputStep(self):
         lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
+        if self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
+            oriGroFile = self.gromacsSystem.get().getOriStructFile()
+        else:
+            oriGroFile = self.gromacsSystem.get().getSystemFile()
+
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile)
         shutil.copyfile(lastTopoFile, localTopFile)
 
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=localGroFile)
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile)
         outSystem.setTopologyFile(localTopFile)
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
@@ -524,6 +534,16 @@ class GromacsMDSimulation(EMProtocol):
                   cont = True
             if not cont:
                 break
+
+        #Add previous trajectory if all stages in this protocol saved their trajectory (continuity)
+        if len(trjFiles) == len(stagesDirs) and self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
+            prevTrjFile = os.path.abspath(self.gromacsSystem.get().getTrajectoryFile())
+            conTrjFile = os.path.abspath(self._getTmpPath('previousTrajectory.trr'))
+
+            command = 'trjconv -f {} -o {}'.format(prevTrjFile, conTrjFile)
+            gromacsPlugin.runGromacs(self, 'gmx', command, cwd=self._getPath())
+
+            trjFiles.append(conTrjFile)
 
         trjFiles.reverse()
         return trjFiles

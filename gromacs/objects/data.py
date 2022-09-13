@@ -43,7 +43,14 @@ class GromacsSystem(MDSystem):
 
     def __init__(self, filename=None, **kwargs):
         super().__init__(filename=filename, **kwargs)
+        self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
+
+    def getOriStructFile(self):
+        return self._oriStructFile.get()
+
+    def setOriStructFile(self, value):
+        self._oriStructFile.set(value)
 
     def getRestraintsFile(self):
         return self._restrFile.get()

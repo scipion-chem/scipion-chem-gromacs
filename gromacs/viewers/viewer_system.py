@@ -283,8 +283,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if os.path.exists(oPath):
         os.remove(oPath)
 
-      tprFile, trjFile = self.getStageFiles(stage)
-      args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(tprFile),
+      groFile, trjFile = self.getStageFiles(stage)
+      args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(groFile),
                                                 os.path.abspath(trjFile), oFile)
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('RMSD'),
                                      args=args, cwd=oDir)
@@ -297,8 +297,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if os.path.exists(oPath):
         os.remove(oPath)
 
-      tprFile, trjFile = self.getStageFiles(stage)
-      args = ' rmsf -s %s -f %s -o %s' % (os.path.abspath(tprFile), os.path.abspath(trjFile), oFile)
+      groFile, trjFile = self.getStageFiles(stage)
+      args = ' rmsf -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.aveRes.get():
         args += ' -res'
 
@@ -313,8 +313,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if os.path.exists(oPath):
         os.remove(oPath)
 
-      tprFile, trjFile = self.getStageFiles(stage)
-      args = ' gyrate -s %s -f %s -o %s' % (os.path.abspath(tprFile), os.path.abspath(trjFile), oFile)
+      groFile, trjFile = self.getStageFiles(stage)
+      args = ' gyrate -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Gyration'),
                                      args=args, cwd=oDir)
       return oPath
@@ -329,8 +329,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if os.path.exists(oPath):
         os.remove(oPath)
 
-      tprFile, trjFile = self.getStageFiles(stage)
-      args = ' sasa -s %s -f %s %s %s -tu ns' % (os.path.abspath(tprFile), os.path.abspath(trjFile),
+      groFile, trjFile = self.getStageFiles(stage)
+      args = ' sasa -s %s -f %s %s %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile),
                                                  outOptions[self.sasaOut.get()], oFile)
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('SASA'),
                                      args=args, cwd=oDir)
@@ -346,8 +346,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if os.path.exists(oPath):
         os.remove(oPath)
 
-      tprFile, trjFile = self.getStageFiles(stage)
-      args = ' hbond -s %s -f %s %s %s' % (os.path.abspath(tprFile), os.path.abspath(trjFile),
+      groFile, trjFile = self.getStageFiles(stage)
+      args = ' hbond -s %s -f %s %s %s' % (os.path.abspath(groFile), os.path.abspath(trjFile),
                                            outOptions[self.hbondOut.get()], oFile)
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('HBond'),
                                      args=args, cwd=oDir)
@@ -364,9 +364,9 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         if os.path.exists(oPath):
           os.remove(oPath)
 
-      tprFile, trjFile = self.getStageFiles(stage)
+      groFile, trjFile = self.getStageFiles(stage)
       args = ' cluster -s %s -f %s -cl %s -g %s -method %s -cutoff %s' % \
-             (os.path.abspath(tprFile), os.path.abspath(trjFile), oFiles[0], oFiles[1],
+             (os.path.abspath(groFile), os.path.abspath(trjFile), oFiles[0], oFiles[1],
               self.getEnumText('clustMethod').lower(), self.clustCutoff.get())
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Clustering'),
                                      args=args, cwd=oDir)
@@ -392,14 +392,14 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
     def getStageFiles(self, stage):
       if stage == 'All':
-        _, _, tprFile = self.protocol.getPrevFinishedStageFiles(reverse=True)
-        trjFile = self.protocol._getPath('outputTrajectory.xtc')
+        system = self._getGromacsSystem()
+        groFile, trjFile = system.getOriStructFile(), system.getTrajectoryFile()
       else:
-        _, _, tprFile = self.protocol.getPrevFinishedStageFiles(stage)
+        groFile, _, _ = self.protocol.getPrevFinishedStageFiles(stage)
         trjFile = self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
         if not os.path.exists(trjFile):
           trjFile = self.correctTrj(stage)
-      return tprFile, trjFile
+      return groFile, trjFile
 
     def splitPDBModels(self, combinedPDBFile):
       outFiles = []
