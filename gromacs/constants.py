@@ -32,7 +32,7 @@ ION_NAMES = ['BR', 'CA', 'CL', 'CS', 'CU', 'CU2', 'F', 'I', 'K', 'LI', 'MG', 'NA
 ###################################### MDP GENERATION #####################################
 RESTR_STR = '''define = -DPOSRES_{}'''
 
-TSTEP_EM = '''emtol = 1000.0        ; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
+TSTEP_EM = '''emtol = {}        ; Stop minimization when the maximum force < x kJ/mol/nm
 emstep = {}          ; Minimization step size'''
 
 TSTEP_EQ = '''dt = {}     ; Time Steps Size (ps)'''
