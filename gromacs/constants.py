@@ -41,7 +41,6 @@ DISP_CORR = '''DispCorr        = EnerPres  ; account for cut-off vdW scheme'''
 
 OUTPUT_CONTROL = '''nstxout                 = {}       ; save coordinates every x * tStep ps
 nstvout                 = {}       ; save velocities every x * tStep ps
-nstenergy               = {}       ; save energies every x * tStep ps
 nstlog                  = {}       ; update log file every x * tStep ps'''
 
 BONDED_PARAMS = '''continuation            = {}       ; Restarting after another simulation 
