@@ -46,6 +46,53 @@ class GromacsSystem(MDSystem):
         self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
 
+        self._firstFrame = pwobj.Integer(kwargs.get('firstFrame', None))
+        self._lastFrame = pwobj.Integer(kwargs.get('lastFrame', None))
+
+        self._firstTime = pwobj.Float(kwargs.get('firstTime', None))
+        self._lastTime = pwobj.Float(kwargs.get('lastTime', None))
+
+    def __str__(self):
+        strStr = '{} ({}'.format(self.getClassName(), os.path.basename(self.getSystemFile()))
+        if self.hasTrajectory():
+            strStr += ', frames: {} - {}, time(ps): {} - {}'.format(*self.getFrameIdxs(), *self.getTimes())
+        strStr += ')'
+        return strStr
+
+    def getFrameIdxs(self):
+        return self._firstFrame, self._lastFrame
+    def setFrameIdxs(self, values):
+        self._firstFrame.set(values[0]), self._lastFrame.set(values[1])
+
+    def getTimes(self):
+        return self._firstTime, self._lastTime
+    def setTimes(self, values):
+        self._firstTime.set(values[0]), self._lastTime.set(values[1])
+
+    def readTrjInfo(self, protocol, outDir=None):
+        from gromacs import Plugin as gromacsPlugin
+        outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
+        infoFile = os.path.abspath(protocol._getPath('logs/run.stderr'))
+
+        command = 'check -f {}'.format(self.getTrajectoryFile())
+        gromacsPlugin.runGromacs(protocol, 'gmx', command, cwd=outDir)
+
+        isCheck, isFirst = True, True
+        with open(infoFile) as f:
+          for line in f:
+              if isCheck:
+                  if line.strip() == 'gmx ' + command:
+                      isCheck = False
+              else:
+                  if isFirst and line.startswith('Reading frame'):
+                      isFirst = False
+                      firstFrame, firstTime = int(line.split()[2]), float(line.split()[4])
+                  elif not isFirst and line.startswith('Last frame'):
+                      lastFrame, lastTime = int(line.split()[2]), float(line.split()[4])
+
+        self.setTimes([firstTime, lastTime])
+        self.setFrameIdxs([firstFrame, lastFrame])
+
     def getOriStructFile(self):
         return self._oriStructFile.get()
 

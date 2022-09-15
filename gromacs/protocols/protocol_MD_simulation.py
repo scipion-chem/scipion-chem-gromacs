@@ -103,16 +103,13 @@ class GromacsMDSimulation(EMProtocol):
                       help='Include the trajectory stored in the input system (if found). \n'
                            'It will only be included if all the stages in this protocol have their trajectories saved,'
                            ' for the sake of continuity')
-
-        group = form.addGroup('Trajectory')
-        group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
-                       label="Save trajectory: ",
-                       help='Save trajectory of the atoms during stage simulation.'
-                            'The output will concatenate those trajectories which appear after the last stage '
-                            'where the trajectory was not saved.')
-        group.addParam('trajInterval', params.FloatParam, default=self._defParams['trajInterval'],
-                       label='Interval time (ps):', condition='saveTrj',
-                       help='Time between each frame recorded in the simulation (ps)')
+        form.addParam('cptTime', params.FloatParam, default=15,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label='Checkpoint time (min):',
+                      help='Time of execution for saving a checkpoint. Checkpoints allow the simulation to be continued'
+                           ' from that moment, instead of restarting from the start. \nIn scipion, the simulation will'
+                           'be continued from the checkpoint if the option "Continue" is chosen after the protocol was'
+                           'stopped for any reason')
 
         group = form.addGroup('Ensemble')
         group.addParam('ensemType', params.EnumParam,
@@ -152,6 +149,16 @@ class GromacsMDSimulation(EMProtocol):
         #group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
         #               label='Pressure coupling style: ', choices=self._coupleStyle,
         #               expertLevel=params.LEVEL_ADVANCED)
+
+        group = form.addGroup('Trajectory')
+        group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
+                       label="Save trajectory: ", condition='ensemType!=0',
+                       help='Save trajectory of the atoms during stage simulation.'
+                            'The output will concatenate those trajectories which appear after the last stage '
+                            'where the trajectory was not saved.')
+        group.addParam('trajInterval', params.FloatParam, default=self._defParams['trajInterval'],
+                       label='Interval time (ps):', condition='ensemType!=0 and saveTrj',
+                       help='Time between each frame recorded in the simulation (ps)')
 
         group = form.addGroup('Simulation time')
         group.addParam('simTime', params.FloatParam, default=100,
@@ -224,9 +231,10 @@ class GromacsMDSimulation(EMProtocol):
           msjDic = self.createMSJDic()
       else:
           msjDic = eval(wStep)
-      mdpFile = self.generateMDPFile(msjDic, str(i))
 
+      mdpFile = self.generateMDPFile(msjDic, str(i))
       tprFile = self.callGROMPP(mdpFile)
+
       self.callMDRun(tprFile, saveTrj=msjDic['saveTrj'])
 
     def createOutputStep(self):
@@ -246,6 +254,7 @@ class GromacsMDSimulation(EMProtocol):
         outSystem.setTopologyFile(localTopFile)
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
+            outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
 
         self._defineOutputs(outputSystem=outSystem)
 
@@ -384,8 +393,11 @@ class GromacsMDSimulation(EMProtocol):
 
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
-        os.mkdir(stageDir)
+        if not os.path.exists(stageDir):
+            os.mkdir(stageDir)
+
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
+        if os.path.exists(mdpFile): return mdpFile
 
         restr = msjDic['restraints']
         if restr != 'None':
@@ -435,9 +447,10 @@ class GromacsMDSimulation(EMProtocol):
             nTrj = round(msjDic['trajInterval'] / tSteps)
 
         if msjDic['saveTrj']:
-            outControlStr = OUTPUT_CONTROL.format(*[nTrj]*4)
+            outControlStr = OUTPUT_CONTROL.format(*[nTrj]*3)
+            print('Number of frames: ', nSteps/nTrj)
         else:
-            outControlStr = OUTPUT_CONTROL.format(*[0]*3, nTrj)
+            outControlStr = OUTPUT_CONTROL.format(*[0]*2, nTrj)
 
         title = 'Stage {}: {}, {} ps'.format(mdpStage, msjDic['ensemType'], msjDic['simTime'])
         mdpStr = MDP_STR.format(restrStr, integStr, nSteps, tStepsStr, neighlist, dispCorrStr, outControlStr,
@@ -452,8 +465,11 @@ class GromacsMDSimulation(EMProtocol):
         stageDir = os.path.dirname(mdpFile)
         stage = os.path.split(stageDir)[-1]
         stageNum = stage.replace('stage_', '').strip()
-        groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
         outFile = '{}.tpr'.format(stage)
+        tprFile = os.path.join(stageDir, outFile)
+        if os.path.exists(tprFile): return tprFile
+        groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
+
 
         if self.checkIfPrevTrj(stageNum):
             prevTrjStr = '-t ' + os.path.abspath(self.checkIfPrevTrj(stageNum))
@@ -469,7 +485,7 @@ class GromacsMDSimulation(EMProtocol):
         if nWarns >= 1:
             command += ' -maxwarn {}'.format(nWarns)
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
-        return os.path.join(stageDir, outFile)
+        return tprFile
 
     def callMDRun(self, tprFile, saveTrj=True):
         stageDir = os.path.dirname(tprFile)
@@ -479,8 +495,9 @@ class GromacsMDSimulation(EMProtocol):
             gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
             gpuStr = ' -gpu_id {}'.format(gpuList)
 
-        command = 'mdrun -v -deffnm {}{} -nt {} -pin on'.format(stage, gpuStr,
-                                                                self.numberOfThreads.get())
+        command = 'mdrun -v -deffnm {}{} -nt {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
+                                                                             self.cptTime.get())
+
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
         trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
         if not saveTrj and os.path.exists(trjFile):
@@ -553,7 +570,7 @@ class GromacsMDSimulation(EMProtocol):
         if len(trjFiles) > 0:
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
             #Concatenates trajectory
-            command = 'trjcat -f {} -settime -o {}'.format(' '.join(trjFiles), tmpTrj)
+            command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
             gromacsPlugin.runGromacsPrintf(printfValues=['c'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             #Fixes and center trajectory
@@ -561,7 +578,7 @@ class GromacsMDSimulation(EMProtocol):
               format(os.path.abspath(tprFile), tmpTrj, outTrj)
             gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'System'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
-            return self._getPath(outTrj)
+            return os.path.abspath(self._getPath(outTrj))
         return None
 
     def countWarns(self, stageNum):
