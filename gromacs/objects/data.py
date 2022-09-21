@@ -81,7 +81,7 @@ class GromacsSystem(MDSystem):
         with open(infoFile) as f:
           for line in f:
               if isCheck:
-                  if line.strip() == 'gmx ' + command:
+                  if 'gmx check -f' in line:
                       isCheck = False
               else:
                   if isFirst and line.startswith('Reading frame'):

@@ -150,7 +150,7 @@ class GromacsMDSimulation(EMProtocol):
         #               label='Pressure coupling style: ', choices=self._coupleStyle,
         #               expertLevel=params.LEVEL_ADVANCED)
 
-        group = form.addGroup('Trajectory')
+        group = form.addGroup('Trajectory', condition='ensemType!=0')
         group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
                        label="Save trajectory: ", condition='ensemType!=0',
                        help='Save trajectory of the atoms during stage simulation.'
@@ -234,8 +234,9 @@ class GromacsMDSimulation(EMProtocol):
 
       mdpFile = self.generateMDPFile(msjDic, str(i))
       tprFile = self.callGROMPP(mdpFile)
+      saveTrj = msjDic['saveTrj'] if msjDic['ensemType'] != 'Energy min' else False
 
-      self.callMDRun(tprFile, saveTrj=msjDic['saveTrj'])
+      self.callMDRun(tprFile, saveTrj=saveTrj)
 
     def createOutputStep(self):
         lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
@@ -500,7 +501,7 @@ class GromacsMDSimulation(EMProtocol):
 
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
         trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
-        if not saveTrj and os.path.exists(trjFile):
+        if os.path.exists(trjFile) and not saveTrj:
             os.remove(trjFile)
 
     def getPrevFinishedStageFiles(self, stage=None, reverse=False):
