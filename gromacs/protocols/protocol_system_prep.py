@@ -234,6 +234,7 @@ class GromacsSystemPrep(EMProtocol):
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
         except:
             print('Conversion to gro failed, trying to convert it ignoring the current hydrogens')
+            os.remove(self._getPath('topol.top'))
             params += ' -ignh'
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
