@@ -446,7 +446,7 @@ class GromacsMDSimulation(EMProtocol):
         gpuStr = ''
         if getattr(self, params.USE_GPU):
             gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
-            gpuStr = ' -nb gpu -gpu_id {}'.format(gpuList)
+            gpuStr = ' -gpu_id {}'.format(gpuList)
 
         command = 'mdrun -v -deffnm {}{} -nt {} -pin on'.format(stage, gpuStr,
                                                                 self.numberOfThreads.get())
