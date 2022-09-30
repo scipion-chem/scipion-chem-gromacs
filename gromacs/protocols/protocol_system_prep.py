@@ -35,6 +35,7 @@ from os.path import abspath, relpath
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
 from pwem.protocols import EMProtocol
+from pwem.convert import AtomicStructHandler
 
 from pwchem.utils import runOpenBabel
 
@@ -230,6 +231,7 @@ class GromacsSystemPrep(EMProtocol):
                  '-o %s_processed.gro ' \
                  '-water %s ' \
                  '-ff %s -merge all' % (inputStructure, systemBasename, Waterff, Mainff)
+        # todo: managing several chains (restrictions, topologies...) instead of merging them
         try:
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
         except:
@@ -311,9 +313,11 @@ class GromacsSystemPrep(EMProtocol):
         gro_localPath = relpath(abspath(self._getPath(gro_baseName)))
         posre_localPath = relpath(abspath(self._getPath(posre_baseName)))
 
+        chainNames = ','.join(self.getModelChains())
+
         gro_files = grobj.GromacsSystem(filename=gro_localPath, topoFile=topol_localPath,
-                                        restrFile=posre_localPath, ff=self.getEnumText('mainForceField'),
-                                        wff=self.getEnumText('waterForceField'))
+                                        restrFile=posre_localPath, chainNames=chainNames,
+                                        ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
 
         self._defineOutputs(outputSystem=gro_files)
         self._defineSourceRelation(self.inputStructure, gro_files)
@@ -419,3 +423,13 @@ class GromacsSystemPrep(EMProtocol):
                 distArg = ' -box {}'.format(self.distA.get())
         return distArg
 
+    def getModelChains(self):
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        if not inputStructure.endswith('.pdb'):
+          inputStructure = self.convertReceptor2PDB(inputStructure)
+
+        structureHandler = AtomicStructHandler()
+        structureHandler.read(inputStructure)
+        structureHandler.getStructure()
+        chains, _ = structureHandler.getModelsChains()
+        return list(chains[0].keys())

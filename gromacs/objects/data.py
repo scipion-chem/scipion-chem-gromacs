@@ -47,6 +47,8 @@ class GromacsSystem(MDSystem):
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
         self._tprFile = pwobj.String(kwargs.get('tprFile', None))
 
+        self._chainNames = pwobj.String(kwargs.get('chainNames', None))
+
         self._firstFrame = pwobj.Integer(kwargs.get('firstFrame', None))
         self._lastFrame = pwobj.Integer(kwargs.get('lastFrame', None))
 
@@ -59,6 +61,14 @@ class GromacsSystem(MDSystem):
             strStr += ', frames: {} - {}, time(ps): {} - {}'.format(*self.getFrameIdxs(), *self.getTimes())
         strStr += ')'
         return strStr
+
+    def getChainNames(self):
+        return self._chainNames.get().split(',')
+    def setChainNames(self, values):
+        if type(values) == str:
+            self._chainNames.set(values)
+        elif type(values) in [list, tuple]:
+            self._chainNames.set(','.join(values))
 
     def getFrameIdxs(self):
         return self._firstFrame, self._lastFrame
