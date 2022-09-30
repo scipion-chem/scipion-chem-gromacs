@@ -258,29 +258,30 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         # try:
         #     subprocess.Popen('xmrgrace ' + anFile, shell=True)
         # except:
-            xs, ys = [], []
-            with open(anFile) as f:
-              for line in f:
-                  if line.startswith('@'):
-                      if line.split()[1] == 'title':
-                          title = line.split('"')[-2]
-                      elif line.split()[1] == 'xaxis':
-                          xlabel = line.split('"')[-2]
-                      elif line.split()[1] == 'yaxis':
-                          ylabel = line.split('"')[-2]
-                  elif not line.startswith('#'):
-                      xi = float(line.split()[0])
-                      try:
-                          int(xi)
-                      except:
-                          pass
-                      xs.append(xi)
-                      ys.append(float(line.split()[1]))
-            print('Plotteando')
-            self.plotter = EmPlotter(x=1, y=1, windowTitle='Gromacs trajectory analysis')
-            a = self.plotter.createSubPlot(title, xlabel, ylabel)
-            self.plotter.plotData(xs, ys, '-')
-            self.plotter.show()
+        xs, ys = [[]], [[]]
+        prevX = 0
+        with open(anFile) as f:
+          for line in f:
+              if line.startswith('@'):
+                  if line.split()[1] == 'title':
+                      title = line.split('"')[-2]
+                  elif line.split()[1] == 'xaxis':
+                      xlabel = line.split('"')[-2]
+                  elif line.split()[1] == 'yaxis':
+                      ylabel = line.split('"')[-2]
+              elif not line.startswith('#'):
+                  xi = self.str2num(line.split()[0])
+                  if prevX > xi:
+                      xs.append([]), ys.append([])
+                  xs[-1].append(xi)
+                  ys[-1].append(float(line.split()[1]))
+                  prevX = xi
+
+        self.plotter = EmPlotter(x=1, y=1, windowTitle='Gromacs trajectory analysis')
+        a = self.plotter.createSubPlot(title, xlabel, ylabel)
+        for xsi, ysi in zip(xs, ys):
+            self.plotter.plotData(xsi, ysi, '-')
+        self.plotter.show()
 
       elif self.getEnumText('displayAnalysis') in ['Clustering']:
         print('Log file written in ', anFiles[1])
@@ -454,5 +455,14 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         oDir = self.protocol._getExtraPath(stage)
       return oDir
 
-
+    def str2num(self, stri):
+        x = float(stri)
+        try:
+            x2 = int(x)
+            if x2 == x:
+                return x2
+            else:
+                return x
+        except:
+            pass
 
