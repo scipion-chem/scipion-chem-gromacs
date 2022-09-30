@@ -29,7 +29,7 @@ import pyworkflow.viewer as pwviewer
 import pyworkflow.protocol.params as params
 from pwchem.viewers import VmdViewPopen
 from pwem.objects import SetOfAtomStructs, AtomStruct
-from pwem.viewers import ChimeraViewer
+from pwem.viewers import ChimeraViewer, EmPlotter
 
 from pwchem.viewers import PyMolViewer, PyMolView
 from pwchem.utils import natural_sort
@@ -255,7 +255,33 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         anFiles = self.performClustering(stage)
 
       if not self.getEnumText('displayAnalysis') in ['Clustering']:
-        subprocess.Popen('xmgrace ' + anFile, shell=True)
+        # try:
+        #     subprocess.Popen('xmrgrace ' + anFile, shell=True)
+        # except:
+            xs, ys = [], []
+            with open(anFile) as f:
+              for line in f:
+                  if line.startswith('@'):
+                      if line.split()[1] == 'title':
+                          title = line.split('"')[-2]
+                      elif line.split()[1] == 'xaxis':
+                          xlabel = line.split('"')[-2]
+                      elif line.split()[1] == 'yaxis':
+                          ylabel = line.split('"')[-2]
+                  elif not line.startswith('#'):
+                      xi = float(line.split()[0])
+                      try:
+                          int(xi)
+                      except:
+                          pass
+                      xs.append(xi)
+                      ys.append(float(line.split()[1]))
+            print('Plotteando')
+            self.plotter = EmPlotter(x=1, y=1, windowTitle='Gromacs trajectory analysis')
+            a = self.plotter.createSubPlot(title, xlabel, ylabel)
+            self.plotter.plotData(xs, ys, '-')
+            self.plotter.show()
+
       elif self.getEnumText('displayAnalysis') in ['Clustering']:
         print('Log file written in ', anFiles[1])
         modelsFiles = self.splitPDBModels(anFiles[0])
@@ -346,8 +372,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if os.path.exists(oPath):
         os.remove(oPath)
 
-      groFile, trjFile = self.getStageFiles(stage)
-      args = ' hbond -s %s -f %s %s %s' % (os.path.abspath(groFile), os.path.abspath(trjFile),
+      tprFile, trjFile = self.getStageFiles(stage, tpr=True)
+      args = ' hbond -s %s -f %s %s %s' % (os.path.abspath(tprFile), os.path.abspath(trjFile),
                                            outOptions[self.hbondOut.get()], oFile)
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('HBond'),
                                      args=args, cwd=oDir)
@@ -390,16 +416,19 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                                      args=args, cwd=self.protocol._getExtraPath(stage))
       return self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
 
-    def getStageFiles(self, stage):
+    def getStageFiles(self, stage, tpr=False):
       if stage == 'All':
         system = self._getGromacsSystem()
-        groFile, trjFile = system.getOriStructFile(), system.getTrajectoryFile()
+        groFile, trjFile, tprFile = system.getOriStructFile(), system.getTrajectoryFile(), system.getTprFile()
       else:
-        groFile, _, _ = self.protocol.getPrevFinishedStageFiles(stage)
+        groFile, _, tprFile = self.protocol.getPrevFinishedStageFiles(stage)
         trjFile = self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
         if not os.path.exists(trjFile):
           trjFile = self.correctTrj(stage)
-      return groFile, trjFile
+      if not tpr:
+          return groFile, trjFile
+      else:
+          return tprFile, trjFile
 
     def splitPDBModels(self, combinedPDBFile):
       outFiles = []
