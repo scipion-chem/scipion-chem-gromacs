@@ -254,6 +254,7 @@ class GromacsMDSimulation(EMProtocol):
         outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile,
                                   tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
+        outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())

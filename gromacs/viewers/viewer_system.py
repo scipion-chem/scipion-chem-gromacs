@@ -167,6 +167,11 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                      label='Choose the analysis to display: ',
                      help='Display the chosen analysis'
                      )
+      group.addParam('chain_name', params.EnumParam,
+                     choices=self.getChainChoices(), default=0, condition='displayAnalysis in [1, 3]',
+                     label='*Chain* to display analysis on: ',
+                     help='Display the chosen analysis only in this chain'
+                     )
       line = group.addLine('Groups for analysis: ')
       line.addParam('chooseRef', params.EnumParam,
                     choices=self._ndxGroups, default=1,
@@ -255,11 +260,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         anFiles = self.performClustering(stage)
 
       if not self.getEnumText('displayAnalysis') in ['Clustering']:
-        # try:
-        #     subprocess.Popen('xmrgrace ' + anFile, shell=True)
-        # except:
-        xs, ys = [[]], [[]]
-        prevX = 0
+        xs, ys, prevX = [[]], [[]], 0
         with open(anFile) as f:
           for line in f:
               if line.startswith('@'):
@@ -279,9 +280,16 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
         self.plotter = EmPlotter(x=1, y=1, windowTitle='Gromacs trajectory analysis')
         a = self.plotter.createSubPlot(title, xlabel, ylabel)
-        for xsi, ysi in zip(xs, ys):
-            self.plotter.plotData(xsi, ysi, '-')
+        if len(xs) > 1:
+            system = self._getGromacsSystem()
+            chainNames = system.getChainNames()
+            for xsi, ysi, cn in zip(xs, ys, chainNames):
+                if self.getEnumText('chain_name') in ['All', cn]:
+                    self.plotter.plotData(xsi, ysi, '-', label=cn)
+        else:
+            self.plotter.plotData(xs[0], ys[0], '-')
         self.plotter.show()
+        self.plotter.legend()
 
       elif self.getEnumText('displayAnalysis') in ['Clustering']:
         print('Log file written in ', anFiles[1])
@@ -465,4 +473,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                 return x
         except:
             pass
+
+    def getChainChoices(self):
+        system = self._getGromacsSystem()
+        return ['All'] + system.getChainNames()
 
