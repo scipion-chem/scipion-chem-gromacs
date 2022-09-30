@@ -251,7 +251,8 @@ class GromacsMDSimulation(EMProtocol):
 
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile)
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile,
+                                  tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
