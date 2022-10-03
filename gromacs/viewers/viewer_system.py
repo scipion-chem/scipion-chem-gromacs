@@ -244,7 +244,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
       return [VmdViewPopen(args)]
 
-    def _showAnalysis(self, paramName=None):
+    def _showAnalysis(self, paramName=None, saveFn=None):
       stage = self.getEnumText('chooseStage')
       if self.getEnumText('displayAnalysis') == 'RMSD':
         anFile = self.performRMSD(stage)
@@ -290,6 +290,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
             self.plotter.plotData(xs[0], ys[0], '-')
         self.plotter.show()
         self.plotter.legend()
+        if saveFn:
+            self.plotter.savefig(saveFn)
 
       elif self.getEnumText('displayAnalysis') in ['Clustering']:
         print('Log file written in ', anFiles[1])
