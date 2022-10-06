@@ -72,16 +72,6 @@ class GromacsModifySystem(EMProtocol):
         group = form.addGroup('Cutting')
         group.addParam('doDrop', params.BooleanParam, label="Cut trajectory?: ", default=False,
                        help='Cut a trajectory, saving only from first ot last frames / times')
-
-        # Drop .xvg file needed for selecting frames
-        # group.addParam('fromDrop', params.EnumParam, label="Define cutting section from: ", default=0,
-        #                choices=['Frames', 'Times'], condition='doDrop',
-        #                help='Cut a trajectory, saving only from first ot last frames / times')
-        # line = group.addLine('Frames: ', condition='doDrop and fromDrop==0',
-        #                      help='First and last frames to save (0 from first, 0 until last)')
-        # line.addParam('firstFrame', params.IntParam, label="First: ", default=0)
-        # line.addParam('lastFrame', params.IntParam, label="Last: ", default=0)
-
         line = group.addLine('Times: ', condition='doDrop',
                              help='First and last times to save from trajectory (0 from first, 0 until last)')
         line.addParam('firstTime', params.FloatParam, label="First: ", default=0)
@@ -138,9 +128,6 @@ class GromacsModifySystem(EMProtocol):
             if self.doFit:
                 extraArgs += ' -fit {}'.format(self.getEnumText('fitting'))
             if self.doDrop:
-                # if self.getEnumText('fromDrop') == 'Frames':
-                #     extraArgs += ' -dropunder {} -dropover {}'.format(self.firstFrame.get(), self.lastFrame.get())
-                # elif self.getEnumText('fromDrop') == 'Times':
                 firstTime, lastTime = self.getCutTime(self.firstTime.get()), self.getCutTime(self.lastTime.get())
                 if firstTime != 0:
                     extraArgs += ' -b {}'.format(firstTime)
@@ -177,7 +164,9 @@ class GromacsModifySystem(EMProtocol):
 
 
     def createOutputStep(self):
-      outSystem = GromacsSystem(filename=self.getCleanStructureFile())
+      outSystem = GromacsSystem()
+      outSystem.setOriStructFile(self.getCleanStructureFile())
+      outSystem.setSystemFile(self.getCleanStructureFile())
       outSystem.setTopologyFile(self.gromacsSystem.get().getTopologyFile())
       if self.gromacsSystem.get().getTrajectoryFile():
           outSystem.setTrajectoryFile(self.getCleanTrajectoryFile())
