@@ -32,7 +32,7 @@ ION_NAMES = ['BR', 'CA', 'CL', 'CS', 'CU', 'CU2', 'F', 'I', 'K', 'LI', 'MG', 'NA
 ###################################### MDP GENERATION #####################################
 RESTR_STR = '''define = -DPOSRES_{}'''
 
-TSTEP_EM = '''emtol = 1000.0        ; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
+TSTEP_EM = '''emtol = {}        ; Stop minimization when the maximum force < x kJ/mol/nm
 emstep = {}          ; Minimization step size'''
 
 TSTEP_EQ = '''dt = {}     ; Time Steps Size (ps)'''
@@ -41,7 +41,6 @@ DISP_CORR = '''DispCorr        = EnerPres  ; account for cut-off vdW scheme'''
 
 OUTPUT_CONTROL = '''nstxout                 = {}       ; save coordinates every x * tStep ps
 nstvout                 = {}       ; save velocities every x * tStep ps
-nstenergy               = {}       ; save energies every x * tStep ps
 nstlog                  = {}       ; update log file every x * tStep ps'''
 
 BONDED_PARAMS = '''continuation            = {}       ; Restarting after another simulation 
