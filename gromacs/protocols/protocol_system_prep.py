@@ -27,7 +27,7 @@
 
 
 """
-This module will prepare the system for the simumlation
+This module will prepare the system for the simulation
 """
 import os
 from os.path import abspath, relpath
