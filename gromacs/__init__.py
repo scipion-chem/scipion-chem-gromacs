@@ -28,7 +28,7 @@ from .constants import *
 from os.path import join
 import subprocess
 
-_logo = "icon.png"
+_logo = "gromacs_logo.png"
 _references = ['Abraham2015']
 V2020 = '2020.6'
 V2021 = '2021.5'

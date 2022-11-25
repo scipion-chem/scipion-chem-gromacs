@@ -29,6 +29,15 @@ from pwem.protocols import ProtImportPdb
 
 from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation
 
+workflow = '''{'simTime': 100.0, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'Energy min', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'restraints': 'Protein'}
+{'simTime': 0.1, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'restraints': 'MainChain'}   
+{'simTime': 0.2, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': True, 'trajInterval': 0.01, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NPT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'restraints': 'None'}'''
+
+summary = '''1) Minimization (steep): 100 steps, 1000.0 objective force, restraint on Protein, 300.0 K
+2) MD simulation: 0.1 ps, NVT ensemble, restraint on MainChain, 300.0 K
+3) MD simulation: 0.2 ps, NPT ensemble, 300.0 K'''
+
+
 
 class TestGromacsPrepareSystem(BaseTest):
     @classmethod
@@ -43,7 +52,7 @@ class TestGromacsPrepareSystem(BaseTest):
         cls.protImportPDB = cls.newProtocol(
             ProtImportPdb,
             inputPdbData=1,
-            pdbFile=cls.ds.getFile('PDBx_mmCIF/5ni1_prepared.pdb'))
+            pdbFile=cls.ds.getFile('PDBx_mmCIF/1ake_mut1.pdb'))
         cls.proj.launchProtocol(cls.protImportPDB, wait=False)
 
     @classmethod
@@ -51,7 +60,7 @@ class TestGromacsPrepareSystem(BaseTest):
         protPrepare = cls.newProtocol(
             GromacsSystemPrep,
             inputStructure=cls.protImportPDB.outputPdb,
-            boxType=1, sizeType=1, padDist=5.0,
+            boxType=1, sizeType=1, padDist=3.0,
             mainForceField=0, waterForceField=2,
             placeIons=1, cationType=7, anionType=1)
 
@@ -63,3 +72,39 @@ class TestGromacsPrepareSystem(BaseTest):
         self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
         self.assertIsNotNone(getattr(protPrepare, 'outputSystem', None))
 
+
+class TestGromacsRunSimulation(TestGromacsPrepareSystem):
+
+    def _runSimulation(self, protPrepare):
+        protSim = self.newProtocol(
+            GromacsMDSimulation,
+            gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
+
+        self.launchProtocol(protSim)
+        return protSim
+
+    def test(self):
+        protPrepare = self._runPrepareSystem()
+        self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
+        protSim = self._runSimulation(protPrepare)
+        self._waitOutput(protSim, 'outputSystem', sleepTime=10)
+        self.assertIsNotNone(getattr(protSim, 'outputSystem', None))
+
+
+class TestGromacsTrajMod(TestGromacsRunSimulation):
+
+    def _modSimulation(self, protSim):
+        protMod = self.newProtocol(
+            GromacsModifySystem,
+            gromacsSystem=protSim.outputSystem, cleaning=True, doFit=True)
+
+        self.launchProtocol(protMod)
+        return protMod
+
+    def test(self):
+        protPrepare = self._runPrepareSystem()
+        self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
+        protSim = self._runSimulation(protPrepare)
+        self._waitOutput(protSim, 'outputSystem', sleepTime=10)
+        protMod = self._modSimulation(protSim)
+        self.assertIsNotNone(getattr(protMod, 'outputSystem', None))

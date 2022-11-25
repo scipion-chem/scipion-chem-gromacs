@@ -36,6 +36,6 @@ setup(
     install_requires=[requirements],
     entry_points={'pyworkflow.plugin': 'gromacs = gromacs'},
     package_data={  # Optional
-       'gromacs': ['icon.png', 'protocols.conf'],
+       'gromacs': ['gromacs_logo.png', 'protocols.conf'],
     }
 )
