@@ -60,7 +60,7 @@ class TestGromacsPrepareSystem(BaseTest):
         protPrepare = cls.newProtocol(
             GromacsSystemPrep,
             inputStructure=cls.protImportPDB.outputPdb,
-            boxType=1, sizeType=1, padDist=3.0,
+            boxType=1, sizeType=1, padDist=2.0,
             mainForceField=0, waterForceField=2,
             placeIons=1, cationType=7, anionType=1)
 

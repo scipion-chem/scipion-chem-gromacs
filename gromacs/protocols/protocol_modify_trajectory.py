@@ -71,7 +71,7 @@ class GromacsModifySystem(EMProtocol):
                             'https://manual.gromacs.org/documentation/5.1/onlinehelp/gmx-trjconv.html')
         group = form.addGroup('Cutting')
         group.addParam('doDrop', params.BooleanParam, label="Cut trajectory?: ", default=False,
-                       help='Cut a trajectory, saving only from first ot last frames / times')
+                       help='Cut a trajectory, saving only from first to last times')
         line = group.addLine('Times: ', condition='doDrop',
                              help='First and last times to save from trajectory (0 from first, 0 until last)')
         line.addParam('firstTime', params.FloatParam, label="First: ", default=0)
@@ -103,7 +103,7 @@ class GromacsModifySystem(EMProtocol):
 
     def modifySystem(self):
         inputStructure = os.path.abspath(self.gromacsSystem.get().getFileName())
-        inputTrajectory = os.path.abspath(self.gromacsSystem.get().getTrajectoryFile())
+        inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
 
         if self.cleaning:
             params = " make_ndx -f {} -o clean.ndx".format(os.path.abspath(inputStructure))
@@ -117,7 +117,7 @@ class GromacsModifySystem(EMProtocol):
             shutil.copy(inputStructure, self.getCleanStructureFile())
 
         if inputTrajectory:
-
+            inputTrajectory = os.path.abspath(inputTrajectory)
             auxTrj = os.path.abspath(self._getExtraPath('cleanTrajectory.xtc'))
             convArgs = " trjconv -f {} -s {} -o {}". \
                 format(inputTrajectory, inputStructure, auxTrj)
@@ -180,7 +180,23 @@ class GromacsModifySystem(EMProtocol):
         vals = []
         if self.doFiltering and self.filter.get() == 0 and self.filterF.get() <= 1:
             vals.append('The factor for low-pass filtering needs to be at least 2')
+
         return vals
+
+    def _warnings(self):
+        warns = []
+        inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
+        if not inputTrajectory:
+            if self.doFit:
+                warns.append('The input system has no trajectory, so no fitting will be performed')
+            if self.doDrop:
+                warns.append('The input system has no trajectory, so no cutting will be performed')
+            if self.doSubsample:
+                warns.append('The input system has no trajectory, so no subsampling will be performed')
+            if self.doFiltering:
+                warns.append('The input system has no trajectory, so no filtering will be performed')
+
+        return warns
 
     def _summary(self):
         """ Summarize what the protocol has done"""
