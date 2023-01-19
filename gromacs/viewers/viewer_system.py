@@ -65,7 +65,7 @@ class GromacsSystemViewer(pwviewer.Viewer):
         return [PyMolView(os.path.abspath(outPml), cwd=os.path.dirname(trjFile))]
 
 class GromacsSystemPViewer(pwviewer.ProtocolViewer):
-    """ Visualize the output of Desmond simulation """
+    """ Visualize the output of Gromacs simulation """
     _label = 'Viewer Gromacs System'
     _targets = [GromacsSystem]
 
@@ -129,7 +129,7 @@ class GromacsSystemPViewer(pwviewer.ProtocolViewer):
 
 
 class GromacsSimulationViewer(GromacsSystemPViewer):
-    """ Visualize the output of Desmond simulation """
+    """ Visualize the output of Gromacs simulation """
     _label = 'Viewer Gromacs Simulation'
     _targets = [GromacsMDSimulation]
     _analysis = ['RMSD', 'RMSF', 'Gyration', 'SASA', 'HBond', 'Clustering']
