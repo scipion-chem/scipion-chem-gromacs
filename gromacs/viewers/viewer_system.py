@@ -24,47 +24,23 @@
 # *
 # **************************************************************************
 
-import os, glob, subprocess
-import pyworkflow.viewer as pwviewer
+import os, glob
 import pyworkflow.protocol.params as params
-from pwchem.viewers import VmdViewPopen
+
 from pwem.objects import SetOfAtomStructs, AtomStruct
 from pwem.viewers import ChimeraViewer, EmPlotter
 
-from pwchem.viewers import PyMolViewer, PyMolView
+from pwchem.viewers import VmdViewPopen, MDSystemViewer, MDSystemPViewer
 from pwchem.utils import natural_sort
+from pwchem.constants import TCL_MD_STR
 
 from gromacs import Plugin as gromacsPlugin
 from ..objects import GromacsSystem
 from ..protocols import GromacsMDSimulation
-from ..constants import *
 
 program = gromacsPlugin.getGromacsBin()
 
-class GromacsSystemViewer(pwviewer.Viewer):
-  _label = 'Viewer Gromacs system'
-  _environments = [pwviewer.DESKTOP_TKINTER]
-  _targets = []
-
-  def _visualize(self, obj, onlySystem=False, trjFile=None, **kwargs):
-    groFile = os.path.abspath(obj.getSystemFile())
-    if not trjFile:
-        trjFile = obj.hasTrajectory()
-
-    if not trjFile or onlySystem:
-        pymolV = PyMolViewer(project=self.getProject())
-        return pymolV._visualize(groFile, cwd=os.path.dirname(groFile))
-
-    else:
-        trjFile = os.path.abspath(obj.getTrajectoryFile())
-        outPml = os.path.join(os.path.dirname(trjFile), 'pymolSimulation.pml')
-        with open(outPml, 'w') as f:
-          f.write(PML_MD_STR.format(os.path.abspath(groFile),
-                                    os.path.abspath(trjFile)))
-
-        return [PyMolView(os.path.abspath(outPml), cwd=os.path.dirname(trjFile))]
-
-class GromacsSystemPViewer(pwviewer.ProtocolViewer):
+class GromacsSystemPViewer(MDSystemPViewer):
     """ Visualize the output of Desmond simulation """
     _label = 'Viewer Gromacs System'
     _targets = [GromacsSystem]
@@ -72,51 +48,14 @@ class GromacsSystemPViewer(pwviewer.ProtocolViewer):
     def __init__(self, **args):
       super().__init__(**args)
 
-    def _defineSimParams(self, form):
-        group = form.addGroup('Open MD simulation')
-        group.addParam('displayMdPymol', params.LabelParam,
-                       label='Display trajectory with PyMol: ',
-                       help='Display trajectory with Pymol. \n'
-                            'Protein represented as NewCartoon and waters as sticks'
-                       )
-        group.addParam('displayMdVMD', params.LabelParam,
-                       label='Display trajectory with VMD: ',
-                       help='Display trajectory with VMD. \n'
-                            'Protein represented as NewCartoon and waters as dots')
-
-    def _defineParams(self, form):
-      form.addSection(label='Visualization of Gromacs System')
-      group = form.addGroup('Open Gromacs system')
-      group.addParam('displayPymol', params.LabelParam,
-                     label='Open system in PyMol: ',
-                     help='Display System in Pymol GUI.')
-
-      if self._getGromacsSystem().hasTrajectory():
-          self._defineSimParams(form)
-
-    def _getGromacsSystem(self):
-        if type(self.protocol) == GromacsSystem:
+    def getMDSystem(self, objType=GromacsSystem):
+        if type(self.protocol) == objType:
             return self.protocol
         else:
             return self.protocol.outputSystem
 
-    def _getVisualizeDict(self):
-      return {
-        'displayPymol': self._showPymol,
-        'displayMdPymol': self._showMdPymol,
-        'displayMdVMD': self._showMdVMD,
-      }
-
-    def _showPymol(self, paramName=None):
-      system = self._getGromacsSystem()
-      return GromacsSystemViewer(project=self.getProject())._visualize(system, onlySystem=True)
-
-    def _showMdPymol(self, paramName=None):
-      system = self._getGromacsSystem()
-      return GromacsSystemViewer(project=self.getProject())._visualize(system)
-
     def _showMdVMD(self, paramName=None):
-      system = self._getGromacsSystem()
+      system = self.getMDSystem()
 
       outTcl = os.path.join(os.path.dirname(system.getTrajectoryFile()), 'vmdSimulation.tcl')
       systExt = os.path.splitext(system.getOriStructFile())[1][1:]
@@ -227,13 +166,13 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
     def _showMdPymol(self, paramName=None):
       stage = self.getEnumText('chooseStage')
       _, trjFile = self.getStageFiles(stage)
-      system = self._getGromacsSystem()
-      return GromacsSystemViewer(project=self.getProject())._visualize(system, trjFile=trjFile)
+      system = self.getMDSystem()
+      return MDSystemViewer(project=self.getProject())._visualize(system, trjFile=trjFile)
 
     def _showMdVMD(self, paramName=None):
       stage = self.getEnumText('chooseStage')
       _, trjFile = self.getStageFiles(stage)
-      system = self._getGromacsSystem()
+      system = self.getMDSystem()
 
       systExt = os.path.splitext(system.getSystemFile())[1][1:]
       trjExt = os.path.splitext(trjFile)[1][1:]
@@ -281,7 +220,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         self.plotter = EmPlotter(x=1, y=1, windowTitle='Gromacs trajectory analysis')
         a = self.plotter.createSubPlot(title, xlabel, ylabel)
         if len(xs) > 1:
-            system = self._getGromacsSystem()
+            system = self.getMDSystem()
             chainNames = system.getChainNames()
             for xsi, ysi, cn in zip(xs, ys, chainNames):
                 if self.getEnumText('chain_name') in ['All', cn]:
@@ -429,7 +368,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
     def getStageFiles(self, stage, tpr=False):
       if stage == 'All':
-        system = self._getGromacsSystem()
+        system = self.getMDSystem()
         groFile, trjFile, tprFile = system.getOriStructFile(), system.getTrajectoryFile(), system.getTprFile()
       else:
         groFile, _, tprFile = self.protocol.getPrevFinishedStageFiles(stage)
@@ -477,6 +416,6 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
             pass
 
     def getChainChoices(self):
-        system = self._getGromacsSystem()
+        system = self.getMDSystem()
         return ['All'] + system.getChainNames()
 
