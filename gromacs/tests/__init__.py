@@ -25,5 +25,5 @@
 # **************************************************************************
 
 
-from gromacs.tests import *
+from gromacs.tests.tests import *
 
