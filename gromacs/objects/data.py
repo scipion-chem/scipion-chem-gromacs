@@ -115,6 +115,12 @@ class GromacsSystem(MDSystem):
 
     def setRestraintsFile(self, value):
         self._restrFile.set(value)
+        
+    def getTprFile(self):
+        return self._tprFile.get()
+    
+    def setTprFile(self, value):
+        self._tprFile.set(value)
 
     def defineNewRestrictionWrapper(self, energy, restrainSuffix='low', outDir=None, group="protein-h"):
         '''Call the right function to define a new position restriction and 
