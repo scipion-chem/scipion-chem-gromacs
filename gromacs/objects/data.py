@@ -115,10 +115,10 @@ class GromacsSystem(MDSystem):
 
     def setRestraintsFile(self, value):
         self._restrFile.set(value)
-        
+
     def getTprFile(self):
         return self._tprFile.get()
-    
+
     def setTprFile(self, value):
         self._tprFile.set(value)
 
