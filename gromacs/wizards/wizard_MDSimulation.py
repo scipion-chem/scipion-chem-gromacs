@@ -73,8 +73,8 @@ class GromacsWatchRelaxStepWizard(pwizard.Wizard):
                             idx = protocol._barostats.index(msjDic[pName])
                         elif pName == 'coupleStyle':
                             idx = protocol._coupleStyle.index(msjDic[pName])
-                        elif pName == 'restrains':
-                            idx = protocol._restrainTypes.index(msjDic[pName])
+                        elif pName == 'restraints':
+                            idx = protocol._restraintTypes.index(msjDic[pName])
                         form.setVar(pName, idx)
         except:
             print('Index "{}" not recognized as integer for watch step'.format(watchStep))

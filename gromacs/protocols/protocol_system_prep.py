@@ -27,7 +27,7 @@
 
 
 """
-This module will prepare the system for the simumlation
+This module will prepare the system for the simulation
 """
 import os
 from os.path import abspath, relpath
@@ -35,6 +35,7 @@ from os.path import abspath, relpath
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
 from pwem.protocols import EMProtocol
+from pwem.convert import AtomicStructHandler
 
 from pwchem.utils import runOpenBabel
 
@@ -151,7 +152,8 @@ class GromacsSystemPrep(EMProtocol):
                             'Buffer: distance from the solute to the edge of the box')
 
         line = group.addLine('Box size (nm):',
-                             help='Distances of the bounding box (nm).\nIf cubic a=b=c')
+                             help='Distances of the bounding box (nm).\nIf cubic: a=b=c\n'
+                                  'If Orthorhombic: bc=ac=ab=90º')
         line.addParam('distA', params.FloatParam, condition='sizeType == 0',
                       default=5.0, label='a: ')
         line.addParam('distB', params.FloatParam, condition='boxType == 1 and sizeType == 0',
@@ -175,7 +177,7 @@ class GromacsSystemPrep(EMProtocol):
                        help='Force field applied to the waters')
 
         group = form.addGroup('Ions')
-        group.addParam('placeIons', params.EnumParam, default=0,
+        group.addParam('placeIons', params.EnumParam, default=1,
                        label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
                        help='Whether to add ions to the system.'
                             'https://manual.gromacs.org/documentation/2021.5/onlinehelp/gmx-genion.html')
@@ -183,7 +185,7 @@ class GromacsSystemPrep(EMProtocol):
         line = group.addLine('Cation type:', condition='placeIons!=0',
                              help='Type of the cations to add')
         line.addParam('cationType', params.EnumParam, condition='placeIons!=0',
-                      label='Cation to add: ', choices=self._cations, default=0,
+                      label='Cation to add: ', choices=self._cations, default=7,
                       help='Which anion to add in the system')
         line.addParam('cationNum', params.IntParam, condition='placeIons==2',
                       label='Number of cations to add: ',
@@ -192,7 +194,7 @@ class GromacsSystemPrep(EMProtocol):
         line = group.addLine('Anion type:', condition='placeIons!=0',
                              help='Type of the anions to add')
         line.addParam('anionType', params.EnumParam, condition='placeIons!=0',
-                      label='Anions to add: ', choices=self._anions, default=0,
+                      label='Anions to add: ', choices=self._anions, default=1,
                       help='Which anion to add in the system')
         line.addParam('anionNum', params.IntParam, condition='placeIons==2',
                       label='Number of anions to add: ',
@@ -228,11 +230,13 @@ class GromacsSystemPrep(EMProtocol):
         params = ' pdb2gmx -f %s ' \
                  '-o %s_processed.gro ' \
                  '-water %s ' \
-                 '-ff %s ' % (inputStructure, systemBasename, Waterff, Mainff)
+                 '-ff %s -merge all' % (inputStructure, systemBasename, Waterff, Mainff)
+        # todo: managing several chains (restrictions, topologies...) instead of merging them
         try:
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
         except:
             print('Conversion to gro failed, trying to convert it ignoring the current hydrogens')
+            os.remove(self._getPath('topol.top'))
             params += ' -ignh'
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
@@ -309,9 +313,11 @@ class GromacsSystemPrep(EMProtocol):
         gro_localPath = relpath(abspath(self._getPath(gro_baseName)))
         posre_localPath = relpath(abspath(self._getPath(posre_baseName)))
 
+        chainNames = ','.join(self.getModelChains())
+
         gro_files = grobj.GromacsSystem(filename=gro_localPath, topoFile=topol_localPath,
-                                        restrFile=posre_localPath, ff=self.getEnumText('mainForceField'),
-                                        wff=self.getEnumText('waterForceField'))
+                                        restrFile=posre_localPath, chainNames=chainNames,
+                                        ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
 
         self._defineOutputs(outputSystem=gro_files)
         self._defineSourceRelation(self.inputStructure, gro_files)
@@ -362,7 +368,7 @@ class GromacsSystemPrep(EMProtocol):
             methods.append("This protocol takes a clean pdb file and it uses the "
                            "GROMACS software in order to transform the file into a gromacs format while applying to it "
                            'the force fields for the system and the water molecules. To do so, it calls "gmx pdb2gmx".'
-                           'It produces a position restrain file, a topology file and a post-processed structure '
+                           'It produces a position restraint file, a topology file and a post-processed structure '
                            'gromacs file.\nThe the protocol runs "gmx editconf" in order to introduce a box from the '
                            'determined size and it runs "gmx solvate" to put water molecules in the box.\nThen the '
                            'command "gmx grompp" is needed to create a tpr file for the command "gmx genion" which will'
@@ -417,3 +423,13 @@ class GromacsSystemPrep(EMProtocol):
                 distArg = ' -box {}'.format(self.distA.get())
         return distArg
 
+    def getModelChains(self):
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        if not inputStructure.endswith('.pdb'):
+          inputStructure = self.convertReceptor2PDB(inputStructure)
+
+        structureHandler = AtomicStructHandler()
+        structureHandler.read(inputStructure)
+        structureHandler.getStructure()
+        chains, _ = structureHandler.getModelsChains()
+        return list(chains[0].keys())

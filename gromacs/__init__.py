@@ -28,7 +28,7 @@ from .constants import *
 from os.path import join
 import subprocess
 
-_logo = "icon.png"
+_logo = "gromacs_logo.png"
 _references = ['Abraham2015']
 V2020 = '2020.6'
 V2021 = '2021.5'
@@ -57,7 +57,23 @@ class Plugin(pwem.Plugin):
         installationCmd += 'cd share/top && wget -O charmm36-feb2021.ff.tgz http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz && '
         installationCmd += 'tar -xf charmm36-feb2021.ff.tgz && cd ../.. && '
         installationCmd += 'mkdir build && cd build && '
-        installationCmd += 'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
+
+        cmakeCmd = 'cmake'
+        import subprocess
+        cmake_version = subprocess.check_output(['cmake', '--version']).decode().split('\n')[0].split()[-1]
+        if cmake_version.startswith('3'):
+            cmakeCmd = 'cmake'
+        else:
+            try:
+                cmake_version = subprocess.check_output(['cmake3', '--version']).decode().split('\n')[0].split()[-1]
+                if cmake_version.startswith('3') and int(cmake_version.split('.')[1]) > 13:
+                    cmakeCmd = 'cmake3'
+                else:
+                    print('cmake3 is not higher than 3.13')
+            except:
+                print('cmake is not higher than 3.13')
+
+        installationCmd += cmakeCmd + ' .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
                     '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log && '.\
           format(cls.getVar(GROMACS_DIC['home']))
         installationCmd += 'make -j {} > make.log && make check > check.log && '.format(env.getProcessors())

@@ -32,7 +32,7 @@ ION_NAMES = ['BR', 'CA', 'CL', 'CS', 'CU', 'CU2', 'F', 'I', 'K', 'LI', 'MG', 'NA
 ###################################### MDP GENERATION #####################################
 RESTR_STR = '''define = -DPOSRES_{}'''
 
-TSTEP_EM = '''emtol = 1000.0        ; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
+TSTEP_EM = '''emtol = {}        ; Stop minimization when the maximum force < x kJ/mol/nm
 emstep = {}          ; Minimization step size'''
 
 TSTEP_EQ = '''dt = {}     ; Time Steps Size (ps)'''
@@ -41,7 +41,6 @@ DISP_CORR = '''DispCorr        = EnerPres  ; account for cut-off vdW scheme'''
 
 OUTPUT_CONTROL = '''nstxout                 = {}       ; save coordinates every x * tStep ps
 nstvout                 = {}       ; save velocities every x * tStep ps
-nstenergy               = {}       ; save energies every x * tStep ps
 nstlog                  = {}       ; update log file every x * tStep ps'''
 
 BONDED_PARAMS = '''continuation            = {}       ; Restarting after another simulation 
@@ -111,32 +110,6 @@ pbc             = xyz       ; Periodic Boundary Conditions in all 3 dimensions
 ; Velocity generation
 gen_vel                 = {}       ; assign velocities from Maxwell distribution
 {}
-'''
-
-
-TCL_MD_STR = '''
-mol addrep 0
-mol new {%s} type {%s} first 0 last -1 step 1 waitfor 1
-mol addfile {%s} type {%s} first 0 last -1 step 1 waitfor 1 0
-
-mol color Name
-mol representation NewCartoon 0.300000 10.000000 4.100000 0
-mol selection protein
-mol material Opaque
-mol modrep 0 0
-
-mol addrep 0
-mol color Name
-mol representation Points 1.000000
-mol selection hetero within 3 of protein
-mol material Opaque
-mol modrep 1 0
-'''
-
-PML_MD_STR = '''load {}
-load_traj {}
-hide everything, not br. all within 3 of (byres polymer & name CA)
-set movie_fps, 15
 '''
 
 

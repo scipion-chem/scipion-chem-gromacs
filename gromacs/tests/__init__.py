@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 # **************************************************************************
 # *
-# * Authors:     Pedro Febrer Martinez (pedrofebrer98@gmail.com)
+# * Authors: Daniel Del Hoyo (ddelhoyo@cnb.csic.es)
 # *
-# * your institution
+# * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
 # * This program is free software; you can redistribute it and/or modify
 # * it under the terms of the GNU General Public License as published by
@@ -25,7 +24,6 @@
 # *
 # **************************************************************************
 
-from .protocol_system_prep import GromacsSystemPrep
-from .protocol_MD_simulation import GromacsMDSimulation
-from .protocol_modify_trajectory import GromacsModifySystem
-from .protocol_import_system import GromacsImportSystem
+
+from gromacs.tests.tests import *
+

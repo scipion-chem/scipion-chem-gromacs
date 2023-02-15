@@ -41,6 +41,7 @@ from gromacs.objects import *
 from gromacs.constants import *
 from gromacs import Plugin as gromacsPlugin
 
+from multiprocessing import cpu_count
 
 class GromacsMDSimulation(EMProtocol):
     """
@@ -50,20 +51,22 @@ class GromacsMDSimulation(EMProtocol):
     _label = 'Molecular dynamics simulation'
     _ensemTypes = ['Energy min', 'NVT',  'NPT']
 
-    _integrators = ['steep', 'cg', 'md']
+    _integrators = ['steep', 'cg']
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman']
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
-    _restrainTypes = ['None', 'System', 'Protein', 'Protein-H', 'MainChain', 'BackBone', 'C-alpha']
+    _restraintTypes = ['None', 'Protein', 'Protein-H', 'MainChain', 'BackBone', 'C-alpha']
 
-    _paramNames = ['simTime', 'timeStep', 'timeNeigh', 'saveTrj', 'trajInterval', 'temperature', 'tempRelaxCons',
-                   'tempCouple', 'pressure', 'presRelaxCons', 'presCouple', 'restrainForce']
-    _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat', 'restrains']
-    _defParams = {'simTime': 100, 'timeStep': 0.002, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
-                  'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'md',
-                  'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,'restrainForce': 50.0,
+    _paramNames = ['simTime', 'timeStep', 'nStepsMin', 'emStep', 'emTol', 'timeNeigh', 'saveTrj', 'trajInterval',
+                   'temperature', 'tempRelaxCons', 'tempCouple', 'pressure', 'presRelaxCons', 'presCouple',
+                   'restraintForce']
+    _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat', 'restraints']
+    _defParams = {'simTime': 100, 'timeStep': 0.002, 'nStepsMin': 50000, 'emStep': 0.002, 'emTol': 1000.0,
+                  'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
+                  'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'cg',
+                  'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,'restraintForce': 50.0,
                   'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman',
-                  'restrains': 'None'}
+                  'restraints': 'None'}
 
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
@@ -75,6 +78,8 @@ class GromacsMDSimulation(EMProtocol):
 
         """ Define the input parameters that will be used.
         """
+        cpus = cpu_count()//2 # don't use everything
+        form.addParallelSection(threads=cpus, mpi=0)
 
         form.addSection(label=Message.LABEL_INPUT)
         form.addHidden(params.USE_GPU, params.BooleanParam,
@@ -88,40 +93,23 @@ class GromacsMDSimulation(EMProtocol):
         form.addHidden(params.GPU_LIST, params.StringParam, default='0',
                        expertLevel=params.LEVEL_ADVANCED,
                        label="Choose GPU IDs",
-                       help="Add a list of GPU devices that can be used")
+                       help="Add a list of GPU devices that can be used (Comma separated)")
 
         form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
                       pointerClass='GromacsSystem',
                       help='Gromacs solvated system to be simulated')
-        form.addParam('integrator', params.EnumParam,
-                       label='Simulation integrator: ',
-                       choices=self._integrators, default=0,
-                       help='Type of integrator to use in simulation.')
-
-        group = form.addGroup('Trajectory')
-        group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
-                       label="Save trajectory: ",
-                       help='Save trajectory of the atoms during stage simulation.'
-                            'The output will concatenate those trajectories which appear after the last stage '
-                            'where the trajectory was not saved.')
-        group.addParam('trajInterval', params.FloatParam, default=self._defParams['trajInterval'],
-                       label='Interval time (ps):', condition='saveTrj',
-                       help='Time between each frame recorded in the simulation (ps)')
-
-        group = form.addGroup('Simulation time')
-        group.addParam('simTime', params.FloatParam, default=100,
-                       label='Simulation time (ps):',
-                       help='Total time of the simulation stage (ps)')
-        group.addParam('timeStep', params.FloatParam, default=0.002,
-                       label='Simulation time steps (ps)[dt]:', expertLevel=params.LEVEL_ADVANCED,
-                       help='Time of the steps for simulation (ps)[dt]')
-        group.addParam('timeNeigh', params.IntParam, default=10,
-                       label='Frequency to update the neighbor list (steps)[nstlist]:',
-                       expertLevel=params.LEVEL_ADVANCED,
-                       help='Frequency to update the neighbor list (and the long-range forces, when using twin-range '
-                            'cut-offs). When this is 0, the neighbor list is made only once. With energy minimization '
-                            'the neighborlist will be updated for every energy evaluation when nstlist is '
-                            'greater than 0.')
+        form.addParam('prevTrj', params.BooleanParam, default=False,
+                      label="Concatenate with previous trajectory: ", expertLevel=params.LEVEL_ADVANCED,
+                      help='Include the trajectory stored in the input system (if found). \n'
+                           'It will only be included if all the stages in this protocol have their trajectories saved,'
+                           ' for the sake of continuity')
+        form.addParam('cptTime', params.FloatParam, default=15,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label='Checkpoint time (min):',
+                      help='Time of execution for saving a checkpoint. Checkpoints allow the simulation to be continued'
+                           ' from that moment, instead of restarting from the start. \nIn scipion, the simulation will'
+                           'be continued from the checkpoint if the option "Continue" is chosen after the protocol was'
+                           'stopped for any reason')
 
         group = form.addGroup('Ensemble')
         group.addParam('ensemType', params.EnumParam,
@@ -129,6 +117,11 @@ class GromacsMDSimulation(EMProtocol):
                        choices=self._ensemTypes, default=0,
                        help='Type of simulation to perform in the step: Energy minimization, NVT or NPT\n'
                             'https://manual.gromacs.org/5.1.1/user-guide/mdp-options.html')
+
+        group.addParam('integrator', params.EnumParam,
+                      label='Simulation integrator: ', condition='ensemType==0',
+                      choices=self._integrators, default=0,
+                      help='Type of integrator to use in simulation.')
 
         line = group.addLine('Temperature settings: ', condition='ensemType!=0',
                              help='Temperature during the simulation (K)\nThermostat type\n'
@@ -157,13 +150,51 @@ class GromacsMDSimulation(EMProtocol):
         #               label='Pressure coupling style: ', choices=self._coupleStyle,
         #               expertLevel=params.LEVEL_ADVANCED)
 
-        group = form.addGroup('Restrains')
-        group.addParam('restrains', params.EnumParam, default=0,
-                       label='Restrains: ', choices=self._restrainTypes,
-                       help='Restrain movement of specific groups of atoms')
-        group.addParam('restrainForce', params.FloatParam, default=50,
-                       label='Restrain force constant: ', condition='restrains!=0',
-                       help='Restrain force applied to the selection (kcal/mol/Å2)')
+        group = form.addGroup('Trajectory', condition='ensemType!=0')
+        group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
+                       label="Save trajectory: ", condition='ensemType!=0',
+                       help='Save trajectory of the atoms during stage simulation.'
+                            'The output will concatenate those trajectories which appear after the last stage '
+                            'where the trajectory was not saved.')
+        group.addParam('trajInterval', params.FloatParam, default=self._defParams['trajInterval'],
+                       label='Interval time (ps):', condition='ensemType!=0 and saveTrj',
+                       help='Time between each frame recorded in the simulation (ps)')
+
+        group = form.addGroup('Simulation time')
+        group.addParam('simTime', params.FloatParam, default=100,
+                       label='Simulation time (ps):', condition='ensemType!=0',
+                       help='Total time of the simulation stage (ps)')
+        group.addParam('timeStep', params.FloatParam, default=0.002,
+                       label='Simulation time steps (ps)[dt]:', condition='ensemType!=0',
+                       help='Time of the steps for simulation (ps)[dt]')
+
+        group.addParam('nStepsMin', params.IntParam, default=50000,
+                       label='Maximum number of steps:', condition='ensemType==0',
+                       help='Maximum number of (minimization) steps to perform')
+        group.addParam('emTol', params.FloatParam, default=1000.0,
+                       label='Maximum force objective:', condition='ensemType==0',
+                       help='Stop minimization when the maximum force < x kJ/mol/nm.\n'
+                            'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emtol')
+        group.addParam('emStep', params.FloatParam, default=0.002,
+                       label='Initial step-size (nm)[emstep]:', condition='ensemType==0',
+                       help='Initial step-size (nm)[emstep].\n'
+                            'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emstep')
+
+        group.addParam('timeNeigh', params.IntParam, default=10,
+                       label='Frequency to update the neighbor list (steps)[nstlist]:',
+                       expertLevel=params.LEVEL_ADVANCED,
+                       help='Frequency to update the neighbor list (and the long-range forces, when using twin-range '
+                            'cut-offs). When this is 0, the neighbor list is made only once. With energy minimization '
+                            'the neighborlist will be updated for every energy evaluation when nstlist is '
+                            'greater than 0.')
+
+        group = form.addGroup('Restraints')
+        group.addParam('restraints', params.EnumParam, default=0,
+                       label='Restraints: ', choices=self._restraintTypes,
+                       help='Restraint movement of specific groups of atoms')
+        group.addParam('restraintForce', params.FloatParam, default=50,
+                       label='Restraint force constant: ', condition='restraints!=0',
+                       help='Restraint force applied to the selection (kcal/mol/Å2)')
 
         group = form.addGroup('Summary')
         group.addParam('insertStep', params.StringParam, default='',
@@ -200,23 +231,33 @@ class GromacsMDSimulation(EMProtocol):
           msjDic = self.createMSJDic()
       else:
           msjDic = eval(wStep)
-      mdpFile = self.generateMDPFile(msjDic, str(i))
 
+      mdpFile = self.generateMDPFile(msjDic, str(i))
       tprFile = self.callGROMPP(mdpFile)
-      self.callMDRun(tprFile, saveTrj=msjDic['saveTrj'])
+      saveTrj = msjDic['saveTrj'] if msjDic['ensemType'] != 'Energy min' else False
+
+      self.callMDRun(tprFile, saveTrj=saveTrj)
 
     def createOutputStep(self):
         lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
+        if self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
+            oriGroFile = self.gromacsSystem.get().getOriStructFile()
+        else:
+            oriGroFile = self.gromacsSystem.get().getSystemFile()
+
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile)
         shutil.copyfile(lastTopoFile, localTopFile)
 
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=localGroFile)
+        outSystem = GromacsSystem(filename=oriGroFile, oriStructFile=oriGroFile,
+                                  tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
+        outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
+            outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
 
         self._defineOutputs(outputSystem=outSystem)
 
@@ -234,30 +275,31 @@ class GromacsMDSimulation(EMProtocol):
         fhSummary.close()
       return summary
 
+    def writeSummaryLine(self, msjDic):
+        ensemType = msjDic['ensemType']
+        if ensemType == 'Energy min':
+            sumStr = 'Minimization ({}): {} steps, {} objective force'.format(msjDic['integrator'], msjDic['nStepsMin'],
+                                                                              msjDic['emTol'])
+        else:
+            sumStr = 'MD simulation: {} ps, {} ensemble'.format(msjDic['simTime'], ensemType)
+  
+        if msjDic['restraints'] != 'None':
+          sumStr += ', restraint on {}'.format(msjDic['restraints'])
+        sumStr += ', {} K\n'.format(msjDic['temperature'])
+        return sumStr
+
     def createSummary(self, msjDic=None):
         '''Creates the displayed summary from the internal state of the steps'''
-        sumStr = ''
         if not msjDic:
+            sumStr = ''
             for i, dicLine in enumerate(self.workFlowSteps.get().split('\n')):
                 if dicLine != '':
                     msjDic = eval(dicLine)
                     msjDic = self.addDefaultForMissing(msjDic)
-                    method, ensemType = msjDic['thermostat'], msjDic['ensemType']
-                    sumStr += '{}) Sim. time ({}): {} ps, {} ensemble'.\
-                      format(i+1, msjDic['integrator'], msjDic['simTime'], ensemType)
-
-                    if msjDic['restrains'] != 'None':
-                        sumStr += ', restrain on {}'.format(msjDic['restrains'])
-                    sumStr += ', {} K\n'.format(msjDic['temperature'])
+                    sumStr += '{}) {}'.format(i+1, self.writeSummaryLine(msjDic))
         else:
             msjDic = self.addDefaultForMissing(msjDic)
-            method, ensemType = msjDic['thermostat'], msjDic['ensemType']
-            sumStr += 'Sim. time ({}): {} ps, {} ensemble'. \
-              format(msjDic['simTime'], msjDic['integrator'], ensemType, method)
-
-            if msjDic['restrains'] != 'None':
-              sumStr += ', restrain on {}'.format(msjDic['restrains'])
-            sumStr += ', {} K\n'.format(msjDic['temperature'])
+            sumStr = self.writeSummaryLine(msjDic)
         return sumStr
 
     def createGUISummary(self):
@@ -295,9 +337,10 @@ class GromacsMDSimulation(EMProtocol):
             else:
                 msjDic = eval(wStep)
 
-            if msjDic['ensemType'] == 'NPT' and msjDic['barostat'] != 'Berendsen' and not prevTrj:
-                warns.append('\nStep {} : Berendsen is the barostat recommended for system equilibration, {} might not be'
-                             ' the best option for the first trajectory saved'.format(step+1, msjDic['barostat']))
+            if msjDic['ensemType'] == 'NPT' and msjDic['barostat'] != 'Berendsen' and not prevTrj and msjDic['saveTrj']:
+                warns.append('\nStep {} : Berendsen is the barostat recommended for system equilibration, '
+                             '{} might not be the best option for the first trajectory saved'.
+                             format(step+1, msjDic['barostat']))
             if msjDic['saveTrj']:
                 prevTrj = True
 
@@ -353,10 +396,13 @@ class GromacsMDSimulation(EMProtocol):
 
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
-        os.mkdir(stageDir)
-        mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
+        if not os.path.exists(stageDir):
+            os.mkdir(stageDir)
 
-        restr = msjDic['restrains']
+        mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
+        if os.path.exists(mdpFile): return mdpFile
+
+        restr = msjDic['restraints']
         if restr != 'None':
             rSuffix = msjDic['restrains'] + '_stg%s' % mdpStage
             newSuffixes = self.gromacsSystem.get().defineNewRestrictionWrapper(energy=msjDic['restrainForce'],
@@ -370,17 +416,20 @@ class GromacsMDSimulation(EMProtocol):
         else:
             restrStr = ''
 
-        integStr = msjDic['integrator']
-        tSteps = msjDic['timeStep']
-        nSteps = round(msjDic['simTime'] / tSteps)
         neighlist = msjDic['timeNeigh']
         if msjDic['ensemType'] == 'Energy min':
-            tStepsStr = TSTEP_EM.format(tSteps)
+            emStep, nSteps, emTol = msjDic['emStep'], msjDic['nStepsMin'], msjDic['emTol']
+            integStr = msjDic['integrator']
+            tStepsStr = TSTEP_EM.format(emTol, emStep)
             dispCorrStr, outControlStr = '', ''
             bondParStr, electroStr = '', ''
             tempStr, presStr = '', ''
             velStr, velParStr = 'no', ''
+            nTrj = round(msjDic['trajInterval'] / emStep)
         else:
+            tSteps = msjDic['timeStep']
+            nSteps = round(msjDic['simTime'] / tSteps)
+            integStr = 'md'
             tStepsStr = TSTEP_EQ.format(tSteps)
             dispCorrStr = DISP_CORR
             electroStr = ELECTROSTATICS
@@ -403,12 +452,13 @@ class GromacsMDSimulation(EMProtocol):
                 bondParStr = BONDED_PARAMS.format('no')
                 velStr = 'yes'
                 velParStr = VEL_GEN.format(msjDic['temperature'])
+            nTrj = round(msjDic['trajInterval'] / tSteps)
 
-        nTrj = round(msjDic['trajInterval'] / tSteps)
         if msjDic['saveTrj']:
-            outControlStr = OUTPUT_CONTROL.format(*[nTrj]*4)
+            outControlStr = OUTPUT_CONTROL.format(*[nTrj]*3)
+            print('Number of frames: ', nSteps/nTrj)
         else:
-            outControlStr = OUTPUT_CONTROL.format(*[0]*3, nTrj)
+            outControlStr = OUTPUT_CONTROL.format(*[0]*2, nTrj)
 
         title = 'Stage {}: {}, {} ps'.format(mdpStage, msjDic['ensemType'], msjDic['simTime'])
         mdpStr = MDP_STR.format(restrStr, integStr, nSteps, tStepsStr, neighlist, dispCorrStr, outControlStr,
@@ -423,8 +473,11 @@ class GromacsMDSimulation(EMProtocol):
         stageDir = os.path.dirname(mdpFile)
         stage = os.path.split(stageDir)[-1]
         stageNum = stage.replace('stage_', '').strip()
-        groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
         outFile = '{}.tpr'.format(stage)
+        tprFile = os.path.join(stageDir, outFile)
+        if os.path.exists(tprFile): return tprFile
+        groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
+
 
         if self.checkIfPrevTrj(stageNum):
             prevTrjStr = '-t ' + os.path.abspath(self.checkIfPrevTrj(stageNum))
@@ -440,19 +493,22 @@ class GromacsMDSimulation(EMProtocol):
         if nWarns >= 1:
             command += ' -maxwarn {}'.format(nWarns)
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
-        return os.path.join(stageDir, outFile)
+        return tprFile
 
     def callMDRun(self, tprFile, saveTrj=True):
         stageDir = os.path.dirname(tprFile)
         stage = os.path.split(stageDir)[-1]
         gpuStr = ''
         if getattr(self, params.USE_GPU):
-            gpuStr = ' -nb gpu'
+            gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
+            gpuStr = ' -gpu_id {}'.format(gpuList)
 
-        command = 'mdrun -v -deffnm {} {}'.format(stage, gpuStr)
+        command = 'mdrun -v -deffnm {}{} -nt {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
+                                                                             self.cptTime.get())
+
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
-        if not saveTrj:
-            trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
+        trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
+        if os.path.exists(trjFile) and not saveTrj:
             os.remove(trjFile)
 
     def getPrevFinishedStageFiles(self, stage=None, reverse=False):
@@ -504,6 +560,16 @@ class GromacsMDSimulation(EMProtocol):
             if not cont:
                 break
 
+        #Add previous trajectory if all stages in this protocol saved their trajectory (continuity)
+        if len(trjFiles) == len(stagesDirs) and self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
+            prevTrjFile = os.path.abspath(self.gromacsSystem.get().getTrajectoryFile())
+            conTrjFile = os.path.abspath(self._getTmpPath('previousTrajectory.trr'))
+
+            command = 'trjconv -f {} -o {}'.format(prevTrjFile, conTrjFile)
+            gromacsPlugin.runGromacs(self, 'gmx', command, cwd=self._getPath())
+
+            trjFiles.append(conTrjFile)
+
         trjFiles.reverse()
         return trjFiles
 
@@ -512,7 +578,7 @@ class GromacsMDSimulation(EMProtocol):
         if len(trjFiles) > 0:
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
             #Concatenates trajectory
-            command = 'trjcat -f {} -settime -o {}'.format(' '.join(trjFiles), tmpTrj)
+            command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
             gromacsPlugin.runGromacsPrintf(printfValues=['c'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             #Fixes and center trajectory
@@ -520,7 +586,7 @@ class GromacsMDSimulation(EMProtocol):
               format(os.path.abspath(tprFile), tmpTrj, outTrj)
             gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'System'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
-            return self._getPath(outTrj)
+            return os.path.abspath(self._getPath(outTrj))
         return None
 
     def countWarns(self, stageNum):

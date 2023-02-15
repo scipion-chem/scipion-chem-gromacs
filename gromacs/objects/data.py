@@ -36,19 +36,84 @@ from gromacs.constants import *
 class GromacsSystem(MDSystem):
     """A system atom structure (prepared for MD) in the file format of GROMACS
     _topoFile: topology file .top
-    _restrFile: default position restrains file .itp
+    _restrFile: default position restraints file .itp
     _trjFile: trajectory file (xtc)
     _ff: main force field
     _wff: water force field model"""
 
     def __init__(self, filename=None, **kwargs):
         super().__init__(filename=filename, **kwargs)
+        self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
+        self._tprFile = pwobj.String(kwargs.get('tprFile', None))
 
-    def getRestrainsFile(self):
+        self._chainNames = pwobj.String(kwargs.get('chainNames', None))
+
+        self._firstFrame = pwobj.Integer(kwargs.get('firstFrame', None))
+        self._lastFrame = pwobj.Integer(kwargs.get('lastFrame', None))
+
+        self._firstTime = pwobj.Float(kwargs.get('firstTime', None))
+        self._lastTime = pwobj.Float(kwargs.get('lastTime', None))
+
+    def __str__(self):
+        strStr = '{} ({}'.format(self.getClassName(), os.path.basename(self.getSystemFile()))
+        if self.hasTrajectory():
+            strStr += ', frames: {} - {}, time(ps): {} - {}'.format(*self.getFrameIdxs(), *self.getTimes())
+        strStr += ')'
+        return strStr
+
+    def getChainNames(self):
+        return self._chainNames.get().split(',')
+    def setChainNames(self, values):
+        if type(values) == str:
+            self._chainNames.set(values)
+        elif type(values) in [list, tuple]:
+            self._chainNames.set(','.join(values))
+
+    def getFrameIdxs(self):
+        return self._firstFrame, self._lastFrame
+    def setFrameIdxs(self, values):
+        self._firstFrame.set(values[0]), self._lastFrame.set(values[1])
+
+    def getTimes(self):
+        return self._firstTime, self._lastTime
+    def setTimes(self, values):
+        self._firstTime.set(values[0]), self._lastTime.set(values[1])
+
+    def readTrjInfo(self, protocol, outDir=None):
+        from gromacs import Plugin as gromacsPlugin
+        outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
+        infoFile = os.path.abspath(protocol._getPath('logs/run.stderr'))
+
+        command = 'check -f {}'.format(self.getTrajectoryFile())
+        gromacsPlugin.runGromacs(protocol, 'gmx', command, cwd=outDir)
+
+        isCheck, isFirst = True, True
+        with open(infoFile) as f:
+          for line in f:
+              if isCheck:
+                  if 'gmx check -f' in line:
+                      isCheck = False
+              else:
+                  if isFirst and line.startswith('Reading frame'):
+                      isFirst = False
+                      firstFrame, firstTime = int(line.split()[2]), float(line.split()[4])
+                  elif not isFirst and line.startswith('Last frame'):
+                      lastFrame, lastTime = int(line.split()[2]), float(line.split()[4])
+
+        self.setTimes([firstTime, lastTime])
+        self.setFrameIdxs([firstFrame, lastFrame])
+
+    def getOriStructFile(self):
+        return self._oriStructFile.get()
+
+    def setOriStructFile(self, value):
+        self._oriStructFile.set(value)
+
+    def getRestraintsFile(self):
         return self._restrFile.get()
 
-    def setRestrainsFile(self, value):
+    def setRestraintsFile(self, value):
         self._restrFile.set(value)
 
     def defineNewRestrictionWrapper(self, energy, restrainSuffix='low', outDir=None, group="protein-h"):
@@ -164,7 +229,7 @@ class GromacsSystem(MDSystem):
         program = os.path.join("", 'printf "{}" | {} '.format(groupNr, gromacsPlugin.getGromacsBin()))
         params_genrestr = 'genrestr -f %s -o %s.itp -fc %d %d %d' % \
                           (os.path.abspath(self.getSystemFile()),
-                           'posre_' + restrainSuffix.lower(), energy, energy, energy)
+                           'posre_' + restraintSuffix.lower(), energy, energy, energy)
         check_call(program + params_genrestr, cwd=outDir, shell=True)
 
         topFile = self.getTopologyFile()
@@ -175,7 +240,7 @@ class GromacsSystem(MDSystem):
 
         program = "sed "
         inStr = '#ifdef POSRES_{}\\n#include "posre_{}.itp"\\n#endif'.\
-            format(restrainSuffix.upper(), restrainSuffix.lower())
+            format(restraintSuffix.upper(), restraintSuffix.lower())
         sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
             format(inStr, os.path.abspath(topFile))
         check_call(program + sed_params, cwd=outDir, shell=True)
