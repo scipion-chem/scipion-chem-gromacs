@@ -41,7 +41,7 @@ from ..protocols import GromacsMDSimulation
 program = gromacsPlugin.getGromacsBin()
 
 class GromacsSystemPViewer(MDSystemPViewer):
-    """ Visualize the output of Desmond simulation """
+    """ Visualize the output of Gromacs simulation """
     _label = 'Viewer Gromacs System'
     _targets = [GromacsSystem]
 
@@ -68,7 +68,7 @@ class GromacsSystemPViewer(MDSystemPViewer):
 
 
 class GromacsSimulationViewer(GromacsSystemPViewer):
-    """ Visualize the output of Desmond simulation """
+    """ Visualize the output of Gromacs simulation """
     _label = 'Viewer Gromacs Simulation'
     _targets = [GromacsMDSimulation]
     _analysis = ['RMSD', 'RMSF', 'Gyration', 'SASA', 'HBond', 'Clustering']
