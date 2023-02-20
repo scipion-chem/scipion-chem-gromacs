@@ -73,7 +73,7 @@ gen_seed                = -1        ; generate a random seed'''
 
 
 MDP_STR = '''; Parameters describing what to do, when to stop and what to save
-; position restrains
+; position restraints
 {}  
 
 ; Run parameters

@@ -55,7 +55,7 @@ class GromacsMDSimulation(EMProtocol):
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman']
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
-    _restraintTypes = ['None', 'Protein', 'Protein-H', 'MainChain', 'BackBone', 'C-alpha']
+    _restraintTypes = ['None', 'Protein', 'Protein-H', 'C-alpha', 'Backbone', 'MainChain']
 
     _paramNames = ['simTime', 'timeStep', 'nStepsMin', 'emStep', 'emTol', 'timeNeigh', 'saveTrj', 'trajInterval',
                    'temperature', 'tempRelaxCons', 'tempCouple', 'pressure', 'presRelaxCons', 'presCouple',
@@ -251,7 +251,7 @@ class GromacsMDSimulation(EMProtocol):
 
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=oriGroFile, oriStructFile=oriGroFile,
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile,
                                   tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
@@ -404,15 +404,14 @@ class GromacsMDSimulation(EMProtocol):
 
         restr = msjDic['restraints']
         if restr != 'None':
-            rSuffix = msjDic['restrains'] + '_stg%s' % mdpStage
-            newSuffixes = self.gromacsSystem.get().defineNewRestrictionWrapper(energy=msjDic['restrainForce'],
-                                                                 restrainSuffix=rSuffix, 
-                                                                 outDir=stageDir)
-            for i, newSuffix in enumerate(newSuffixes):
-                if i == 0:
-                    restrStr = RESTR_STR.format(newSuffix.upper())
-                else:
-                    restrStr += ' -DPOSRES_' + newSuffix.upper()
+            rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
+            groupNr = self._restraintTypes.index(msjDic['restraints'])
+            newSuffixes = self.gromacsSystem.get().\
+              defineNewRestrictionWrapper(energy=msjDic['restraintForce'], restraintSuffix=rSuffix, groupNr=groupNr,
+                                          outDir=stageDir)
+
+            restrStr = RESTR_STR.format(rSuffix.upper())
+
         else:
             restrStr = ''
 

@@ -230,7 +230,7 @@ class GromacsSystemPrep(EMProtocol):
         params = ' pdb2gmx -f %s ' \
                  '-o %s_processed.gro ' \
                  '-water %s ' \
-                 '-ff %s -merge all' % (inputStructure, systemBasename, Waterff, Mainff)
+                 '-ff %s' % (inputStructure, systemBasename, Waterff, Mainff)
         # todo: managing several chains (restrictions, topologies...) instead of merging them
         try:
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
@@ -274,8 +274,7 @@ class GromacsSystemPrep(EMProtocol):
                         'topol.top -o ions.tpr' % (ions_mdp, systemBasename)
         if 'gromos' in self.getEnumText('mainForceField'):
             params_grompp += ' -maxwarn 1'
-        gromacsPlugin.runGromacsPrintf(printfValues=['SOL'],
-                                       args=params_grompp, cwd=self._getPath())
+        gromacsPlugin.runGromacs(self, 'gmx', params_grompp, cwd=self._getPath())
 
         cation, cc = self.parseIon(self.getEnumText('cationType'))
         anion, ac = self.parseIon(self.getEnumText('anionType'))

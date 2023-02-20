@@ -122,7 +122,7 @@ class GromacsSystem(MDSystem):
     def setTprFile(self, value):
         self._tprFile.set(value)
 
-    def defineNewRestrictionWrapper(self, energy, restrainSuffix='low', outDir=None, group="protein-h"):
+    def defineNewRestrictionWrapper(self, energy, restraintSuffix='low', outDir=None, groupNr=2):
         '''Call the right function to define a new position restriction and 
         store it in the right topology files, checking whether there is one chain
         or more than one.'''
@@ -134,44 +134,20 @@ class GromacsSystem(MDSystem):
                             if f.startswith('top') and f.endswith('.itp')]
 
         if len(lastTopItpFiles) == 0:
-            return [self.defineNewRestriction(energy, restrainSuffix, outDir, group)]
+            return [self.defineNewRestriction(energy, restraintSuffix, outDir, groupNr)]
         else:
-            return self.defineNewRestrictionMulti(energy, restrainSuffix, outDir, 
-                                                  group, lastTopItpFiles)
+            return self.defineNewRestrictionMulti(energy, restraintSuffix, outDir,
+                                                  groupNr, lastTopItpFiles)
 
-    def defineNewRestrictionMulti(self, energy, restrainSuffix='low', outDir=None, 
-                                  group="protein-h", lastTopItpFiles=[]):
-        '''Define a new position restriction and store it in the right topology files
-        for each of the multiple chains.'''
-        lastTopItpFiles.sort(key=os.path.getmtime)
-
-        topFile = self.getTopologyFile()
-        if outDir:
-            topFile = os.path.join(outDir, os.path.basename(self.getTopologyFile()))
-            shutil.copy(self.getTopologyFile(), topFile)
-            self.setTopologyFile(topFile)
-        
+    def getNumberOfNdxGroups(self, groFile, outDir=None):
         from gromacs import Plugin as gromacsPlugin
-        outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
+        if not outDir:
+            outDir = '/tmp'
 
-        if group == "protein-h":
-            groupNr = 2
-        else:
-            print("Using protein-h as other groups not supported")
-            groupNr = 2
-
-        # make standard ndx file with simple quitting
-        paramsFileName = os.path.abspath(os.path.join(outDir, "make_ndx_inputs.txt"))
-        fo = open(paramsFileName, "w")
-        fo.write("q\n")
-        fo.close()
-
-        program = os.path.join("", '{} '.format(gromacsPlugin.getGromacsBin()))
-        ndx_file = os.path.abspath(os.path.join(outDir, 'index.ndx'))
-        params_make_ndx = 'make_ndx -f %s -o %s < %s' % \
-                        (os.path.abspath(self.getSystemFile()), 
-                        ndx_file, paramsFileName)
-        check_call(program + params_make_ndx, cwd=outDir, shell=True)
+        ndx_file = os.path.abspath(os.path.join(outDir, 'basic_index.ndx'))
+        params_make_ndx = 'make_ndx -f %s -o %s' % \
+                          (os.path.abspath(groFile), ndx_file)
+        gromacsPlugin.runGromacsPrintf(printfValues=['q'], args=params_make_ndx, cwd=outDir)
 
         # count ndx entries
         f = open(ndx_file, 'r')
@@ -180,19 +156,47 @@ class GromacsSystem(MDSystem):
             if line.find('[') != -1:
                 numGroups += 1
         f.close()
+        return numGroups
 
-        # make ndx file with split chains from group
-        paramsFileName = os.path.abspath(os.path.join(outDir, "make_ndx_inputs.txt"))
-        fo = open(paramsFileName, "w")
-        fo.write("splitch {}\nq\n".format(groupNr))
-        fo.close()
+    def renumberPosRestraintFile(self, restrFile, iniNumber=1):
+        newStr, inRest = '', False
+        with open(restrFile) as f:
+            for line in f:
+                if inRest:
+                    newStr += str(iniNumber).rjust(4) + line[4:]
+                    iniNumber += 1
+                else:
+                    newStr += line
 
-        program = os.path.join("", '{} '.format(gromacsPlugin.getGromacsBin()))
-        ndx_file = os.path.abspath(os.path.join(outDir, 'index.ndx'))
-        params_make_ndx = 'make_ndx -f %s -n %s -o %s < %s' % \
-                        (os.path.abspath(self.getSystemFile()), 
-                         ndx_file, ndx_file, paramsFileName)
-        check_call(program + params_make_ndx, cwd=outDir, shell=True)
+                if line.startswith(';  i'):
+                    inRest = True
+
+        with open(restrFile, 'w') as f:
+            f.write(newStr)
+
+
+    def defineNewRestrictionMulti(self, energy, restraintSuffix='low', outDir=None,
+                                  groupNr=2, lastTopItpFiles=[]):
+        '''Define a new position restriction and store it in the right topology files
+        for each of the multiple chains.'''
+        lastTopItpFiles.sort(key=os.path.getmtime)
+        sysFile = os.path.abspath(self.getSystemFile())
+
+        topFile = self.getTopologyFile()
+        if outDir:
+            localTopFile = os.path.join(outDir, os.path.basename(topFile))
+            shutil.copy(topFile, localTopFile)
+            self.setTopologyFile(localTopFile)
+        
+        from gromacs import Plugin as gromacsPlugin
+        outDir = os.path.dirname(sysFile) if not outDir else outDir
+
+        numGroups = self.getNumberOfNdxGroups(sysFile, outDir)
+
+        ndx_file = os.path.abspath(os.path.join(outDir, 'chain_index.ndx'))
+        params_make_ndx = 'make_ndx -f %s -o %s' % (sysFile, ndx_file)
+        gromacsPlugin.runGromacsPrintf(printfValues=['splitch {}'.format(groupNr), 'q'],
+                                       args=params_make_ndx, cwd=outDir)
 
         suffixes = []
         for n, TopItpFile in enumerate(lastTopItpFiles):
@@ -201,57 +205,52 @@ class GromacsSystem(MDSystem):
             shutil.copy(TopItpFile, itpFile)
 
             # generate restraint for the new group for this chain
-            newRestrainSuffix = '%s_%d' % (restrainSuffix.lower(), numGroups+n)
-            program = os.path.join("", 'printf "{}" | {} '.format(numGroups+n, gromacsPlugin.getGromacsBin()))
-            params_genrestr = 'genrestr -f %s -o posre_%s.itp -fc %d %d %d -n %s' % \
-                            (os.path.abspath(self.getSystemFile()),
-                            newRestrainSuffix, 
-                            energy, energy, energy, ndx_file)
-            check_call(program + params_genrestr, cwd=outDir, shell=True)  
+            newrestraintSuffix = '%s_%d' % (restraintSuffix.lower(), numGroups+n)
+            outRestrFile = 'posre_%s.itp' % newrestraintSuffix
+            params_genrestr = 'genrestr -f %s -o %s -fc %d %d %d -n %s' % \
+                              (sysFile, outRestrFile, energy, energy, energy, ndx_file)
 
-            program = "sed "
-            inStr = '#ifdef POSRES_{}\\n#include "posre_{}.itp"\\n#endif'.\
-                format(newRestrainSuffix.upper(), newRestrainSuffix.lower())
-            sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
-                format(inStr, os.path.abspath(itpFile))
-            check_call(program + sed_params, cwd=outDir, shell=True)   
+            gromacsPlugin.runGromacsPrintf(printfValues=[numGroups + n],
+                                           args=params_genrestr, cwd=outDir)
 
-            suffixes.append(newRestrainSuffix)
+            self.renumberPosrestraintFile(os.path.join(outDir, outRestrFile))
+
+            inStr = '#ifdef POSRES_{}\n#include "posre_{}.itp"\n#endif\n'. \
+                format(restraintSuffix.upper(), newrestraintSuffix.lower())
+            with open(itpFile, 'a') as f:
+                f.write(inStr)
+
+            suffixes.append(newrestraintSuffix)
 
         return suffixes
 
-    def defineNewRestriction(self, energy, restrainSuffix='low', outDir=None, group="protein-h"):
+    def defineNewRestriction(self, energy, restraintSuffix='low', outDir=None, groupNr=2):
         '''Define a new position restriction and store it in the topology file.
         This only works for simple systems with one chain'''
-
-        if group == "protein-h":
-            groupNr = 2
-        else:
-            print("Using protein-h as other groups not supported")
-            groupNr = 2
-
         from gromacs import Plugin as gromacsPlugin
-        outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
-        program = os.path.join("", 'printf "{}" | {} '.format(groupNr, gromacsPlugin.getGromacsBin()))
+        sysFile = os.path.abspath(self.getSystemFile())
+
+        outDir = os.path.dirname(sysFile) if not outDir else outDir
+
         params_genrestr = 'genrestr -f %s -o %s.itp -fc %d %d %d' % \
-                          (os.path.abspath(self.getSystemFile()),
-                           'posre_' + restraintSuffix.lower(), energy, energy, energy)
-        check_call(program + params_genrestr, cwd=outDir, shell=True)
+                          (sysFile, 'posre_' + restraintSuffix.lower(), energy, energy, energy)
+        gromacsPlugin.runGromacsPrintf(printfValues=[groupNr],
+                                       args=params_genrestr, cwd=outDir)
 
         topFile = self.getTopologyFile()
         if outDir:
-            topFile = os.path.join(outDir, os.path.basename(self.getTopologyFile()))
-            shutil.copy(self.getTopologyFile(), topFile)
-            self.setTopologyFile(topFile)
+            newTopFile = os.path.join(outDir, os.path.basename(topFile))
+            shutil.copy(topFile, newTopFile)
+            self.setTopologyFile(newTopFile)
 
         program = "sed "
         inStr = '#ifdef POSRES_{}\\n#include "posre_{}.itp"\\n#endif'.\
             format(restraintSuffix.upper(), restraintSuffix.lower())
         sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
-            format(inStr, os.path.abspath(topFile))
+            format(inStr, os.path.abspath(self.getTopologyFile()))
         check_call(program + sed_params, cwd=outDir, shell=True)
 
-        return restrainSuffix
+        return restraintSuffix
 
     def getIons(self):
         ionsDic, mols = {}, False
