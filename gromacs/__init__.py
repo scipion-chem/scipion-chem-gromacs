@@ -97,6 +97,7 @@ class Plugin(pwem.Plugin):
     @classmethod
     def runGromacsPrintf(cls, printfValues, args, cwd):
       """ Run Gromacs command from a given protocol. """
+      printfValues = list(map(str, printfValues))
       program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin())
       print('Running: ', program, args)
       subprocess.check_call(program + args, cwd=cwd, shell=True)
