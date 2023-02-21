@@ -122,15 +122,16 @@ class GromacsSystem(MDSystem):
     def setTprFile(self, value):
         self._tprFile.set(value)
 
-    def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None):
+    def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
         from gromacs import Plugin as gromacsPlugin
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
-        program = os.path.join("", 'printf "{}" | {} '.format(index, gromacsPlugin.getGromacsBin()))
-        params_genrestr = 'genrestr -f %s -o %s.itp -fc %d %d %d' % \
-                          (os.path.abspath(self.getSystemFile()),
+
+        nArg = ' -n {}'.format(indexFile) if indexFile else ''
+        params_genrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
+                          (os.path.abspath(self.getSystemFile()), nArg,
                            'posre_' + restraintSuffix.lower(), energy, energy, energy)
-        check_call(program + params_genrestr, cwd=outDir, shell=True)
+        gromacsPlugin.runGromacsPrintf(printfValues=index, args=params_genrestr, cwd=outDir)
 
         topFile = self.getTopologyFile()
         if outDir:
