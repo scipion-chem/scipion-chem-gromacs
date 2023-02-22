@@ -192,7 +192,7 @@ class GromacsMDSimulation(EMProtocol):
         group = form.addGroup('Restraints')
         group.addParam('restraintCommand', params.StringParam, default='', label='Enter custom index command: ',
                        expertLevel=params.LEVEL_ADVANCED,
-                       help='To restraint movement of specific groups of atoms of custom choice. You can '
+                       help='To restrain movement of specific groups of atoms of custom choice. You can '
                             'create custom groups by iteratively entering the commands in this field and submitting it '
                             'clicking on the wizard. At any time, you can check the available groups using the '
                             'following parameter wizard (Restraints group: ), which will include the created ones. '
