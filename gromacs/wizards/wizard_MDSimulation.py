@@ -33,9 +33,13 @@ information such as name and number of residues.
 """
 
 # Imports
-from ..protocols.protocol_MD_simulation import *
 import pyworkflow.wizard as pwizard
-from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard
+from pyworkflow.gui import ListTreeProviderString, dialog
+from pyworkflow.object import String
+
+from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard
+
+from ..protocols.protocol_MD_simulation import *
 
 AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
                              targets=['insertStep'],
@@ -78,4 +82,82 @@ class GromacsWatchRelaxStepWizard(pwizard.Wizard):
                         form.setVar(pName, idx)
         except:
             print('Index "{}" not recognized as integer for watch step'.format(watchStep))
+
+
+class GromacsCheckIndexWizard(VariableWizard):
+    """Watch the groups contained in the input Gromacs system"""
+    _targets, _inputs, _outputs = [], {}, {}
+
+    def createGroupsFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', outFile='/tmp/indexGroups.txt',
+                           inputCommands=['q']):
+        outDir = os.path.dirname(outFile)
+        inIndex = ' -n {}'.format(inIndex) if inIndex else ''
+        command = 'make_ndx -f {}{} -o {} > {}'.format(system.getSystemFile(), inIndex, outIndex, outFile)
+
+        if not inputCommands[-1] == 'q':
+            inputCommands.append('q')
+        gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
+        return outFile
+
+    def show(self, form, *params):
+        protocol = form.protocol
+        inputParam, outputParam = self.getInputOutput(form)
+
+        system = getattr(protocol, inputParam[0]).get()
+        outFile = protocol.getCustomGroupsFile()
+
+        if not os.path.exists(outFile):
+            inIndex, outIndex = None, protocol.getCustomIndexFile()
+            if os.path.exists(outIndex):
+                inIndex = outIndex
+
+            outFile = self.createGroupsFile(system, inIndex=inIndex, outIndex=protocol.getCustomIndexFile(),
+                                            outFile=outFile)
+
+        groups = protocol.parseGroupsFile(outFile)
+
+        finalList = [String('-1: None')]
+        for index, name in groups.items():
+            finalList.append(String('{}: {}'.format(index, name)))
+        provider = ListTreeProviderString(finalList)
+        dlg = dialog.ListDialog(form.root, "System groups", provider,
+                                "Select one of the groups")
+        form.setVar(outputParam[0], dlg.values[0].get().split(': ')[1])
+
+GromacsCheckIndexWizard().addTarget(protocol=GromacsMDSimulation,
+                               targets=['restraints'],
+                               inputs=['gromacsSystem'],
+                               outputs=['restraints'])
+
+class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
+    """Watch the groups contained in the input Gromacs system and allows the modification"""
+    _targets, _inputs, _outputs = [], {}, {}
+
+    def show(self, form, *params):
+        protocol = form.protocol
+        inputParam, outputParam = self.getInputOutput(form)
+
+        system = getattr(protocol, inputParam[0]).get()
+
+        outFile = protocol.getCustomGroupsFile()
+        inIndex, outIndex = None, protocol.getCustomIndexFile()
+        if os.path.exists(outIndex):
+            inIndex = outIndex
+
+        inCommand = getattr(protocol, inputParam[1]).get()
+        inCommand = ' '.join(protocol.translateNamesToIndexGroup(inCommand.split()))
+
+        groups = self.createGroupsFile(system, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex,
+                                         outFile=outFile)
+        # Needs to be run twice. Seems like first with commands does not create the groups file, but it does create
+        # the index file
+        self.createGroupsFile(system, inIndex=inIndex, outFile=outFile)
+
+        # form.setVar(outputParam[0], inCommand)
+
+
+GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
+                               targets=['restraintCommand'],
+                               inputs=['gromacsSystem', 'restraintCommand'],
+                               outputs=['restraints'])
 

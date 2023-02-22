@@ -29,8 +29,9 @@
 """
 This module will perform energy minimizations for the system
 """
-import os, glob, shutil
+import os, glob, random
 
+from pyworkflow.object import Integer
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
@@ -55,12 +56,11 @@ class GromacsMDSimulation(EMProtocol):
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman']
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
-    _restraintTypes = ['None', 'Protein', 'Protein-H', 'MainChain', 'BackBone', 'C-alpha']
 
     _paramNames = ['simTime', 'timeStep', 'nStepsMin', 'emStep', 'emTol', 'timeNeigh', 'saveTrj', 'trajInterval',
                    'temperature', 'tempRelaxCons', 'tempCouple', 'pressure', 'presRelaxCons', 'presCouple',
-                   'restraintForce']
-    _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat', 'restraints']
+                   'restraints', 'restraintForce']
+    _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat']
     _defParams = {'simTime': 100, 'timeStep': 0.002, 'nStepsMin': 50000, 'emStep': 0.002, 'emTol': 1000.0,
                   'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
                   'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'cg',
@@ -71,6 +71,7 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
+      self.restraintID = Integer(random.randint(1, 100000))
 
 
     # -------------------------- DEFINE param functions ----------------------
@@ -176,7 +177,7 @@ class GromacsMDSimulation(EMProtocol):
                        help='Stop minimization when the maximum force < x kJ/mol/nm.\n'
                             'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emtol')
         group.addParam('emStep', params.FloatParam, default=0.002,
-                       label='Initial step-size (nm)[emstep]:', condition='ensemType==0',
+                       label='Initial step-size (nm)[emstep]: ', condition='ensemType==0',
                        help='Initial step-size (nm)[emstep].\n'
                             'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emstep')
 
@@ -189,9 +190,17 @@ class GromacsMDSimulation(EMProtocol):
                             'greater than 0.')
 
         group = form.addGroup('Restraints')
-        group.addParam('restraints', params.EnumParam, default=0,
-                       label='Restraints: ', choices=self._restraintTypes,
-                       help='Restraint movement of specific groups of atoms')
+        group.addParam('restraintCommand', params.StringParam, default='', label='Enter custom index command: ',
+                       expertLevel=params.LEVEL_ADVANCED,
+                       help='To restrain movement of specific groups of atoms of custom choice. You can '
+                            'create custom groups by iteratively entering the commands in this field and submitting it '
+                            'clicking on the wizard. At any time, you can check the available groups using the '
+                            'following parameter wizard (Restraints group: ), which will include the created ones. '
+                            'Once the custom group is created, select it on this next wizard.')
+        group.addParam('restraints', params.StringParam, default='None', label='Restraints group: ',
+                       help='Restraint movement of specific groups of atoms. You can check the existing groups of '
+                            'your system using the wizard or even create new groups in the advanced level using '
+                            'make_ndx gromacs commands.')
         group.addParam('restraintForce', params.FloatParam, default=50,
                        label='Restraint force constant: ', condition='restraints!=0',
                        help='Restraint force applied to the selection (kcal/mol/Å2)')
@@ -283,7 +292,7 @@ class GromacsMDSimulation(EMProtocol):
         else:
             sumStr = 'MD simulation: {} ps, {} ensemble'.format(msjDic['simTime'], ensemType)
   
-        if msjDic['restraints'] != 'None':
+        if msjDic['restraints'] not in ['', 'None']:
           sumStr += ', restraint on {}'.format(msjDic['restraints'])
         sumStr += ', {} K\n'.format(msjDic['temperature'])
         return sumStr
@@ -367,6 +376,38 @@ class GromacsMDSimulation(EMProtocol):
 
 ######################## UTILS ##################################
 
+    def getCustomRestraintID(self):
+        return self.restraintID.get()
+
+    def getCustomIndexFile(self):
+        projDir = self.getProject().getPath()
+        return os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
+
+    def getCustomGroupsFile(self):
+        projDir = self.getProject().getPath()
+        return os.path.join(projDir, '{}_custom_groups.ndx'.format(self.getCustomRestraintID()))
+
+    def parseGroupsFile(self, groupsFile):
+        groups, inGroups = {}, False
+        with open(groupsFile) as f:
+            for line in f:
+                if len(line.split()) == 5 and line.strip().endswith('atoms'):
+                    inGroups = True
+                else:
+                    inGroups = False
+
+                if inGroups:
+                    groups[line.split()[0]] = line.split()[1]
+        return groups
+
+    def translateNamesToIndexGroup(self, names):
+        groups = self.parseGroupsFile(self.getCustomGroupsFile())
+        inv_groups = {v: k for k, v in groups.items()}
+        for i, name in enumerate(names):
+            if name in inv_groups:
+                names[i] = inv_groups[name]
+        return names
+
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
         steps = stepsStr.split('\n')
@@ -403,10 +444,18 @@ class GromacsMDSimulation(EMProtocol):
         if os.path.exists(mdpFile): return mdpFile
 
         restr = msjDic['restraints']
-        if restr != 'None':
+        if restr not in ['', 'None']:
             rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
-            self.gromacsSystem.get().defineNewRestriction(index=msjDic['restraints'], energy=msjDic['restraintForce'],
-                                                          restraintSuffix=rSuffix, outDir=stageDir)
+            groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
+
+            indexFile = self.getCustomIndexFile()
+            if not os.path.exists(indexFile):
+                indexFile = None
+
+            newSuffixes = self.gromacsSystem.get().\
+              defineNewRestriction(index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
+                                   outDir=stageDir, indexFile=indexFile)
+
             restrStr = RESTR_STR.format(rSuffix.upper())
         else:
             restrStr = ''
