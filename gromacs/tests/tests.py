@@ -24,15 +24,18 @@
 # *
 # **************************************************************************
 
+import os
+
 from pyworkflow.tests import BaseTest, setupTestProject, DataSet
 from pwem.protocols import ProtImportPdb
 
 from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation
+from gromacs import Plugin as gromacsPlugin
 
-workflow = '''{'simTime': 100.0, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'Energy min', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'restraints': 'Protein'}
-{'simTime': 0.1, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'restraints': 'MainChain'}   
-{'simTime': 0.2, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': True, 'trajInterval': 0.01, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NPT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'restraints': 'None'}'''
-
+workflow = '''{'simTime': 100.0, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'Protein', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'Energy min', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman'}
+{'simTime': 0.1, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': True, 'trajInterval': 0.05, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'MainChain', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman'}
+{'simTime': 0.2, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': True, 'trajInterval': 0.05, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'None', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NPT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman'}
+'''
 summary = '''1) Minimization (steep): 100 steps, 1000.0 objective force, restraint on Protein, 300.0 K
 2) MD simulation: 0.1 ps, NVT ensemble, restraint on MainChain, 300.0 K
 3) MD simulation: 0.2 ps, NPT ensemble, 300.0 K'''
@@ -80,8 +83,21 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
             GromacsMDSimulation,
             gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
 
+        outFile = self.createGroupsFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile(),
+                                        outFile=protSim.getCustomGroupsFile())
         self.launchProtocol(protSim)
         return protSim
+
+    def createGroupsFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', outFile='/tmp/indexGroups.txt',
+                           inputCommands=['q']):
+        outDir = os.path.dirname(outFile)
+        inIndex = ' -n {}'.format(inIndex) if inIndex else ''
+        command = 'make_ndx -f {}{} -o {} > {}'.format(system.getSystemFile(), inIndex, outIndex, outFile)
+
+        if not inputCommands[-1] == 'q':
+            inputCommands.append('q')
+        gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
+        return outFile
 
     def test(self):
         protPrepare = self._runPrepareSystem()
