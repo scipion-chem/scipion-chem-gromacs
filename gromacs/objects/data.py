@@ -98,7 +98,7 @@ class GromacsSystem(MDSystem):
                   if isFirst and line.startswith('Reading frame'):
                       isFirst = False
                       firstFrame, firstTime = int(line.split()[2]), float(line.split()[4])
-                  elif not isFirst and line.startswith('Last frame'):
+                  elif not isFirst and line.startswith('Reading frame'):
                       lastFrame, lastTime = int(line.split()[2]), float(line.split()[4])
 
         self.setTimes([firstTime, lastTime])

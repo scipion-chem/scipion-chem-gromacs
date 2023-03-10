@@ -210,7 +210,7 @@ class GromacsMDSimulation(EMProtocol):
                        label='Insert relaxation step number: ',
                        help='Insert the defined relaxation step into the workflow on the defined position.\n'
                             'The default (when empty) is the last position')
-        group.addParam('summarySteps', params.TextParam, width=120, readOnly=True,
+        group.addParam('summarySteps', params.TextParam, width=100, readOnly=True,
                        label='Summary of steps',
                        help='Summary of the defined steps. \nManual modification will have no '
                             'effect, use the wizards to add / delete the steps')
