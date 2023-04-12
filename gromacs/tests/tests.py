@@ -83,21 +83,11 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
             GromacsMDSimulation,
             gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
 
-        outFile = self.createGroupsFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile(),
-                                        outFile=protSim.getCustomGroupsFile())
+        outFile = protSim.createGroupsFile(protPrepare.outputSystem, inIndex=None,
+                                           outIndex=protSim.getCustomIndexFile(),
+                                           outFile=protSim.getCustomGroupsFile())
         self.launchProtocol(protSim)
         return protSim
-
-    def createGroupsFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', outFile='/tmp/indexGroups.txt',
-                           inputCommands=['q']):
-        outDir = os.path.dirname(outFile)
-        inIndex = ' -n {}'.format(inIndex) if inIndex else ''
-        command = 'make_ndx -f {}{} -o {} > {}'.format(system.getSystemFile(), inIndex, outIndex, outFile)
-
-        if not inputCommands[-1] == 'q':
-            inputCommands.append('q')
-        gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
-        return outFile
 
     def test(self):
         protPrepare = self._runPrepareSystem()
