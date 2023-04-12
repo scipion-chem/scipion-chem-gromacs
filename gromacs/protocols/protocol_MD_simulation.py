@@ -225,8 +225,7 @@ class GromacsMDSimulation(EMProtocol):
                        help='Restraint movement of specific groups of atoms. You can check the existing groups of '
                             'your system using the wizard or even create new groups in the advanced level using '
                             'make_ndx gromacs commands.')
-        group.addParam('restraintForce', params.FloatParam, default=50, condition='restraintOptions!=0',
-                       label='Restraint force constant: ',
+        group.addParam('restraintForce', params.FloatParam, default=50, label='Restraint force constant: ',
                        help='Restraint force applied to the selection (kcal/mol/Å2)')
 
         group = form.addGroup('Summary')
@@ -298,13 +297,16 @@ class GromacsMDSimulation(EMProtocol):
 
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=oriGroFile, oriStructFile=oriGroFile,
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile,
                                   tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
+        indexFile = self.getCustomIndexFile()
+        if os.path.exists(indexFile):
+            outSystem.setIndexFile(indexFile)
 
         self._defineOutputs(outputSystem=outSystem)
 
@@ -418,34 +420,31 @@ class GromacsMDSimulation(EMProtocol):
         return self.restraintID.get()
 
     def getCustomIndexFile(self):
-        projDir = self.getProject().getPath()
-        return os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
+        indexFile = self.gromacsSystem.get().getIndexFile()
+        if not indexFile or not os.path.exists(indexFile):
+            projDir = self.getProject().getPath()
+            indexFile = os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
+        return indexFile
 
-    def getCustomGroupsFile(self):
-        projDir = self.getProject().getPath()
-        return os.path.join(projDir, '{}_custom_groups.ndx'.format(self.getCustomRestraintID()))
-
-    def parseGroupsFile(self, groupsFile):
-        groups, inGroups = {}, False
-        with open(groupsFile) as f:
+    def parseIndexFile(self, indexFile):
+        groups, index = {}, 0
+        with open(indexFile) as f:
             for line in f:
-                if not inGroups and line.strip().endswith('atoms'):
-                    inGroups = True
-                    groups = {}
-                elif inGroups and not line.strip().endswith('atoms'):
-                    inGroups = False
-
-                if inGroups:
-                    groups[line.split()[0]] = line.split()[1]
+                if line.startswith('['):
+                    groups[index] = line.replace('[', '').replace(']', '').strip()
+                    index += 1
         return groups
 
     def translateNamesToIndexGroup(self, names):
-        groups = self.parseGroupsFile(self.getCustomGroupsFile())
+        idxs = []
+        groups = self.parseIndexFile(self.getCustomIndexFile())
         inv_groups = {v: k for k, v in groups.items()}
-        for i, name in enumerate(names):
+        for name in names:
             if name in inv_groups:
-                names[i] = inv_groups[name]
-        return names
+                idxs.append(inv_groups[name])
+            else:
+                idxs.append(name)
+        return idxs
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -474,20 +473,16 @@ class GromacsMDSimulation(EMProtocol):
                 msjDic[pName] = self._defParams[pName]
         return msjDic
 
-    def createGroupsFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', outFile='/tmp/indexGroups.txt',
-                           inputCommands=['q']):
-        outDir = os.path.dirname(outFile)
+    def createIndexFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', inputCommands=['q']):
+        outDir = os.path.dirname(outIndex)
         inIndex = ' -n {}'.format(inIndex) if inIndex else ''
-        command = 'make_ndx -f {}{} -o {} > {}'.format(system.getSystemFile(), inIndex, outIndex, outFile)
+        command = 'make_ndx -f {}{} -o {}'.format(system.getSystemFile(), inIndex, outIndex)
 
         if not inputCommands[-1] == 'q':
             inputCommands.append('q')
         gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
-        groups = self.parseGroupsFile(outFile)
+        groups = self.parseIndexFile(outIndex)
         return groups
-
-    def getRestraintIdx(self, msjDic):
-        return self.translateNamesToIndexGroup([msjDic['restraints']])
 
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
@@ -499,7 +494,7 @@ class GromacsMDSimulation(EMProtocol):
 
         if not msjDic['restraints'].strip() in ['', 'None']:
             rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
-            groupNr = self.getRestraintIdx(msjDic)
+            groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
 
             indexFile = self.getCustomIndexFile()
             if not os.path.exists(indexFile):

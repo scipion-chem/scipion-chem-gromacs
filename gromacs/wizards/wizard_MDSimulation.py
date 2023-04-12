@@ -98,17 +98,12 @@ class GromacsCheckIndexWizard(VariableWizard):
         inputParam, outputParam = self.getInputOutput(form)
 
         system = getattr(protocol, inputParam[0]).get()
-        outFile = protocol.getCustomGroupsFile()
 
-        if not os.path.exists(outFile):
-            inIndex, outIndex = None, protocol.getCustomIndexFile()
-            if os.path.exists(outIndex):
-                inIndex = outIndex
-
-            outFile = protocol.createGroupsFile(system, inIndex=inIndex, outIndex=protocol.getCustomIndexFile(),
-                                            outFile=outFile)
-
-        groups = protocol.parseGroupsFile(outFile)
+        outIndex = protocol.getCustomIndexFile()
+        if os.path.exists(outIndex):
+            groups = protocol.parseIndexFile(outIndex)
+        else:
+            groups = protocol.createIndexFile(system, inIndex=None, outIndex=outIndex)
 
         finalList = [String('-1: None')]
         for index, name in groups.items():
@@ -133,7 +128,6 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
 
         system = getattr(protocol, inputParam[0]).get()
 
-        outFile = protocol.getCustomGroupsFile()
         inIndex, outIndex = None, protocol.getCustomIndexFile()
         if os.path.exists(outIndex):
             inIndex = outIndex
@@ -141,8 +135,7 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
         inCommand = getattr(protocol, inputParam[1]).get()
         inCommand = ' '.join(protocol.translateNamesToIndexGroup(inCommand.split()))
 
-        groups = protocol.createGroupsFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex,
-                                       outFile=outFile)
+        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
 
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
@@ -247,7 +240,7 @@ class SelectResidueWizardGromacs(VariableWizard):
                               "Select one or several residues (residue number, "
                               "residue name)")
 
-        groups = protocol.parseGroupsFile(protocol.getCustomGroupsFile())
+        groups = protocol.parseIndexFile(protocol.getCustomIndexFile())
         restraintStr = 'ResidueRestraint_{}: '.format(len(self.getPrevResidueRest(groups)))
 
         if len(dlg.values) == 1 and dlg.values[0].get() == ALL_RES:
@@ -289,7 +282,6 @@ class AddROIRestraintWizard(AddLigandWizard):
         return roi
 
     def createROIRestraintIndex(self, system, roi, protocol):
-        outFile = protocol.getCustomGroupsFile()
         inIndex, outIndex = None, protocol.getCustomIndexFile()
         if os.path.exists(outIndex):
             inIndex = outIndex
@@ -297,14 +289,12 @@ class AddROIRestraintWizard(AddLigandWizard):
         #  Creating index for atoms in ROI
         atomGroups = groupConsecutiveIdxs(roi.getDecodedCAtoms())
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
-        groups = protocol.createGroupsFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex,
-                                           outFile=outFile)
+        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
 
         # Renaming ROI index to ROI name
         roiIdx, roiName = list(groups.keys())[-1], roi.__str__().replace(' ', '_')
         inCommand = 'name {} {}'.format(roiIdx, roiName)
-        protocol.createGroupsFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex,
-                                  outFile=outFile)
+        protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
         return roiIdx, roiName
 
     def show(self, form, *params):
@@ -383,7 +373,6 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         topFile = system.getTopologyFile()
         atomsDic = self.parseTopoAtoms(topFile, chains)
 
-        outFile = protocol.getCustomGroupsFile()
         inIndex, outIndex = None, protocol.getCustomIndexFile()
         if os.path.exists(outIndex):
             inIndex = outIndex
@@ -402,14 +391,12 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
 
         atomGroups = groupConsecutiveIdxs(atomList)
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
-        groups = protocol.createGroupsFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex,
-                                           outFile=outFile)
+        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
 
         # Renaming group
         restIdx, restName = list(groups.keys())[-1], 'ResidueRestraint_{}'.format(len(self.getPrevResidueRest(groups)))
         inCommand = 'name {} {}'.format(restIdx, restName)
-        groups = protocol.createGroupsFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex,
-                                  outFile=outFile)
+        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
         return restIdx, restName
 
     def show(self, form, *params):
