@@ -72,8 +72,6 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
     _label = 'Viewer Gromacs Simulation'
     _targets = [GromacsMDSimulation]
     _analysis = ['RMSD', 'RMSF', 'Gyration', 'SASA', 'HBond', 'Clustering']
-    _ndxGroups = ['System', 'Protein', 'Protein-H', 'C-alpha', 'Backbone', 'MainChain',
-                  'MainChain+Cb', 'MainChain+H', 'SideChain']
 
     def __init__(self, **args):
       super().__init__(**args)
@@ -111,17 +109,21 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                      label='*Chain* to display analysis on: ',
                      help='Display the chosen analysis only in this chain'
                      )
-      line = group.addLine('Groups for analysis: ')
-      line.addParam('chooseRef', params.EnumParam,
-                    choices=self._ndxGroups, default=1,
+      group.addParam('chooseRef', params.EnumParam,
+                    choices=self.getIndexGroups(), default=1,
                     label='Reference group: ',
                     help='Reference structure group to calculate the analysis against'
                     )
-      line.addParam('chooseLsq', params.EnumParam,
-                    choices=self._ndxGroups, default=1,
+      group.addParam('chooseLsq', params.EnumParam,
+                    choices=self.getIndexGroups(), default=1,
                     label='Least squares group: ', condition='displayAnalysis in [0, 5]',
                     help='Structure group to calculate the analysis in'
                     )
+      group.addParam('chooseRef2', params.EnumParam,
+                     choices=self.getIndexGroups(), default=1,
+                     label='Reference group 2: ', condition='displayAnalysis in [4]',
+                     help='Reference structure group 2 to calculate the analysis against'
+                     )
       group.addParam('aveRes', params.BooleanParam,
                      default=True,
                      label='Residue average: ', condition='displayAnalysis in [1]',
@@ -133,11 +135,6 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                      help='Display sasa 1) group average over time 2) group average over residues '
                           '3) group average over atoms'
                      )
-      line.addParam('chooseRef2', params.EnumParam,
-                    choices=self._ndxGroups, default=0,
-                    label='Reference group 2: ', condition='displayAnalysis in [4]',
-                    help='Reference structure group 2 to calculate the analysis against'
-                    )
       group.addParam('hbondOut', params.EnumParam,
                      choices=['Number', 'Autocorrelations', 'Distance', 'Angles'], default=0,
                      label='HBond option: ', condition='displayAnalysis in [4]',
@@ -157,6 +154,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                      default=0.1, label='Clustering cutoff: ', condition='displayAnalysis in [5]',
                      help='RMSD cut-off (nm) for two structures to be neighbor'
                      )
+      return group
 
     def _getVisualizeDict(self):
         vDic = super()._getVisualizeDict()
@@ -246,11 +244,11 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
     def getIndexNDX(self, key):
       if key in ['RMSD', 'Clustering']:
-        return [self.getEnumText('chooseLsq'), self.getEnumText('chooseRef')]
+        return [self.chooseLsq.get(), self.chooseRef.get()]
       elif key in ['RMSF', 'Gyration', 'SASA']:
-        return [self.getEnumText('chooseRef')]
+        return [self.chooseRef.get()]
       elif key in ['HBond']:
-        return [self.getEnumText('chooseRef2'), self.getEnumText('chooseRef')]
+        return [self.chooseRef2.get(), self.chooseRef.get()]
 
     def performRMSD(self, stage):
       oFile = '%s_rmsd.xvg' % stage
@@ -260,8 +258,9 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         os.remove(oPath)
 
       groFile, trjFile = self.getStageFiles(stage)
-      args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(groFile),
-                                                os.path.abspath(trjFile), oFile)
+      args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
+      if self.getIndexFile():
+          args += ' -n {}'.format(self.getIndexFile())
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('RMSD'),
                                      args=args, cwd=oDir)
       return oPath
@@ -275,6 +274,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
       groFile, trjFile = self.getStageFiles(stage)
       args = ' rmsf -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
+      if self.getIndexFile():
+          args += ' -n {}'.format(self.getIndexFile())
       if self.aveRes.get():
         args += ' -res'
 
@@ -291,6 +292,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
       groFile, trjFile = self.getStageFiles(stage)
       args = ' gyrate -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
+      if self.getIndexFile():
+          args += ' -n {}'.format(self.getIndexFile())
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Gyration'),
                                      args=args, cwd=oDir)
       return oPath
@@ -308,6 +311,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       groFile, trjFile = self.getStageFiles(stage)
       args = ' sasa -s %s -f %s %s %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile),
                                                  outOptions[self.sasaOut.get()], oFile)
+      if self.getIndexFile():
+          args += ' -n {}'.format(self.getIndexFile())
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('SASA'),
                                      args=args, cwd=oDir)
       return oPath
@@ -325,6 +330,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       tprFile, trjFile = self.getStageFiles(stage, tpr=True)
       args = ' hbond -s %s -f %s %s %s' % (os.path.abspath(tprFile), os.path.abspath(trjFile),
                                            outOptions[self.hbondOut.get()], oFile)
+      if self.getIndexFile():
+          args += ' -n {}'.format(self.getIndexFile())
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('HBond'),
                                      args=args, cwd=oDir)
       return oPath
@@ -344,6 +351,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       args = ' cluster -s %s -f %s -cl %s -g %s -method %s -cutoff %s' % \
              (os.path.abspath(groFile), os.path.abspath(trjFile), oFiles[0], oFiles[1],
               self.getEnumText('clustMethod').lower(), self.clustCutoff.get())
+      if self.getIndexFile():
+          args += ' -n {}'.format(self.getIndexFile())
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Clustering'),
                                      args=args, cwd=oDir)
       return oPaths
@@ -418,4 +427,17 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
     def getChainChoices(self):
         system = self.getMDSystem()
         return ['All'] + system.getChainNames()
+
+    def getIndexFile(self):
+        indexFile = self.getMDSystem().getIndexFile()
+        if indexFile and os.path.exists(indexFile):
+            return indexFile
+
+    def getIndexGroupsDic(self):
+        groups = self.protocol.parseIndexFile(self.protocol.getCustomIndexFile())
+        return groups
+
+    def getIndexGroups(self):
+        groups = self.getIndexGroupsDic()
+        return list(groups.values())
 

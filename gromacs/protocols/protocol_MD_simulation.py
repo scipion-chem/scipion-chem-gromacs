@@ -29,7 +29,7 @@
 """
 This module will perform energy minimizations for the system
 """
-import os, glob, random
+import glob, random
 
 from pyworkflow.object import Integer
 from pyworkflow.protocol import params
@@ -56,17 +56,18 @@ class GromacsMDSimulation(EMProtocol):
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman']
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
+    _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
     _paramNames = ['simTime', 'timeStep', 'nStepsMin', 'emStep', 'emTol', 'timeNeigh', 'saveTrj', 'trajInterval',
                    'temperature', 'tempRelaxCons', 'tempCouple', 'pressure', 'presRelaxCons', 'presCouple',
-                   'restraints', 'restraintForce']
+                   'restraintOptions', 'restraints', 'restraintForce']
     _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat']
     _defParams = {'simTime': 100, 'timeStep': 0.002, 'nStepsMin': 50000, 'emStep': 0.002, 'emTol': 1000.0,
                   'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
                   'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'cg',
-                  'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,'restraintForce': 50.0,
+                  'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,
                   'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman',
-                  'restraints': 'None'}
+                  'restraintOptions': 0, 'restraints': 'None', 'restraintForce': 50.0}
 
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
@@ -119,10 +120,8 @@ class GromacsMDSimulation(EMProtocol):
                        help='Type of simulation to perform in the step: Energy minimization, NVT or NPT\n'
                             'https://manual.gromacs.org/5.1.1/user-guide/mdp-options.html')
 
-        group.addParam('integrator', params.EnumParam,
-                      label='Simulation integrator: ', condition='ensemType==0',
-                      choices=self._integrators, default=0,
-                      help='Type of integrator to use in simulation.')
+        group.addParam('integrator', params.EnumParam, label='Simulation integrator: ', condition='ensemType==0',
+                      choices=self._integrators, default=0, help='Type of integrator to use in simulation.')
 
         line = group.addLine('Temperature settings: ', condition='ensemType!=0',
                              help='Temperature during the simulation (K)\nThermostat type\n'
@@ -190,19 +189,43 @@ class GromacsMDSimulation(EMProtocol):
                             'greater than 0.')
 
         group = form.addGroup('Restraints')
+        group.addParam('restraintOptions', params.EnumParam, label='Create new restraints group from: ',
+                       choices=self._restraints, default=0, expertLevel=params.LEVEL_ADVANCED,
+                       help='Type of restraint group to create')
+        
+        group.addParam('restrainROIs', params.PointerParam, label='Input set of ROIs: ', pointerClass='SetOfStructROIs', 
+                       condition='restraintOptions==0', expertLevel=params.LEVEL_ADVANCED, allowsNull=True,
+                       help='Restraint movement of the groups of atoms included in the specified structural ROI.')
+        group.addParam('restrainROI', params.StringParam, label='ROI to retrain: ',
+                       condition='restraintOptions==0', expertLevel=params.LEVEL_ADVANCED,
+                       help='Restraint movement of the groups of atoms included in the specified structural ROI.')
+        group.addParam('restraintROIInfo', params.LabelParam, label='Add ROI restraint: ',
+                       condition='restraintOptions == 0', expertLevel=params.LEVEL_ADVANCED,
+                       help='Generates the specified index group from the atoms in contact with the selected ROI')
+
+        group.addParam('restrainChain', params.StringParam, label='Restrain in structure chain: ',
+                       condition='restraintOptions == 1', expertLevel=params.LEVEL_ADVANCED,
+                       help='Select the chain where the residues to restrain are')
+        group.addParam('restrainResidue', params.StringParam, label='Restrain chain residues : ',
+                       condition='restraintOptions == 1', expertLevel=params.LEVEL_ADVANCED,
+                       help='Restraint movement of the groups of atoms included in the selected residues.')
+        group.addParam('restraintResidueInfo', params.LabelParam, label='Add residue restraint: ',
+                       condition='restraintOptions == 1', expertLevel=params.LEVEL_ADVANCED,
+                       help='Generates the specified index group from the atoms in the selected residues')
+
         group.addParam('restraintCommand', params.StringParam, default='', label='Enter custom index command: ',
-                       expertLevel=params.LEVEL_ADVANCED,
+                       expertLevel=params.LEVEL_ADVANCED, condition='restraintOptions==2',
                        help='To restrain movement of specific groups of atoms of custom choice. You can '
                             'create custom groups by iteratively entering the commands in this field and submitting it '
                             'clicking on the wizard. At any time, you can check the available groups using the '
-                            'following parameter wizard (Restraints group: ), which will include the created ones. '
-                            'Once the custom group is created, select it on this next wizard.')
-        group.addParam('restraints', params.StringParam, default='None', label='Restraints group: ',
+                            'following parameter wizard (Choose restraints group: ), which will include the created '
+                            'ones. Once the custom group is created, select it on this next wizard.')
+        
+        group.addParam('restraints', params.StringParam, default='None', label='Choose restraints group: ',
                        help='Restraint movement of specific groups of atoms. You can check the existing groups of '
                             'your system using the wizard or even create new groups in the advanced level using '
                             'make_ndx gromacs commands.')
-        group.addParam('restraintForce', params.FloatParam, default=50,
-                       label='Restraint force constant: ', condition='restraints!=0',
+        group.addParam('restraintForce', params.FloatParam, default=50, label='Restraint force constant: ',
                        help='Restraint force applied to the selection (kcal/mol/Å2)')
 
         group = form.addGroup('Summary')
@@ -224,6 +247,20 @@ class GromacsMDSimulation(EMProtocol):
                                However, the parameters are not changed until you add the new step (and probably\n
                                you may want to delete the previous unchanged step)''')
         group.addParam('workFlowSteps', params.TextParam, label='User transparent', condition='False')
+
+        form.addSection(label='Input Pointers')
+        form.addParam('inputPointerLabels', params.LabelParam, important=True,
+                      label='Records of inputs. Do not modificate manually',
+                      help='This is a list of the input pointer to keep track of the inputs received.\n'
+                           'It is automatically updated with the first section wizards.\n'
+                           'Manual modification (adding inputs from the lens) will have no actual impact on the '
+                           'protocol performance')
+        form.addParam('inputPointers', params.MultiPointerParam, pointerClass="Sequence, AtomStruct",
+                      label='Input Pointers: ', allowsNull=True,
+                      help='This is a list of the input pointer to keep track of the inputs received.\n'
+                           'It is automatically updated with the first section wizards.\n'
+                           'Manual modification (adding inputs from the lens) will have no actual impact on the '
+                           'protocol performance')
 
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
@@ -260,13 +297,16 @@ class GromacsMDSimulation(EMProtocol):
 
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=oriGroFile, oriStructFile=oriGroFile,
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile,
                                   tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
+        indexFile = self.getCustomIndexFile()
+        if os.path.exists(indexFile):
+            outSystem.setIndexFile(indexFile)
 
         self._defineOutputs(outputSystem=outSystem)
 
@@ -380,33 +420,31 @@ class GromacsMDSimulation(EMProtocol):
         return self.restraintID.get()
 
     def getCustomIndexFile(self):
-        projDir = self.getProject().getPath()
-        return os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
+        indexFile = self.gromacsSystem.get().getIndexFile()
+        if not indexFile or not os.path.exists(indexFile):
+            projDir = self.getProject().getPath()
+            indexFile = os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
+        return indexFile
 
-    def getCustomGroupsFile(self):
-        projDir = self.getProject().getPath()
-        return os.path.join(projDir, '{}_custom_groups.ndx'.format(self.getCustomRestraintID()))
-
-    def parseGroupsFile(self, groupsFile):
-        groups, inGroups = {}, False
-        with open(groupsFile) as f:
+    def parseIndexFile(self, indexFile):
+        groups, index = {}, 0
+        with open(indexFile) as f:
             for line in f:
-                if len(line.split()) == 5 and line.strip().endswith('atoms'):
-                    inGroups = True
-                else:
-                    inGroups = False
-
-                if inGroups:
-                    groups[line.split()[0]] = line.split()[1]
+                if line.startswith('['):
+                    groups[index] = line.replace('[', '').replace(']', '').strip()
+                    index += 1
         return groups
 
     def translateNamesToIndexGroup(self, names):
-        groups = self.parseGroupsFile(self.getCustomGroupsFile())
+        idxs = []
+        groups = self.parseIndexFile(self.getCustomIndexFile())
         inv_groups = {v: k for k, v in groups.items()}
-        for i, name in enumerate(names):
+        for name in names:
             if name in inv_groups:
-                names[i] = inv_groups[name]
-        return names
+                idxs.append(inv_groups[name])
+            else:
+                idxs.append(name)
+        return idxs
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -435,6 +473,17 @@ class GromacsMDSimulation(EMProtocol):
                 msjDic[pName] = self._defParams[pName]
         return msjDic
 
+    def createIndexFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', inputCommands=['q']):
+        outDir = os.path.dirname(outIndex)
+        inIndex = ' -n {}'.format(inIndex) if inIndex else ''
+        command = 'make_ndx -f {}{} -o {}'.format(system.getSystemFile(), inIndex, outIndex)
+
+        if not inputCommands[-1] == 'q':
+            inputCommands.append('q')
+        gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
+        groups = self.parseIndexFile(outIndex)
+        return groups
+
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
         if not os.path.exists(stageDir):
@@ -443,8 +492,7 @@ class GromacsMDSimulation(EMProtocol):
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
         if os.path.exists(mdpFile): return mdpFile
 
-        restr = msjDic['restraints']
-        if restr not in ['', 'None']:
+        if not msjDic['restraints'].strip() in ['', 'None']:
             rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
             groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
 
