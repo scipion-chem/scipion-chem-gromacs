@@ -437,7 +437,11 @@ class GromacsMDSimulation(EMProtocol):
 
     def translateNamesToIndexGroup(self, names):
         idxs = []
-        groups = self.parseIndexFile(self.getCustomIndexFile())
+        indexFile = self.getCustomIndexFile()
+        if os.path.exists(indexFile):
+            groups = self.parseIndexFile(indexFile)
+        else:
+            groups = self.createIndexFile(self.gromacsSystem.get(), inIndex=None, outIndex=indexFile)
         inv_groups = {v: k for k, v in groups.items()}
         for name in names:
             if name in inv_groups:
