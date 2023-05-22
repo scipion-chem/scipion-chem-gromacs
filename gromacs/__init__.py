@@ -114,5 +114,15 @@ class Plugin(pwem.Plugin):
     def _getGromacsDownloadUrl(cls):
         return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(GROMACS_DIC['version'])
 
+    @classmethod
+    def getScriptsDir(cls, scriptName):
+      return cls.getPluginHome('scripts/%s' % scriptName)
+
+    @classmethod
+    def getPluginHome(cls, path=""):
+      import gromacs
+      fnDir = os.path.split(gromacs.__file__)[0]
+      return os.path.join(fnDir, path)
+
     # ---------------------------------- Utils functions  -----------------------
 
