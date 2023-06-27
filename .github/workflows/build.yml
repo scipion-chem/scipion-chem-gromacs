@@ -29,8 +29,15 @@ jobs:
         source miniconda/etc/profile.d/conda.sh
         conda update -n base -c defaults conda -y
     
+    # Installing CUDA                
+    - uses: Jimver/cuda-toolkit@v0.2.10
+      id: cuda-toolkit
+      with:
+        cuda: '11.7.0'
+        linux-local-args: '[ "--toolkit" ]'
+    
     # Installing Scipion
-    - name: Install Scipion with dependencies
+    - name: Install Scipion
       working-directory: ${{ github.workspace }}/../
       run: |
         eval "$(miniconda/bin/conda shell.bash hook)"
