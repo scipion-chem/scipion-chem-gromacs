@@ -36,6 +36,8 @@ from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
 
+
+from pwchem import Plugin as pwchemPlugin
 from pwchem.utils import natural_sort
 
 from gromacs.objects import *
@@ -44,13 +46,15 @@ from gromacs import Plugin as gromacsPlugin
 
 from multiprocessing import cpu_count
 
+EMIN, NVT, NPT = 'Energy min', 'NVT', 'NPT'
+
 class GromacsMDSimulation(EMProtocol):
     """
     This protocol will perform energy minimization on the system previosly prepared by the protocol "system prepartion".
     This step is necessary to energy minize the system in order to avoid unwanted conformations.
     """
     _label = 'Molecular dynamics simulation'
-    _ensemTypes = ['Energy min', 'NVT',  'NPT']
+    _ensemTypes = [EMIN, NVT,  NPT]
 
     _integrators = ['steep', 'cg']
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
@@ -66,7 +70,7 @@ class GromacsMDSimulation(EMProtocol):
                   'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
                   'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'cg',
                   'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,
-                  'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman',
+                  'ensemType': NVT, 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman',
                   'restraintOptions': 0, 'restraints': 'None', 'restraintForce': 50.0}
 
     # -------------------------- DEFINE constants ----------------------------
@@ -86,7 +90,7 @@ class GromacsMDSimulation(EMProtocol):
         form.addSection(label=Message.LABEL_INPUT)
         form.addHidden(params.USE_GPU, params.BooleanParam,
                       label='Use GPU for execution',
-                      default=False,
+                      default=True,
                       help="GPU may have several cores. Set it one if "
                            "you don't know what we are talking about but you have a GPU."
                            "For DARC, first core index is 1, second 2, and so on. Write 0 if you do not want"
@@ -100,6 +104,8 @@ class GromacsMDSimulation(EMProtocol):
         form.addParam('gromacsSystem', params.PointerParam, label="Input Gromacs System: ",
                       pointerClass='GromacsSystem',
                       help='Gromacs solvated system to be simulated')
+        form.addParam('useBSS', params.BooleanParam, label="Use BioSimSpace: ", expertLevel=params.LEVEL_ADVANCED,
+                      default='False', help='Use BioSimSpace to build the system')
         form.addParam('prevTrj', params.BooleanParam, default=False,
                       label="Concatenate with previous trajectory: ", expertLevel=params.LEVEL_ADVANCED,
                       help='Include the trajectory stored in the input system (if found). \n'
@@ -273,16 +279,26 @@ class GromacsMDSimulation(EMProtocol):
         self._insertFunctionStep('createOutputStep')
 
     def simulateStageStep(self, wStep, i):
+      stageDir = self._getExtraPath('stage_{}'.format(i))
+      if not os.path.exists(stageDir):
+        os.mkdir(stageDir)
+
       if wStep in ['', None]:
           msjDic = self.createMSJDic()
       else:
           msjDic = eval(wStep)
+      saveTrj = msjDic['saveTrj'] if msjDic['ensemType'] != EMIN else False
 
-      mdpFile = self.generateMDPFile(msjDic, str(i))
-      tprFile = self.callGROMPP(mdpFile)
-      saveTrj = msjDic['saveTrj'] if msjDic['ensemType'] != 'Energy min' else False
+      if not self.useBSS:
+        mdpFile = self.generateMDPFile(msjDic, i)
+        tprFile = self.callGROMPP(mdpFile)
+        self.callMDRun(tprFile, saveTrj=saveTrj)
+      else:
+        self.writeProtocolParams(msjDic, i)
 
-      self.callMDRun(tprFile, saveTrj=saveTrj)
+        stageDir = self._getExtraPath('stage_{}'.format(i))
+        scriptPath = gromacsPlugin.getScriptsDir('execute_gromacs_simulation.py')
+        pwchemPlugin.runBioSimSpaceScript(self, scriptPath, args=self.getExecutionParamsFile(stageDir), cwd=stageDir)
 
     def createOutputStep(self):
         lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
@@ -326,7 +342,7 @@ class GromacsMDSimulation(EMProtocol):
 
     def writeSummaryLine(self, msjDic):
         ensemType = msjDic['ensemType']
-        if ensemType == 'Energy min':
+        if ensemType == EMIN:
             sumStr = 'Minimization ({}): {} steps, {} objective force'.format(msjDic['integrator'], msjDic['nStepsMin'],
                                                                               msjDic['emTol'])
         else:
@@ -386,14 +402,14 @@ class GromacsMDSimulation(EMProtocol):
             else:
                 msjDic = eval(wStep)
 
-            if msjDic['ensemType'] == 'NPT' and msjDic['barostat'] != 'Berendsen' and not prevTrj and msjDic['saveTrj']:
+            if msjDic['ensemType'] == NPT and msjDic['barostat'] != 'Berendsen' and not prevTrj and msjDic['saveTrj']:
                 warns.append('\nStep {} : Berendsen is the barostat recommended for system equilibration, '
                              '{} might not be the best option for the first trajectory saved'.
                              format(step+1, msjDic['barostat']))
             if msjDic['saveTrj']:
                 prevTrj = True
 
-            if msjDic['ensemType'] != 'Energy min':
+            if msjDic['ensemType'] != EMIN:
                 tCoup = msjDic['timeNeigh'] if msjDic['tempCouple'] == -1 else msjDic['tempCouple']
                 if msjDic['thermostat'] == 'Nose-Hoover' and 20*tCoup*msjDic['timeStep'] > msjDic['tempRelaxCons']:
                   warns.append('\nStep {} : For proper integration of the Nose-Hoover thermostat, tau-t ({}) should '
@@ -409,12 +425,46 @@ class GromacsMDSimulation(EMProtocol):
                 msjDic = self.createMSJDic()
             else:
                 msjDic = eval(wStep)
-            if msjDic['ensemType'] != 'Energy min':
+            if msjDic['ensemType'] != EMIN:
               if 'Andersen' in msjDic['thermostat'] and msjDic['integrator'] == 'md':
                   vals.append('Step {} : Andersen temperature control not supported for integrator md.'.format(step+1))
         return vals
 
 ######################## UTILS ##################################
+
+    def buildNewRestriction(self, msjDic, stage):
+      stageDir = self._getExtraPath('stage_{}'.format(stage))
+      rSuffix = msjDic['restraints'] + '_stg{}'.format(stage)
+      groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
+
+      indexFile = self.getCustomIndexFile()
+      if not os.path.exists(indexFile):
+        indexFile = None
+
+      newSuffixes = self.gromacsSystem.get(). \
+        defineNewRestriction(index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
+                             outDir=stageDir, indexFile=indexFile)
+      return rSuffix
+
+    def getExecutionParamsFile(self, stageDir):
+      return os.path.abspath(os.path.join(stageDir, 'executionParams.txt'))
+
+    def writeProtocolParams(self, msjDic, stage):
+      stageDir = self._getExtraPath('stage_{}'.format(stage))
+      groFile, topFile, _ = self.getPrevFinishedStageFiles(str(stage))
+
+      with open(self.getExecutionParamsFile(stageDir), 'w') as f:
+        f.write('groFile :: {}\n'.format(groFile))
+        f.write('topFile :: {}\n'.format(topFile))
+
+        if not msjDic['restraints'].strip() in ['', 'None']:
+          self.buildNewRestriction(msjDic, stage)
+          atomIdxDic = self.parseAtomIndexFile(self.getCustomIndexFile())
+          f.write('rAtomIdxs :: {}\n'.format(atomIdxDic[msjDic['restraints']]))
+
+        f.write('msjDic :: {}\n'.format(msjDic))
+        f.write('stageDir :: {}\n'.format(os.path.abspath(stageDir)))
+
 
     def getCustomRestraintID(self):
         return self.restraintID.get()
@@ -426,7 +476,26 @@ class GromacsMDSimulation(EMProtocol):
             indexFile = os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
         return indexFile
 
+    def parseAtomIndexFile(self, indexFile):
+        '''Returns a dictionary with the following information in a indexFile:
+        {groupName: [groupAtomIdxs]}'''
+        groups, groupName = {}, None
+        with open(indexFile) as f:
+            for line in f:
+                if line.startswith('['):
+                    if groupName:
+                        groups[groupName] = atomIdxs
+                    groupName = line.replace('[', '').replace(']', '').strip()
+                    atomIdxs = []
+                else:
+                    newIdxs = list(map(int, line.strip().split()))
+                    atomIdxs += newIdxs
+        groups[groupName] = atomIdxs
+        return groups
+
     def parseIndexFile(self, indexFile):
+        '''Returns a dictionary with the following information in a indexFile:
+        {groupNumber: groupName}'''
         groups, index = {}, 0
         with open(indexFile) as f:
             for line in f:
@@ -490,30 +559,17 @@ class GromacsMDSimulation(EMProtocol):
 
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
-        if not os.path.exists(stageDir):
-            os.mkdir(stageDir)
-
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
         if os.path.exists(mdpFile): return mdpFile
 
         if not msjDic['restraints'].strip() in ['', 'None']:
-            rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
-            groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
-
-            indexFile = self.getCustomIndexFile()
-            if not os.path.exists(indexFile):
-                indexFile = None
-
-            newSuffixes = self.gromacsSystem.get().\
-              defineNewRestriction(index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
-                                   outDir=stageDir, indexFile=indexFile)
-
+            rSuffix = self.buildNewRestriction(msjDic, mdpStage)
             restrStr = RESTR_STR.format(rSuffix.upper())
         else:
             restrStr = ''
 
         neighlist = msjDic['timeNeigh']
-        if msjDic['ensemType'] == 'Energy min':
+        if msjDic['ensemType'] == EMIN:
             emStep, nSteps, emTol = msjDic['emStep'], msjDic['nStepsMin'], msjDic['emTol']
             integStr = msjDic['integrator']
             tStepsStr = TSTEP_EM.format(emTol, emStep)
@@ -534,9 +590,9 @@ class GromacsMDSimulation(EMProtocol):
                                           *[msjDic['temperature']]*2, *[msjDic['tempRelaxCons']]*2,
                                           msjDic['tempCouple'], nstcomm)
 
-            if msjDic['ensemType'] == 'NVT':
+            if msjDic['ensemType'] == NVT:
                 presStr = ''
-            elif msjDic['ensemType'] == 'NPT':
+            elif msjDic['ensemType'] == NPT:
                 presStr = PRES_SETTING.format(msjDic['barostat'], 'isotropic',
                                               msjDic['pressure'], msjDic['presRelaxCons'],
                                               msjDic['presCouple'])
@@ -610,12 +666,12 @@ class GromacsMDSimulation(EMProtocol):
     def getPrevFinishedStageFiles(self, stage=None, reverse=False):
         '''Return the previous .gro and topology files if number stage is provided.
         If not, returns the ones of the lastest stage'''
+        tprFile = None
         topFile = self.gromacsSystem.get().getTopologyFile()
         if stage:
             stageNum = stage.replace('stage_', '').strip()
             if stageNum == '1':
                 groFile = os.path.abspath(self.gromacsSystem.get().getSystemFile())
-                tprFile = None
 
             else:
                 prevDir = self._getExtraPath('stage_{}'.format(int(stageNum) - 1))
