@@ -190,7 +190,7 @@ class GromacsSystemPrep(EMProtocol):
         line.addParam('angleC', params.FloatParam, condition='not useBSS and boxType == 1 and sizeType == 0',
                       default=90.0, label='ab: ')
 
-        group.addParam('padDist', params.FloatParam, condition='sizeType == 1',
+        group.addParam('padDist', params.FloatParam, condition='sizeType == 1 and not useBSS',
                       default=1.0, label='Buffer distance: ',
                       help='Distance (nm) from the solute to the edge of the box.')
 
