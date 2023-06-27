@@ -31,7 +31,7 @@ from os.path import join
 # Scipion em imports
 import pwem
 from scipion.install.funcs import InstallHelper
-from pyworkflow.utils import redStr
+from pyworkflow.utils import redStr, yellowStr
 
 # Plugin imports
 from .objects import *
@@ -55,13 +55,13 @@ class Plugin(pwem.Plugin):
 	def defineBinaries(cls, env):
 		""" This function defines all the packages that will be installed. """
 		# Checking requirements
-		cls.checkRequirements(env)
+		modifiedProcs = cls.checkRequirements(env)
 
 		# Installing packages
-		cls.addGromacs(env)
+		cls.addGromacs(env, modifiedProcs)
 	
 	@classmethod
-	def addGromacs(cls, env, default=True):
+	def addGromacs(cls, env, modifiedProcs, default=True):
 		""" This function installs Gromacs's package. """
 		# Instantiating install helper
 		installer = InstallHelper(GROMACS_DIC['name'], cls.getVar(GROMACS_DIC['home']), GROMACS_DIC['version'])
@@ -70,6 +70,12 @@ class Plugin(pwem.Plugin):
 		gromacsFileName = f"gromacs-{GROMACS_DIC['version']}.tar.gz"
 		charmInnerLocation = join('share', 'top')
 		charmFileName = 'charmm36-feb2021.ff.tgz'
+
+		# If number of processors has been modified, show message
+		if modifiedProcs:
+			message = "\\nWARNING: Only 1 process has been defined to install Gromacs.\\n"
+			message += f"This will take a very long time. Instead, the number of parallel processes has been changed to the maximum avaliable in your system: {env.getProcessors()}."
+			installer.addCommand(f'echo -e "{yellowStr(message)}"', 'WARNING_SHOWN')
 
 		# Installing package
 		installer.getExtraFile(cls._getGromacsDownloadUrl(), 'GROMACS_DOWNLOADED', fileName=gromacsFileName)\
@@ -112,7 +118,7 @@ class Plugin(pwem.Plugin):
 	def checkRequirements(cls, env):
 		""" This function checks if the software requirements are being met. """
 		cls.checkCMakeVersion()
-		cls.defineProcessors(env)
+		return cls.defineProcessors(env)
 
 	@classmethod
 	def defineProcessors(cls, env):
@@ -121,6 +127,7 @@ class Plugin(pwem.Plugin):
 		# If so, set that number to the number of processes available
 		if env.getProcessors() == 1:
 			env._processors = multiprocessing.cpu_count()
+			return True
 
 	@classmethod
 	def versionTuple(cls, versionStr):
