@@ -18,7 +18,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget gcc-10 g++-10 libopenmpi-dev make
+        sudo apt-get install -y wget gcc-10 g++-10 libopenmpi-dev make cmake
         
     # Installing Miniconda
     - name: Install Miniconda
