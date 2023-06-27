@@ -132,17 +132,17 @@ class Plugin(pwem.Plugin):
 		It also accepts other version schemes, like 1.0.9-rc, but only the numeric part is taken into account.
 		"""
 		# Split the version string by dots
-		version_parts = versionStr.split('.')
+		versionParts = versionStr.split('.')
 		# Initialize an empty list to store the numerical parts of the version string
-		numerical_parts = []
+		numericalParts = []
 		# Iterate over each part of the version string
-		for part in version_parts:
+		for part in versionParts:
 				# Split the part by hyphens
 				subparts = part.split('-')
 				# The first subpart is always numerical, so we append it to our list
-				numerical_parts.append(int(subparts[0]))
+				numericalParts.append(int(subparts[0]))
 		# Convert the list of numerical parts to a tuple and return it
-		return tuple(numerical_parts)
+		return tuple(numericalParts)
 
 	@classmethod
 	def checkCMakeVersion(cls):
