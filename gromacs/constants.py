@@ -24,6 +24,13 @@
 # *
 # **************************************************************************
 
+# Versions
+V2020 = '2020.6'
+V2021 = '2021.5'
+CMAKE_MINIMUM_VERSION = '3.13'
+
+# Package dictionaries
+GROMACS_DIC = {'name': 'gromacs', 'version': V2021, 'home': 'GROMACS_HOME'}
 
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
@@ -111,13 +118,3 @@ pbc             = xyz       ; Periodic Boundary Conditions in all 3 dimensions
 gen_vel                 = {}       ; assign velocities from Maxwell distribution
 {}
 '''
-
-
-
-
-
-
-
-
-
-
