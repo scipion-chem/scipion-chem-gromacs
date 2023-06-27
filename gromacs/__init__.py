@@ -23,96 +23,148 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import pwem
-from .constants import *
+
+# General imports
+import subprocess, multiprocessing
 from os.path import join
-import subprocess
+
+# Scipion em imports
+import pwem
+from scipion.install.funcs import InstallHelper
+from pyworkflow.utils import redStr, yellowStr
+
+# Plugin imports
+from .objects import *
+from .constants import *
 
 _logo = "gromacs_logo.png"
 _references = ['Abraham2015']
-V2020 = '2020.6'
-V2021 = '2021.5'
 
-GROMACS_DIC = {'name': 'gromacs', 'version': '2021.5', 'home': 'GROMACS_HOME'}
-
-from .objects import *
 class Plugin(pwem.Plugin):
-    _homeVar = GROMACS_DIC['home']
-    _pathVars = [GROMACS_DIC['home']]
-    _supportedVersions = [V2020, V2021]
-    _gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
+	_homeVar = GROMACS_DIC['home']
+	_pathVars = [GROMACS_DIC['home']]
+	_supportedVersions = [V2020, V2021]
+	_gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
 
-    @classmethod
-    def _defineVariables(cls):
-        """ Return and write a variable in the config file.
-        """
-        cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
+	@classmethod
+	def _defineVariables(cls):
+		""" Return and write a variable in the config file. """
+		cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
+	
+	@classmethod
+	def defineBinaries(cls, env):
+		""" This function defines all the packages that will be installed. """
+		# Checking requirements
+		cls.checkRequirements(env)
 
-    @classmethod
-    def defineBinaries(cls, env):
-        installationCmd = 'wget -O gromacs-{}.tar.gz --no-check-certificate {} && '. \
-          format(GROMACS_DIC['version'], cls._getGromacsDownloadUrl())
-        installationCmd += 'tar -xf gromacs-{}.tar.gz --strip-components 1 && '.\
-          format(GROMACS_DIC['version'], GROMACS_DIC['version'])
-        installationCmd += 'cd share/top && wget -O charmm36-feb2021.ff.tgz http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz && '
-        installationCmd += 'tar -xf charmm36-feb2021.ff.tgz && cd ../.. && '
-        installationCmd += 'mkdir build && cd build && '
+		# Installing packages
+		cls.addGromacs(env)
+	
+	@classmethod
+	def addGromacs(cls, env, default=True):
+		""" This function installs Gromacs's package. """
+		# Instantiating install helper
+		installer = InstallHelper(GROMACS_DIC['name'], cls.getVar(GROMACS_DIC['home']), GROMACS_DIC['version'])
 
-        cmakeCmd = 'cmake'
-        import subprocess
-        cmake_version = subprocess.check_output(['cmake', '--version']).decode().split('\n')[0].split()[-1]
-        if cmake_version.startswith('3'):
-            cmakeCmd = 'cmake'
-        else:
-            try:
-                cmake_version = subprocess.check_output(['cmake3', '--version']).decode().split('\n')[0].split()[-1]
-                if cmake_version.startswith('3') and int(cmake_version.split('.')[1]) > 13:
-                    cmakeCmd = 'cmake3'
-                else:
-                    print('cmake3 is not higher than 3.13')
-            except:
-                print('cmake is not higher than 3.13')
+		# Defining some variables
+		gromacsFileName = f"gromacs-{GROMACS_DIC['version']}.tar.gz"
+		charmInnerLocation = join('share', 'top')
+		charmFileName = 'charmm36-feb2021.ff.tgz'
 
-        installationCmd += cmakeCmd + ' .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA ' \
-                    '-DCMAKE_INSTALL_PREFIX={}  -DGMX_FFT_LIBRARY=fftw3 > cMake.log && '.\
-          format(cls.getVar(GROMACS_DIC['home']))
-        installationCmd += 'make -j {} > make.log && make check > check.log && '.format(env.getProcessors())
-        installationCmd += 'make install > install.log && '
+		# Installing package
+		installer.getExtraFile(cls._getGromacsDownloadUrl(), 'GROMACS_DOWNLOADED', fileName=gromacsFileName)\
+			.addCommand(f'tar -xf {gromacsFileName} --strip-components 1', 'GROMACS_EXTRACTED')\
+			.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
+			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
+			.addCommand(f'cmake . -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={GROMACS_DIC["home"]} -DGMX_FFT_LIBRARY=fftw3', 'GROMACS_BUILT')\
+			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED')\
+			.addCommand(f'make -j{env.getProcessors()} check', 'GROMACS_CHECKED')\
+			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED')\
+			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
+		
+	@classmethod
+	def runGromacs(cls, protocol, program='gmx', args='', cwd=None):
+		""" Run Gromacs command from a given protocol. """
+		protocol.runJob(cls.getGromacsBin(program), args, cwd=cwd)
 
-        # Creating validation file
-        GROMACS_INSTALLED = '%s_installed' % GROMACS_DIC['name']
-        installationCmd += 'cd .. && touch %s' % GROMACS_INSTALLED  # Flag installation finished
+	@classmethod
+	def runGromacsPrintf(cls, printfValues, args, cwd):
+		""" Run Gromacs command from a given protocol. """
+		printfValues = list(map(str, printfValues))
+		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin())
+		print('Running: ', program, args)
+		subprocess.check_call(program + args, cwd=cwd, shell=True)
 
-        env.addPackage(GROMACS_DIC['name'],
-                       version=GROMACS_DIC['version'],
-                       tar='void.tgz',
-                       commands=[(installationCmd, GROMACS_INSTALLED)],
-                       default=True)
+	@classmethod
+	def getGromacsBin(cls, program='gmx'):
+		return join(cls.getVar(GROMACS_DIC['home']), 'bin/{}'.format(program))
 
-    @classmethod
-    def runGromacs(cls, protocol, program='gmx', args='', cwd=None):
-        """ Run Gromacs command from a given protocol. """
-        protocol.runJob(cls.getGromacsBin(program), args, cwd=cwd)
+	@classmethod  # Test that
+	def getEnviron(cls):
+		pass
 
-    @classmethod
-    def runGromacsPrintf(cls, printfValues, args, cwd):
-      """ Run Gromacs command from a given protocol. """
-      printfValues = list(map(str, printfValues))
-      program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin())
-      print('Running: ', program, args)
-      subprocess.check_call(program + args, cwd=cwd, shell=True)
+	@classmethod
+	def _getGromacsDownloadUrl(cls):
+		return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(GROMACS_DIC['version'])
 
-    @classmethod
-    def getGromacsBin(cls, program='gmx'):
-        return join(cls.getVar(GROMACS_DIC['home']), 'bin/{}'.format(program))
+	# ---------------------------------- Utils functions  -----------------------
+	@classmethod
+	def checkRequirements(cls, env):
+		""" This function checks if the software requirements are being met. """
+		cls.checkCMakeVersion()
+		cls.defineProcessors(env)
 
-    @classmethod  # Test that
-    def getEnviron(cls):
-        pass
+	@classmethod
+	def defineProcessors(cls, env):
+		""" This function defines the number of processors that will be used during installation. """
+		# Check if user defined number of processes is 1
+		# If so, set that number to the number of processes available
+		if env.getProcessors() == 1:
+			env._processors = multiprocessing.cpu_count()
+			message = "WARNING: Only 1 process has been defined to install Gromacs.\n"
+			message += f"This will take a very long time. Instead, the number of parallel processes has been changed to the maximum avaliable in your system: {env.getProcessors()}."
+			print(yellowStr(message))
 
-    @classmethod
-    def _getGromacsDownloadUrl(cls):
-        return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(GROMACS_DIC['version'])
+	@classmethod
+	def versionTuple(cls, versionStr):
+		"""
+		This function returns the given version sting ('1.0.7' for example) into a tuple, so it can be compared.
+		It also accepts other version schemes, like 1.0.9-rc, but only the numeric part is taken into account.
+		"""
+		# Split the version string by dots
+		version_parts = versionStr.split('.')
+		# Initialize an empty list to store the numerical parts of the version string
+		numerical_parts = []
+		# Iterate over each part of the version string
+		for part in version_parts:
+				# Split the part by hyphens
+				subparts = part.split('-')
+				# The first subpart is always numerical, so we append it to our list
+				numerical_parts.append(int(subparts[0]))
+		# Convert the list of numerical parts to a tuple and return it
+		return tuple(numerical_parts)
 
-    # ---------------------------------- Utils functions  -----------------------
+	@classmethod
+	def checkCMakeVersion(cls):
+		"""
+		### This function checks if the current installed version, if installed, is above the minimum required version.
+		### If no version is provided it just checks if CMake is installed.
 
+		#### Excepts:
+		An error message in color red in a string if there is a problem with CMake.
+		"""
+		# Defining link for cmake installation & update guide
+		cmakeInstallURL = 'https://github.com/I2PC/xmipp/wiki/Cmake-update-and-install'
+
+		try:
+			# Getting CMake version
+			result = subprocess.check_output(["cmake", "--version"]).decode("utf-8")
+			cmakVersion = result.split('\n')[0].split()[-1]
+
+			# Checking if installed version is below minimum required
+			if CMAKE_MINIMUM_VERSION and (cls.versionTuple(cmakVersion) < cls.versionTuple(CMAKE_MINIMUM_VERSION)):
+				raise Exception(redStr(f"Your CMake version ({cmakVersion}) is below {CMAKE_MINIMUM_VERSION}.\nPlease update your CMake version by following the instructions at {cmakeInstallURL}"))
+		except FileNotFoundError:
+			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
+		except Exception:
+			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
