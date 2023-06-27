@@ -31,7 +31,7 @@ from os.path import join
 # Scipion em imports
 import pwem
 from scipion.install.funcs import InstallHelper
-from pyworkflow.utils import redStr, yellowStr
+from pyworkflow.utils import redStr
 
 # Plugin imports
 from .objects import *
@@ -121,9 +121,6 @@ class Plugin(pwem.Plugin):
 		# If so, set that number to the number of processes available
 		if env.getProcessors() == 1:
 			env._processors = multiprocessing.cpu_count()
-			message = "WARNING: Only 1 process has been defined to install Gromacs.\n"
-			message += f"This will take a very long time. Instead, the number of parallel processes has been changed to the maximum avaliable in your system: {env.getProcessors()}."
-			print(yellowStr(message))
 
 	@classmethod
 	def versionTuple(cls, versionStr):
