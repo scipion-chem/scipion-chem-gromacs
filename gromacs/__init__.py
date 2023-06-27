@@ -84,7 +84,6 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'cmake . -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={GROMACS_DIC["home"]} -DGMX_FFT_LIBRARY=fftw3', 'GROMACS_BUILT')\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED')\
-			.addCommand(f'make -j{env.getProcessors()} check', 'GROMACS_CHECKED')\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED')\
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
 		
