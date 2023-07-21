@@ -60,14 +60,15 @@ class GromacsMDSimulation(EMProtocol):
 
     _paramNames = ['simTime', 'timeStep', 'nStepsMin', 'emStep', 'emTol', 'timeNeigh', 'saveTrj', 'trajInterval',
                    'temperature', 'tempRelaxCons', 'tempCouple', 'pressure', 'presRelaxCons', 'presCouple',
-                   'restraintOptions', 'restraints', 'restraintForce']
+                   'restraintOptions', 'restraints', 'restraintForce', 'gmxMPI']
     _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat']
     _defParams = {'simTime': 100, 'timeStep': 0.002, 'nStepsMin': 50000, 'emStep': 0.002, 'emTol': 1000.0,
                   'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
                   'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'cg',
                   'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,
                   'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman',
-                  'restraintOptions': 0, 'restraints': 'None', 'restraintForce': 50.0}
+                  'restraintOptions': 0, 'restraints': 'None', 'restraintForce': 50.0,
+                  'gmxMPI': False}
 
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
@@ -81,7 +82,7 @@ class GromacsMDSimulation(EMProtocol):
         """ Define the input parameters that will be used.
         """
         cpus = cpu_count()//2 # don't use everything
-        form.addParallelSection(threads=cpus, mpi=0)
+        form.addParallelSection(threads=cpus, mpi=1)
 
         form.addSection(label=Message.LABEL_INPUT)
         form.addHidden(params.USE_GPU, params.BooleanParam,
@@ -112,6 +113,10 @@ class GromacsMDSimulation(EMProtocol):
                            ' from that moment, instead of restarting from the start. \nIn scipion, the simulation will'
                            'be continued from the checkpoint if the option "Continue" is chosen after the protocol was'
                            'stopped for any reason')
+
+        form.addParam('gmxMPI', params.BooleanParam, default=self._defParams['gmxMPI'],
+                       label="Use MPI program: ",
+                       help='Use MPI program during simulation stage.')
 
         group = form.addGroup('Ensemble')
         group.addParam('ensemType', params.EnumParam,
@@ -153,7 +158,7 @@ class GromacsMDSimulation(EMProtocol):
         group = form.addGroup('Trajectory', condition='ensemType!=0')
         group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
                        label="Save trajectory: ", condition='ensemType!=0',
-                       help='Save trajectory of the atoms during stage simulation.'
+                       help='Save trajectory of the atoms during simulation stage.'
                             'The output will concatenate those trajectories which appear after the last stage '
                             'where the trajectory was not saved.')
         group.addParam('trajInterval', params.FloatParam, default=self._defParams['trajInterval'],
@@ -250,7 +255,7 @@ class GromacsMDSimulation(EMProtocol):
 
         form.addSection(label='Input Pointers')
         form.addParam('inputPointerLabels', params.LabelParam, important=True,
-                      label='Records of inputs. Do not modificate manually',
+                      label='Records of inputs. Do not modify manually',
                       help='This is a list of the input pointer to keep track of the inputs received.\n'
                            'It is automatically updated with the first section wizards.\n'
                            'Manual modification (adding inputs from the lens) will have no actual impact on the '
@@ -588,7 +593,7 @@ class GromacsMDSimulation(EMProtocol):
         print('{} warnings in stage {}'.format(nWarns, stageNum))
         if nWarns >= 1:
             command += ' -maxwarn {}'.format(nWarns)
-        gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
+        gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir, numberOfMpi=0)
         return tprFile
 
     def callMDRun(self, tprFile, saveTrj=True):
@@ -599,10 +604,14 @@ class GromacsMDSimulation(EMProtocol):
             gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
             gpuStr = ' -gpu_id {}'.format(gpuList)
 
-        command = 'mdrun -v -deffnm {}{} -nt {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
-                                                                             self.cptTime.get())
+        if self.gmxMPI.get():
+            command = 'mdrun -v -deffnm {}{} -ntomp {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
+                                                                                    self.cptTime.get())
+        else:
+            command = 'mdrun -v -deffnm {}{} -nt {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
+                                                                                 self.cptTime.get())
 
-        gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
+        gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir, mpi=self.gmxMPI.get())
         trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
         if os.path.exists(trjFile) and not saveTrj:
             os.remove(trjFile)

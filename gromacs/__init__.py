@@ -1,6 +1,6 @@
 # **************************************************************************
 # *
-# * Authors:      Daniel Del Hoyo (ddelhoyo@cnb.csic.es)
+# * Authors:	  Daniel Del Hoyo (ddelhoyo@cnb.csic.es)
 # *
 # * Biocomputing Unit, CNB-CSIC
 # *
@@ -63,13 +63,21 @@ class Plugin(pwem.Plugin):
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
 		""" This function installs Gromacs's package. """
+
+		mpiExt = '_mpi'
+		mpiAnswer = ' -DGMX_MPI=on'
+
 		# Instantiating install helper
 		installer = InstallHelper(GROMACS_DIC['name'], cls.getVar(GROMACS_DIC['home']), GROMACS_DIC['version'])
 
 		# Defining some variables
 		gromacsFileName = f"gromacs-{GROMACS_DIC['version']}.tar.gz"
+		
 		charmInnerLocation = join('share', 'top')
 		charmFileName = 'charmm36-feb2021.ff.tgz'
+
+		normalInnerLocation = join('build')
+		mpiInnerLocation = join('build_mpi')
 
 		# If number of processors has been modified, show message
 		if modifiedProcs:
@@ -82,27 +90,37 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'tar -xf {gromacsFileName} --strip-components 1', 'GROMACS_EXTRACTED')\
 			.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
-			.addCommand(f'cmake . -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={GROMACS_DIC["home"]} -DGMX_FFT_LIBRARY=fftw3', 'GROMACS_BUILT')\
-			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED')\
-			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED')\
+			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3', 
+	       				'GROMACS_BUILT', workDir=normalInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED', workDir=normalInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED', workDir=normalInnerLocation)\
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3' + mpiAnswer, 
+	       				'GROMACS_BUILT_MPI', workDir=mpiInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED_MPI', workDir=mpiInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED_MPI', workDir=mpiInnerLocation)\
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
 		
 	@classmethod
-	def runGromacs(cls, protocol, program='gmx', args='', cwd=None):
+	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False):
 		""" Run Gromacs command from a given protocol. """
-		protocol.runJob(cls.getGromacsBin(program), args, cwd=cwd)
+		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd)
 
 	@classmethod
-	def runGromacsPrintf(cls, printfValues, args, cwd):
+	def runGromacsPrintf(cls, printfValues, args, cwd, mpi=False):
 		""" Run Gromacs command from a given protocol. """
 		printfValues = list(map(str, printfValues))
-		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin())
+		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
 		print('Running: ', program, args)
 		subprocess.check_call(program + args, cwd=cwd, shell=True)
 
 	@classmethod
-	def getGromacsBin(cls, program='gmx'):
-		return join(cls.getVar(GROMACS_DIC['home']), 'bin/{}'.format(program))
+	def getGromacsBin(cls, program='gmx', mpi=False):
+		if mpi:
+			mpiExt = '_mpi'
+		else:
+			mpiExt = ''
+		return join(cls.getVar(GROMACS_DIC['home']), f'build{mpiExt}/bin/{program}{mpiExt}')
 
 	@classmethod  # Test that
 	def getEnviron(cls):
