@@ -86,9 +86,9 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
 
         outIndex = protSim.getCustomIndexFile()
         if os.path.exists(outIndex):
-            groups = protSim.parseIndexFile(outIndex)
+            protSim.parseIndexFile(outIndex)
         else:
-            groups = protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
+            protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
 
         self.launchProtocol(protSim)
         return protSim
@@ -101,9 +101,9 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
 
         outIndex = protSim.getCustomIndexFile()
         if os.path.exists(outIndex):
-            groups = protSim.parseIndexFile(outIndex)
+            protSim.parseIndexFile(outIndex)
         else:
-            groups = protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
+            protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
 
         self.launchProtocol(protSim)
         return protSim
