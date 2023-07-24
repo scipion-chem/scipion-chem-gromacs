@@ -76,8 +76,8 @@ class Plugin(pwem.Plugin):
 		charmInnerLocation = join('share', 'top')
 		charmFileName = 'charmm36-feb2021.ff.tgz'
 
-		normalInnerLocation = join('build')
-		mpiInnerLocation = join('build_mpi')
+		normalInnerLocation = 'build'
+		mpiInnerLocation = 'build_mpi'
 
 		# If number of processors has been modified, show message
 		if modifiedProcs:
@@ -102,9 +102,9 @@ class Plugin(pwem.Plugin):
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
 		
 	@classmethod
-	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False):
+	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False, **kwargs):
 		""" Run Gromacs command from a given protocol. """
-		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd)
+		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
 
 	@classmethod
 	def runGromacsPrintf(cls, printfValues, args, cwd, mpi=False):
