@@ -431,7 +431,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
     def getIndexFile(self):
         indexFile = self.getMDSystem().getIndexFile()
         if indexFile and os.path.exists(indexFile):
-            return indexFile
+            return os.path.abspath(indexFile)
 
     def getIndexGroupsDic(self):
         groups = self.protocol.parseIndexFile(self.protocol.getCustomIndexFile())
