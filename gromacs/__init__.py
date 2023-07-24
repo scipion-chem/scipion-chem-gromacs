@@ -119,7 +119,7 @@ class Plugin(pwem.Plugin):
 			mpiExt = '_mpi'
 		else:
 			mpiExt = ''
-		return join(cls.getVar(GROMACS_DIC['home']), f'build{mpiExt}/bin/{program}{mpiExt}')
+		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
 
 	@classmethod  # Test that
 	def getEnviron(cls):
