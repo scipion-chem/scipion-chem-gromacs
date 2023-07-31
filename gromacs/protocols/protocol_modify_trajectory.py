@@ -169,7 +169,7 @@ class GromacsModifySystem(EMProtocol):
       outSystem.setSystemFile(self.getCleanStructureFile())
       outSystem.setTopologyFile(self.gromacsSystem.get().getTopologyFile())
       if self.gromacsSystem.get().getTrajectoryFile():
-          outSystem.setTrajectoryFile(self.getCleanTrajectoryFile())
+          outSystem.setTrajectoryFile(os.path.relpath(self.getCleanTrajectoryFile()))
           outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
 
       self._defineOutputs(outputSystem=outSystem)

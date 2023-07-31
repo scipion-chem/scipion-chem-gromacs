@@ -297,13 +297,10 @@ class GromacsMDSimulation(EMProtocol):
             oriGroFile = self.gromacsSystem.get().getSystemFile()
 
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
-        shutil.copyfile(lastGroFile, localGroFile)
-        shutil.copyfile(lastTopoFile, localTopFile)
-
+        shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile,
-                                  tprFile=lastTprFile)
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
