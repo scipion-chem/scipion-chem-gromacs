@@ -63,8 +63,8 @@ class Plugin(pwem.Plugin):
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
 		""" This function installs Gromacs's package. """
-
-		mpiExt = '_mpi'
+		# Target suffix for MPI installation
+		mpiExt = '_MPI'
 
 		# Instantiating install helper
 		installer = InstallHelper(GROMACS_DIC['name'], cls.getVar(GROMACS_DIC['home']), GROMACS_DIC['version'])
@@ -95,9 +95,9 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED', workDir=normalInnerLocation)\
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=on', 
-	       				'GROMACS_BUILT_MPI', workDir=mpiInnerLocation)\
-			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED_MPI', workDir=mpiInnerLocation)\
-			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED_MPI', workDir=mpiInnerLocation)\
+	       				'GROMACS_BUILT' + mpiExt, workDir=mpiInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt, workDir=mpiInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)\
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
 		
 	@classmethod
@@ -115,10 +115,7 @@ class Plugin(pwem.Plugin):
 
 	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):
-		if mpi:
-			mpiExt = '_mpi'
-		else:
-			mpiExt = ''
+		mpiExt = '_mpi' if mpi else ''
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
 
 	@classmethod  # Test that
