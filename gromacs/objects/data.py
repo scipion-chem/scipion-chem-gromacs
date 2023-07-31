@@ -86,7 +86,7 @@ class GromacsSystem(MDSystem):
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
         infoFile = os.path.abspath(protocol._getPath('logs/run.stderr'))
 
-        command = 'check -f {}'.format(self.getTrajectoryFile())
+        command = 'check -f {}'.format(os.path.abspath(self.getTrajectoryFile()))
         gromacsPlugin.runGromacs(protocol, 'gmx', command, cwd=outDir)
 
         isCheck, isFirst = True, True
