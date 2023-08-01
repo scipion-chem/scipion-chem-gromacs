@@ -82,12 +82,28 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
         protSim = self.newProtocol(
             GromacsMDSimulation,
             gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
+        protSim.setObjLabel('gromacs - gmx MD sim')
 
         outIndex = protSim.getCustomIndexFile()
         if os.path.exists(outIndex):
-            groups = protSim.parseIndexFile(outIndex)
+            protSim.parseIndexFile(outIndex)
         else:
-            groups = protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
+            protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
+
+        self.launchProtocol(protSim)
+        return protSim
+    
+    def _runSimulationMPI(self, protPrepare):
+        protSim = self.newProtocol(
+            GromacsMDSimulation, gmxMPI=True, numberOfMpi=2, 
+            gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
+        protSim.setObjLabel('gromacs - gmx_mpi MD sim')
+
+        outIndex = protSim.getCustomIndexFile()
+        if os.path.exists(outIndex):
+            protSim.parseIndexFile(outIndex)
+        else:
+            protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
 
         self.launchProtocol(protSim)
         return protSim
@@ -98,6 +114,9 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
         protSim = self._runSimulation(protPrepare)
         self._waitOutput(protSim, 'outputSystem', sleepTime=10)
         self.assertIsNotNone(getattr(protSim, 'outputSystem', None))
+        protSimMPI = self._runSimulationMPI(protPrepare)
+        self._waitOutput(protSimMPI, 'outputSystem', sleepTime=10)
+        self.assertIsNotNone(getattr(protSimMPI, 'outputSystem', None))
 
 
 class TestGromacsTrajMod(TestGromacsRunSimulation):

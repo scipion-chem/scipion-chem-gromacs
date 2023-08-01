@@ -303,24 +303,21 @@ class GromacsSystemPrep(EMProtocol):
         systemBasename = os.path.basename(inputStructure.split(".")[0])
 
         if self.placeIons.get() != 0:
-            gro_baseName = '%s_solv_ions.gro' % (systemBasename)
+            groBaseName = '%s_solv_ions.gro' % (systemBasename)
         else:
-            gro_baseName = '%s_solv.gro' % (systemBasename)
-        topol_baseName = 'topol.top'
-        posre_baseName = 'posre.itp'
+            groBaseName = '%s_solv.gro' % (systemBasename)
 
-        topol_localPath = relpath(abspath(self._getPath(topol_baseName)))
-        gro_localPath = relpath(abspath(self._getPath(gro_baseName)))
-        posre_localPath = relpath(abspath(self._getPath(posre_baseName)))
+        topoPath, groPath, posrePath = self._getPath('topol.top'), self._getPath(groBaseName), \
+                                       self._getPath('posre.itp')
 
         chainNames = ','.join(self.getModelChains())
 
-        gro_files = grobj.GromacsSystem(filename=gro_localPath, topoFile=topol_localPath,
-                                        restrFile=posre_localPath, chainNames=chainNames,
+        groSystem = grobj.GromacsSystem(filename=groPath, topoFile=topoPath,
+                                        restrFile=posrePath, chainNames=chainNames,
                                         ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
 
-        self._defineOutputs(outputSystem=gro_files)
-        self._defineSourceRelation(self.inputStructure, gro_files)
+        self._defineOutputs(outputSystem=groSystem)
+        self._defineSourceRelation(self.inputStructure, groSystem)
 
     # --------------------------- INFO functions -----------------------------------
     def _validate(self):
