@@ -53,7 +53,7 @@ class GromacsImportSystem(EMProtocol):
         """
 
         form.addSection(label=Message.LABEL_INPUT)
-        form.addParam('inputCoords', params.FileParam, label="Input Gromacs Coordinates (gro): ", allowsNull=False,
+        form.addParam('inputCoords', params.FileParam, label="Input Gromacs Coordinates (gro, pdb): ", allowsNull=False,
                       help='Gromacs coordinates file (gro)')
         form.addParam('inputTopology', params.FileParam, label="Input Gromacs Topology (top): ", allowsNull=False,
                       help='Gromacs topology file (top)')
