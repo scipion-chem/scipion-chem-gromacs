@@ -34,16 +34,14 @@ information such as name and number of residues.
 
 # Imports
 import json
-import pyworkflow.wizard as pwizard
 from pyworkflow.gui import ListTreeProviderString, dialog
 
 from pwem.objects import Pointer, String
 
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
-    AddLigandWizard, EmWizard
+    AddLigandWizard, WatchElementWizard
 from pwchem.utils import groupConsecutiveIdxs
 
-from gromacs.viewers import GromacsSimulationViewer
 from ..protocols.protocol_MD_simulation import *
 
 AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
@@ -56,38 +54,10 @@ DeleteElementWizard().addTarget(protocol=GromacsMDSimulation,
                                 inputs=['deleteStep'],
                                 outputs=['workFlowSteps', 'summarySteps'])
 
-class GromacsWatchRelaxStepWizard(pwizard.Wizard):
-    """Watch the parameters of the step of the workflow defined by the index"""
-    _targets = [(GromacsMDSimulation, ['watchStep'])]
-
-    def show(self, form, *params):
-        protocol = form.protocol
-        watchStep = protocol.watchStep.get().strip()
-        try:
-            index = int(watchStep)
-            if protocol.countSteps() >= index > 0:
-                workSteps = protocol.workFlowSteps.get().split('\n')
-                msjDic = eval(workSteps[index - 1])
-                for pName in msjDic:
-                    if pName in protocol._paramNames:
-                        form.setVar(pName, msjDic[pName])
-                    elif pName in protocol._enumParamNames:
-                        if pName == 'integrator':
-                            idx = protocol._integrators.index(msjDic[pName])
-                        elif pName == 'ensemType':
-                            idx = protocol._ensemTypes.index(msjDic[pName])
-                        elif pName == 'thermostat':
-                            idx = protocol._thermostats.index(msjDic[pName])
-                        elif pName == 'barostat':
-                            idx = protocol._barostats.index(msjDic[pName])
-                        elif pName == 'coupleStyle':
-                            idx = protocol._coupleStyle.index(msjDic[pName])
-                        elif pName == 'restraints':
-                            idx = protocol._restraintTypes.index(msjDic[pName])
-                        form.setVar(pName, idx)
-        except:
-            print('Index "{}" not recognized as integer for watch step'.format(watchStep))
-
+WatchElementWizard().addTarget(protocol=GromacsMDSimulation,
+                                targets=['watchStep'],
+                                inputs=['watchStep'],
+                                outputs=['workFlowSteps', 'summarySteps'])
 
 class GromacsCheckIndexWizard(VariableWizard):
     """Watch the groups contained in the input Gromacs system"""
