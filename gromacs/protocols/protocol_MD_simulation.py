@@ -58,17 +58,8 @@ class GromacsMDSimulation(EMProtocol):
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
     _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
-    _paramNames = ['simTime', 'timeStep', 'nStepsMin', 'emStep', 'emTol', 'timeNeigh', 'saveTrj', 'trajInterval',
-                   'temperature', 'tempRelaxCons', 'tempCouple', 'pressure', 'presRelaxCons', 'presCouple',
-                   'restraintOptions', 'restraints', 'restraintForce', 'gmxMPI']
-    _enumParamNames = ['integrator', 'ensemType', 'thermostat', 'barostat']
-    _defParams = {'simTime': 100, 'timeStep': 0.002, 'nStepsMin': 50000, 'emStep': 0.002, 'emTol': 1000.0,
-                  'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0,
-                  'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'integrator': 'cg',
-                  'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1,
-                  'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman',
-                  'restraintOptions': 0, 'restraints': 'None', 'restraintForce': 50.0,
-                  'gmxMPI': False}
+    _omitParamNames = ['runName', 'runMode', 'insertStep', 'summarySteps', 'deleteStep', 'watchStep',
+                       'workFlowSteps', 'hostName', 'numberOfThreads', 'numberOfMpi']
 
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
@@ -114,7 +105,7 @@ class GromacsMDSimulation(EMProtocol):
                            'be continued from the checkpoint if the option "Continue" is chosen after the protocol was'
                            'stopped for any reason')
 
-        form.addParam('gmxMPI', params.BooleanParam, default=self._defParams['gmxMPI'],
+        form.addParam('gmxMPI', params.BooleanParam, default=False,
                        label="Use MPI program: ",
                        help='Use MPI program during simulation stage.')
 
@@ -156,12 +147,12 @@ class GromacsMDSimulation(EMProtocol):
         #               expertLevel=params.LEVEL_ADVANCED)
 
         group = form.addGroup('Trajectory', condition='ensemType!=0')
-        group.addParam('saveTrj', params.BooleanParam, default=self._defParams['saveTrj'],
+        group.addParam('saveTrj', params.BooleanParam, default=False,
                        label="Save trajectory: ", condition='ensemType!=0',
                        help='Save trajectory of the atoms during simulation stage.'
                             'The output will concatenate those trajectories which appear after the last stage '
                             'where the trajectory was not saved.')
-        group.addParam('trajInterval', params.FloatParam, default=self._defParams['trajInterval'],
+        group.addParam('trajInterval', params.FloatParam, default=1.0,
                        label='Interval time (ps):', condition='ensemType!=0 and saveTrj',
                        help='Time between each frame recorded in the simulation (ps)')
 
@@ -457,15 +448,29 @@ class GromacsMDSimulation(EMProtocol):
         steps = stepsStr.split('\n')
         return len(steps) - 1
 
+    def getStageParamsDic(self, type='All'):
+      '''Return a dictionary as {paramName: param} of the stage parameters of the formulary.
+      Type'''
+      paramsDic = {}
+      for paramName, param in self._definition.iterAllParams():
+        if not paramName in self._omitParamNames and not isinstance(param, params.Group) and not isinstance(param, params.Line):
+          if type == 'All':
+            paramsDic[paramName] = param
+          elif type == 'Enum' and isinstance(param, params.EnumParam):
+            paramsDic[paramName] = param
+          elif type == 'Normal' and not isinstance(param, params.EnumParam):
+            paramsDic[paramName] = param
+      return paramsDic
+
     def createMSJDic(self):
         msjDic = {}
-        for pName in self._paramNames:
+        for pName in self.getStageParamsDic(type='Normal').keys():
             if hasattr(self, pName):
                 msjDic[pName] = getattr(self, pName).get()
             else:
                 print('Something is wrong with parameter ', pName)
 
-        for pName in self._enumParamNames:
+        for pName in self.getStageParamsDic(type='Enum').keys():
             if hasattr(self, pName):
                 msjDic[pName] = self.getEnumText(pName)
             else:
@@ -473,11 +478,12 @@ class GromacsMDSimulation(EMProtocol):
         return msjDic
 
     def addDefaultForMissing(self, msjDic):
-        '''Add default values for missing parameters in the msjDic'''
-        for pName in [*self._paramNames, *self._enumParamNames]:
-            if not pName in msjDic:
-                msjDic[pName] = self._defParams[pName]
-        return msjDic
+      '''Add default values for missing parameters in the msjDic'''
+      paramDic = self.getStageParamsDic()
+      for pName in paramDic.keys():
+        if not pName in msjDic:
+          msjDic[pName] = paramDic[pName].default
+      return msjDic
 
     def createIndexFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', inputCommands=['q']):
         outDir = os.path.dirname(outIndex)
