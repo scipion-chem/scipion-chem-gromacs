@@ -54,18 +54,6 @@ class GromacsSystemPViewer(MDSystemPViewer):
         else:
             return self.protocol.outputSystem
 
-    def _showMdVMD(self, paramName=None):
-      system = self.getMDSystem()
-
-      outTcl = os.path.join(os.path.dirname(system.getTrajectoryFile()), 'vmdSimulation.tcl')
-      systExt = os.path.splitext(system.getOriStructFile())[1][1:]
-      trjExt = os.path.splitext(system.getTrajectoryFile())[1][1:]
-      with open(outTcl, 'w') as f:
-        f.write(TCL_MD_STR % (system.getOriStructFile(), systExt, system.getTrajectoryFile(), trjExt))
-      args = '-e {}'.format(outTcl)
-
-      return [VmdViewPopen(args)]
-
 
 class GromacsSimulationViewer(GromacsSystemPViewer):
     """ Visualize the output of Gromacs simulation """
