@@ -4,13 +4,14 @@ Scipion GROMACS plugin
 
 **Documentation under development, sorry for the inconvenience**
 
-In order to use this plug-in, you need to have Scipion3 installed
-(https://scipion-em.github.io/docs/docs/scipion-modes/how-to-install.html).
+In order to use this plug-in, you need to have `Scipion3 <https://scipion-em.github.io/docs/docs/scipion-modes/how-to-install.html>`_ installed.
 
 GROMACS version 2021.5 is automatically installed.
 If you wanted to use any other preinstalled version, you would need to modify the scipion.conf file adding:
 
 GROMACS_HOME=<path_to_gromacs_home_folder>
+
+The full documentation to this plugin is in the `official documentation page <https://scipion-chem.github.io/docs/plugins/gromacs/index.html>`_.
 
 To install the plugin,  you have to follow the following steps:
 
