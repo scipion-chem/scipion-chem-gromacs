@@ -58,7 +58,8 @@ class GromacsMDSimulation(EMProtocol):
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
     _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
-    _omitParamNames = ['runName', 'runMode', 'insertStep', 'summarySteps', 'deleteStep', 'watchStep',
+    _omitParamNames = ['useGpu', 'gpuList', 'gromacsSystem',
+                       'runName', 'runMode', 'insertStep', 'summarySteps', 'deleteStep', 'watchStep',
                        'workFlowSteps', 'hostName', 'numberOfThreads', 'numberOfMpi']
 
     # -------------------------- DEFINE constants ----------------------------
