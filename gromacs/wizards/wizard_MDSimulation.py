@@ -39,7 +39,7 @@ from pyworkflow.gui import ListTreeProviderString, dialog
 from pwem.objects import Pointer, String
 
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
-    AddLigandWizard, WatchElementWizard
+    WatchElementWizard
 from pwchem.utils import groupConsecutiveIdxs
 
 from ..protocols.protocol_MD_simulation import *
@@ -239,7 +239,7 @@ SelectResidueWizardGromacs().addTarget(protocol=GromacsMDSimulation,
 
 
 
-class AddROIRestraintWizard(AddLigandWizard):
+class AddROIRestraintWizard(VariableWizard):
     _targets, _inputs, _outputs = [], {}, {}
 
     def getSelectedROI(self, roiPointers, roiIdx, roiName):
@@ -272,7 +272,7 @@ class AddROIRestraintWizard(AddLigandWizard):
         protocol = form.protocol
 
         prevPointers = getattr(protocol, outputParam[0])
-        prevIds = self.getPrevPointersIds(prevPointers)
+        prevIds = protocol.getPrevPointersIds(prevPointers)
         newSet = getattr(protocol, inputParams[1]).get()
         newId = newSet.getObjId()
 
