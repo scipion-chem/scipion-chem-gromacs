@@ -58,7 +58,7 @@ class GromacsMDSimulation(EMProtocol):
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
     _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
-    _omitParamNames = ['useGpu', 'gpuList', 'gromacsSystem',
+    _omitParamNames = ['useGpu', 'gpuList', 'gromacsSystem', 'restrainROIs',
                        'runName', 'runMode', 'insertStep', 'summarySteps', 'deleteStep', 'watchStep',
                        'workFlowSteps', 'hostName', 'numberOfThreads', 'numberOfMpi']
 
@@ -336,6 +336,7 @@ class GromacsMDSimulation(EMProtocol):
         if not msjDic:
             sumStr = ''
             for i, dicLine in enumerate(self.workFlowSteps.get().split('\n')):
+                dicLine = dicLine.strip()
                 if dicLine != '':
                     msjDic = eval(dicLine)
                     msjDic = self.addDefaultForMissing(msjDic)
@@ -410,6 +411,12 @@ class GromacsMDSimulation(EMProtocol):
 
 ######################## UTILS ##################################
 
+    def getPrevPointersIds(self, prevPointers):
+      ids = []
+      for p in prevPointers:
+        ids.append(p.get().getObjId())
+      return ids
+
     def getCustomRestraintID(self):
         return self.restraintID.get()
 
@@ -454,7 +461,7 @@ class GromacsMDSimulation(EMProtocol):
       Type'''
       paramsDic = {}
       for paramName, param in self._definition.iterAllParams():
-        if not paramName in self._omitParamNames and not isinstance(param, params.Group) and not isinstance(param, params.Line):
+        if paramName not in self._omitParamNames and not isinstance(param, params.Group) and not isinstance(param, params.Line):
           if type == 'All':
             paramsDic[paramName] = param
           elif type == 'Enum' and isinstance(param, params.EnumParam):
