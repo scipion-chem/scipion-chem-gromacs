@@ -29,15 +29,15 @@
 """
 This module will prepare the system for the simulation
 """
-import os
-from os.path import abspath, relpath
+import os, subprocess, shutil
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
-from pwem.protocols import EMProtocol
 from pwem.convert import AtomicStructHandler
 
+from pwchem import Plugin as pwchemPlugin
 from pwchem.utils import runOpenBabel
+from pwchem.protocols import ProtocolLiganParametrization
 
 from gromacs import Plugin as gromacsPlugin
 import gromacs.objects as grobj
@@ -105,8 +105,15 @@ GROMACS_WATERS_LIST = [GROMACS_WATERFF_NAME[GROMACS_SPC], GROMACS_WATERFF_NAME[G
 GROMACS_WATERFF_NAME[GROMACS_TIP3P], GROMACS_WATERFF_NAME[GROMACS_TIP4P],
 GROMACS_WATERFF_NAME[GROMACS_TIP5P]]
 
+STRUCTURE, LIGAND = 0, 1
 
-class GromacsSystemPrep(EMProtocol):
+def replaceInFile(file, inStr, repStr):
+  inStr, repStr = inStr.replace('\n', '\\n'), repStr.replace('\n', '\\n')
+  subprocess.check_call(f"sed -i -z 's/{inStr}/{repStr}/g' {file}", shell=True)
+  return file
+
+
+class GromacsSystemPrep(ProtocolLiganParametrization):
     """
     This protocol will start a Molecular Dynamics preparation. It will create the system
     and the topology, structure, and position restriction files
@@ -134,10 +141,19 @@ class GromacsSystemPrep(EMProtocol):
 
         form.addSection(label=Message.LABEL_INPUT)
 
-        form.addParam('inputStructure', params.PointerParam,
-                      label="Input structure: ", allowsNull=False,
-                      important=True, pointerClass='AtomStruct',
-                      help='Atom structure to convert to gromacs system')
+        form.addParam('inputFrom', params.EnumParam, default=STRUCTURE,
+                      label='Input from: ', choices=['AtomStruct', 'SetOfSmallMolecules'],
+                      help='Type of input you want to use')
+        form.addParam('inputStructure', params.PointerParam, pointerClass='AtomStruct',
+                      label='Input structure to be prepared for MD:', allowsNull=False, condition='inputFrom==0',
+                      help='Atomic structure to be prepared for MD by solvation, ions addition etc')
+        form.addParam('inputSetOfMols', params.PointerParam, pointerClass='SetOfSmallMolecules',
+                      label='Input set of molecules:', allowsNull=False, condition='inputFrom==1',
+                      help='Input set of docked molecules. One of them will be prepared together with its target')
+        form.addParam('inputLigand', params.StringParam, condition='inputFrom==1',
+                      label='Ligand to prepare: ',
+                      help='Specific ligand to prepare in the system')
+        self._defineACPYPEparams(form, condition=f'inputFrom=={LIGAND}')
 
         group = form.addGroup('Boundary box')
         group.addParam('boxType', params.EnumParam,
@@ -212,37 +228,97 @@ class GromacsSystemPrep(EMProtocol):
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        self._insertFunctionStep('PDB2GMXStep')
-        self._insertFunctionStep('editConfStep')
-        self._insertFunctionStep('solvateStep')
+        if self.inputFrom.get() == LIGAND:
+          self._insertFunctionStep(self.parametrizeLigandStep)
+        self._insertFunctionStep(self.PDB2GMXStep)
+        self._insertFunctionStep(self.editConfStep)
+        self._insertFunctionStep(self.solvateStep)
         if self.placeIons.get() != 0:
-            self._insertFunctionStep('addIonsStep')
-        self._insertFunctionStep('createOutputStep')
+            self._insertFunctionStep(self.addIonsStep)
+        self._insertFunctionStep(self.createOutputStep)
+
+    def parametrizeLigandStep(self):
+      mol = self.getSpecifiedMol()
+      molFile = os.path.abspath(mol.getPoseFile())
+      molFile = self.addHydrogens(molFile)
+
+      kwargs = self.getParameters()
+      kwargs['molName'] = mol.getMolName()
+
+      args = f'-i {molFile} -b {kwargs["molName"]} -c {kwargs["chargeMethod"]} ' \
+             f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
+      if 'netCharge' in kwargs:
+        args += f' -n {kwargs["netCharge"]}'
+      pwchemPlugin.runACPYPE(self, args=args, cwd=self._getExtraPath())
+
+
+    def addLigandTopo(self, topFile):
+      molName = self.getLigandName()
+
+      inStr = '\/forcefield.itp"\n'
+      outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
+      replaceInFile(topFile, inStr, outStr)
+
+      emptyStr = ' ' * (20-len(molName))
+      inStr = '; Compound        #mols\nProtein_chain_A     1'
+      outStr = f'{inStr}\n{molName}{emptyStr}1'
+      replaceInFile(topFile, inStr, outStr)
+
+    def parseGROFile(self, groFile):
+      groDic = {}
+      with open(groFile) as f:
+        for i, line in enumerate(f):
+          if line.strip():
+            if i == 0:
+              groDic['header'] = line
+            elif i == 1:
+              groDic['nAtoms'] = line
+            else:
+              if 'coords' not in groDic:
+                groDic['coords'] = ''
+              groDic['coords'] += line
+
+      groDic['tail'] = line
+      coordsStr = groDic['coords'].replace(groDic['tail'], '')
+      groDic['coords'] = coordsStr
+      return groDic
+
+    def addLigandCoords(self, recFile, ligFile):
+      recDic, ligDic = self.parseGROFile(recFile), self.parseGROFile(ligFile)
+      nRec, nLig = int(recDic['nAtoms'].strip()), int(ligDic['nAtoms'].strip())
+
+      with open(recFile, 'w') as f:
+        f.write(f"{recDic['header']} {nRec+nLig}\n{recDic['coords']}{ligDic['coords']}{recDic['tail']}")
+
 
     def PDB2GMXStep(self):
-        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
-        if not inputStructure.endswith('.pdb'):
-            inputStructure = self.convertReceptor2PDB(inputStructure)
+      inputStructure = self.getInputReceptorFile()
+      systemBasename = self.getSystemName()
 
-        systemBasename = os.path.basename(inputStructure.split(".")[0])
-        Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
-        Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
-        params = ' pdb2gmx -f %s ' \
-                 '-o %s_processed.gro ' \
-                 '-water %s ' \
-                 '-ff %s -merge all' % (inputStructure, systemBasename, Waterff, Mainff)
-        # todo: managing several chains (restrictions, topologies...) instead of merging them
-        try:
-            gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
-        except:
-            print('Conversion to gro failed, trying to convert it ignoring the current hydrogens')
-            os.remove(self._getPath('topol.top'))
-            params += ' -ignh'
-            gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
+      Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
+      Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
+      params = f' pdb2gmx -f {inputStructure} -o {systemBasename}_processed.gro ' \
+               f'-water {Waterff} -ff {Mainff} -merge all'
+      # todo: managing several chains (restrictions, topologies...) instead of merging them
+      try:
+          gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
+      except:
+          print('Conversion to gro failed, trying to convert it ignoring the current hydrogens')
+          os.remove(self._getPath('topol.top'))
+          params += ' -ignh'
+          gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
+
+      if self.inputFrom.get() == LIGAND:
+        molName = self.getLigandName()
+        groFile, topFile = self._getPath(f'{systemBasename}_processed.gro'), self._getPath('topol.top')
+        self.addLigandTopo(topFile)
+        self.addLigandCoords(groFile, self.getLigandPath(f'{molName}_GMX.gro'))
+        shutil.copy(self.getLigandPath(f'{molName}_GMX.itp'), self._getPath(f'{molName}_GMX.itp'))
+
 
     def editConfStep(self):
-        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
-        systemBasename = os.path.basename(inputStructure.split(".")[0])
+        systemBasename = self.getSystemName()
+
         boxType = self.getEnumText('boxType').lower() if self.boxType.get() != 1 else 'triclinic'
         params = ' editconf -f %s_processed.gro ' \
                  '-o %s_newbox.gro ' \
@@ -253,8 +329,7 @@ class GromacsSystemPrep(EMProtocol):
         gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def solvateStep(self):
-        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
-        systemBasename = os.path.basename(inputStructure.split(".")[0])
+        systemBasename = self.getSystemName()
 
         waterModel = self.getEnumText('waterForceField')
         if waterModel in ['spc', 'spce', 'tip3p']:
@@ -266,8 +341,7 @@ class GromacsSystemPrep(EMProtocol):
         gromacsPlugin.runGromacs(self, 'gmx', params_solvate, cwd=self._getPath())
 
     def addIonsStep(self):
-        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
-        systemBasename = os.path.basename(inputStructure.split(".")[0])
+        systemBasename = self.getSystemName()
         ions_mdp = os.path.abspath(self.buildIonsMDP())
 
         params_grompp = 'grompp -f %s -c %s_solv.gro -p ' \
@@ -299,8 +373,7 @@ class GromacsSystemPrep(EMProtocol):
                                        args=genStr, cwd=self._getPath())
 
     def createOutputStep(self):
-        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
-        systemBasename = os.path.basename(inputStructure.split(".")[0])
+        systemBasename = self.getSystemName()
 
         if self.placeIons.get() != 0:
             groBaseName = '%s_solv_ions.gro' % (systemBasename)
@@ -315,9 +388,12 @@ class GromacsSystemPrep(EMProtocol):
         groSystem = grobj.GromacsSystem(filename=groPath, topoFile=topoPath,
                                         restrFile=posrePath, chainNames=chainNames,
                                         ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
+        if self.inputFrom.get() == LIGAND:
+          molName = self.getLigandName()
+          groSystem.setLigandName(molName)
+          groSystem.setLigandTopologyFile(self._getPath(f'{molName}_GMX.itp'))
 
         self._defineOutputs(outputSystem=groSystem)
-        self._defineSourceRelation(self.inputStructure, groSystem)
 
     # --------------------------- INFO functions -----------------------------------
     def _validate(self):
@@ -376,6 +452,58 @@ class GromacsSystemPrep(EMProtocol):
 
         return methods
 
+    def getSpecifiedMol(self):
+      myMol = None
+      for mol in self.inputSetOfMols.get():
+        if mol.__str__() == self.inputLigand.get():
+          myMol = mol.clone()
+          break
+      if myMol == None:
+        print('The input ligand is not found')
+        return None
+      else:
+        return myMol
+
+    def getInputReceptorFile(self):
+      if self.inputFrom.get() == LIGAND:
+        inputStructure = os.path.abspath(self.inputSetOfMols.get().getProteinFile())
+      else:
+        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+
+      if not inputStructure.endswith('.pdb'):
+        inputStructure = self.getInputPDBFile(inputStructure)
+        if not os.path.exists(inputStructure):
+          inputStructure = self.convertReceptor2PDB(inputStructure)
+      return inputStructure
+
+    def getInputPDBFile(self, proteinFile):
+      inName, inExt = os.path.splitext(os.path.basename(proteinFile))
+      return os.path.abspath(os.path.join(self._getTmpPath(inName + '.pdb')))
+
+    def getSystemName(self):
+      return os.path.basename(self.getInputReceptorFile().split(".")[0])
+
+    def addHydrogens(self, inpFile):
+      sysbaseName = os.path.basename(inpFile).split('.')[0]
+      tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
+      inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
+
+      args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
+      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+
+      args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
+      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+
+      replaceInFile(inpMol2File, 'UNL1', 'LIG')
+      return inpMol2File
+
+    def getLigandName(self):
+      return self.getSpecifiedMol().getMolName()
+
+    def getLigandPath(self, path=''):
+      molName = self.getLigandName()
+      return self._getExtraPath(f"{molName}.acpype", path)
+
     def buildIonsMDP(self):
         outFile = self._getPath('ions.mdp')
         ions_mdp_file = "integrator = steep \n" \
@@ -402,9 +530,8 @@ class GromacsSystemPrep(EMProtocol):
         return name, charge
 
     def convertReceptor2PDB(self, proteinFile):
-        inName, inExt = os.path.splitext(os.path.basename(proteinFile))
-        oFile = os.path.abspath(os.path.join(self._getTmpPath(inName + '.pdb')))
-
+        _, inExt = os.path.splitext(os.path.basename(proteinFile))
+        oFile = self.getInputPDBFile(proteinFile)
         args = ' -i{} {} -opdb -O {}'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
         runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
 
@@ -421,7 +548,7 @@ class GromacsSystemPrep(EMProtocol):
         return distArg
 
     def getModelChains(self):
-        inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
+        inputStructure = self.getInputReceptorFile()
         if not inputStructure.endswith('.pdb'):
           inputStructure = self.convertReceptor2PDB(inputStructure)
 
