@@ -33,16 +33,20 @@ information such as name and number of residues.
 """
 
 # Imports
-import json
+import json, os
 from pyworkflow.gui import ListTreeProviderString, dialog
-
 from pwem.objects import Pointer, String
 
+from pwchem.utils import groupConsecutiveIdxs
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
     WatchElementWizard
-from pwchem.utils import groupConsecutiveIdxs
 
-from ..protocols.protocol_MD_simulation import *
+from ..protocols import *
+
+SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
+                                targets=['inputLigand'],
+                                inputs=['inputSetOfMols'],
+                                outputs=['inputLigand'])
 
 AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
                              targets=['insertStep'],
