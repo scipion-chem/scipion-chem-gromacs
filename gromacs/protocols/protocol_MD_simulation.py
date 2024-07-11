@@ -294,6 +294,7 @@ class GromacsMDSimulation(EMProtocol):
 
         outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
+        outSystem.setLigandTopologyFile(self.gromacsSystem.get().getLigandTopologyFile())
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
@@ -590,15 +591,24 @@ class GromacsMDSimulation(EMProtocol):
         if os.path.exists(tprFile): return tprFile
         groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
 
-
         if self.checkIfPrevTrj(stageNum):
             prevTrjStr = '-t ' + os.path.abspath(self.checkIfPrevTrj(stageNum))
         else:
             prevTrjStr = ''
 
+        localTop = os.path.join(stageDir, os.path.split(topFile)[-1])
+        if not os.path.exists(localTop):
+          os.link(topFile, localTop)
+
         command = 'grompp -f %s -c %s -r %s -p ' \
-                  '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, topFile,
+                  '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, os.path.split(topFile)[-1],
                                    prevTrjStr, outFile)
+
+        ligTopFile = self.gromacsSystem.get().getLigandTopologyFile()
+        if ligTopFile:
+          lTopFile = os.path.join(stageDir, os.path.split(ligTopFile)[-1])
+          os.link(ligTopFile, lTopFile)
+
         #Manage warnings
         nWarns = self.countWarns(stageNum)
         print('{} warnings in stage {}'.format(nWarns, stageNum))
@@ -610,17 +620,14 @@ class GromacsMDSimulation(EMProtocol):
     def callMDRun(self, tprFile, saveTrj=True):
         stageDir = os.path.dirname(tprFile)
         stage = os.path.split(stageDir)[-1]
-        gpuStr = ''
         if getattr(self, params.USE_GPU):
             gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
-            gpuStr = ' -gpu_id {}'.format(gpuList)
-
-        if self.gmxMPI.get():
-            command = 'mdrun -v -deffnm {}{} -ntomp {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
-                                                                                    self.cptTime.get())
+            gpuStr = f' -nb gpu -gpu_id {gpuList}'
         else:
-            command = 'mdrun -v -deffnm {}{} -nt {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
-                                                                                 self.cptTime.get())
+            gpuStr = ' -nb cpu'
+
+        gmxMPIStr = f'-ntomp {self.numberOfThreads.get()}' if self.gmxMPI.get() else f'-nt {self.numberOfThreads.get()}'
+        command = f'mdrun -v -deffnm {stage}{gpuStr} {gmxMPIStr} -pin on -cpi -cpt {self.cptTime.get()}'
 
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir, mpi=self.gmxMPI.get())
         trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
