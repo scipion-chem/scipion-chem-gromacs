@@ -29,7 +29,7 @@
 """
 This module will perform energy minimizations for the system
 """
-import glob, random
+import glob, uuid
 
 from pyworkflow.object import Integer
 from pyworkflow.protocol import params
@@ -65,7 +65,7 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      self.restraintID = Integer(random.randint(1, 100000))
+      self.restraintID = str(uuid.uuid4().replace("-", ""))
 
 
     # -------------------------- DEFINE param functions ----------------------
@@ -407,7 +407,7 @@ class GromacsMDSimulation(EMProtocol):
                 msjDic = eval(wStep)
             if msjDic['ensemType'] != 'Energy min':
               if 'Andersen' in msjDic['thermostat'] and msjDic['integrator'] == 'md':
-                  vals.append('Step {} : Andersen temperature control not supported for integrator md.'.format(step+1))
+                  vals.append(f'Step {step+1} : Andersen temperature control not supported for integrator md.')
         return vals
 
 ######################## UTILS ##################################
@@ -425,7 +425,7 @@ class GromacsMDSimulation(EMProtocol):
         indexFile = self.gromacsSystem.get().getIndexFile()
         if not indexFile or not os.path.exists(indexFile):
             projDir = self.getProject().getPath()
-            indexFile = os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
+            indexFile = os.path.join(projDir, f'{self.getCustomRestraintID()}_custom_indexes.ndx'))
         return indexFile
 
     def parseIndexFile(self, indexFile):
