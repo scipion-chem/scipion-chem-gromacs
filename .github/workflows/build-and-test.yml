@@ -63,7 +63,7 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: |
         pip cache purge
-        ../scipion/scipion3 installp -p . --devel
+        ../scipion/scipion3 installp -p . --devel -j $(nproc --all)
 
     - name: Run tests
       working-directory: ${{ github.workspace }}/${{ vars.FOLDER_WITH_VERSION }}
