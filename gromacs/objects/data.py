@@ -128,10 +128,10 @@ class GromacsSystem(MDSystem):
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
 
         nArg = ' -n {}'.format(indexFile) if indexFile else ''
-        params_genrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
+        paramsGenrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
                           (os.path.abspath(self.getSystemFile()), nArg,
                            'posre_' + restraintSuffix.lower(), energy, energy, energy)
-        gromacsPlugin.runGromacsPrintf(printfValues=index, args=params_genrestr, cwd=outDir)
+        gromacsPlugin.runGromacsPrintf(printfValues=index, args=paramsGenrestr, cwd=outDir)
 
         topFile = self.getTopologyFile()
         if outDir:
