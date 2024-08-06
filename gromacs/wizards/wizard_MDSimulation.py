@@ -41,7 +41,7 @@ from pwchem.utils import groupConsecutiveIdxs
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
     WatchElementWizard
 
-from ..protocols import *
+from ..protocols import GromacsSystemPrep, GromacsMDSimulation
 
 SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
                                 targets=['inputLigand'],
