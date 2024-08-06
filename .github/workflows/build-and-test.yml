@@ -13,6 +13,8 @@ jobs:
 
     - name: Set up MPI
       uses: mpi4py/setup-mpi@master
+      with:
+        mpi: 'openmpi'
 
     - name: Install dependencies
       run: |
@@ -63,7 +65,7 @@ jobs:
       working-directory: ${{ github.workspace }}
       run: |
         pip cache purge
-        ../scipion/scipion3 installp -p . --devel -j $(nproc --all)
+        ../scipion/scipion3 installp -p . --devel
 
     - name: Run tests
       working-directory: ${{ github.workspace }}/${{ vars.FOLDER_WITH_VERSION }}
