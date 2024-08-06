@@ -247,7 +247,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       groFile, trjFile = self.getStageFiles(stage)
       args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
-          args += ' -n {}'.format(self.getIndexFile())
+          args += f' -n {self.getIndexFile()}'
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('RMSD'),
                                      args=args, cwd=oDir)
       return oPath
@@ -262,7 +262,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       groFile, trjFile = self.getStageFiles(stage)
       args = ' rmsf -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
-          args += ' -n {}'.format(self.getIndexFile())
+          args += f' -n {self.getIndexFile()}'
       if self.aveRes.get():
         args += ' -res'
 
@@ -280,7 +280,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       groFile, trjFile = self.getStageFiles(stage)
       args = ' gyrate -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
-          args += ' -n {}'.format(self.getIndexFile())
+          args += f' -n {self.getIndexFile()}'
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Gyration'),
                                      args=args, cwd=oDir)
       return oPath
@@ -299,7 +299,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       args = ' sasa -s %s -f %s %s %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile),
                                                  outOptions[self.sasaOut.get()], oFile)
       if self.getIndexFile():
-          args += ' -n {}'.format(self.getIndexFile())
+          args += f' -n {self.getIndexFile()}'
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('SASA'),
                                      args=args, cwd=oDir)
       return oPath
@@ -318,7 +318,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       args = ' hbond -s %s -f %s %s %s' % (os.path.abspath(tprFile), os.path.abspath(trjFile),
                                            outOptions[self.hbondOut.get()], oFile)
       if self.getIndexFile():
-          args += ' -n {}'.format(self.getIndexFile())
+          args += f' -n {self.getIndexFile()}'
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('HBond'),
                                      args=args, cwd=oDir)
       return oPath
@@ -339,7 +339,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
              (os.path.abspath(groFile), os.path.abspath(trjFile), oFiles[0], oFiles[1],
               self.getEnumText('clustMethod').lower(), self.clustCutoff.get())
       if self.getIndexFile():
-          args += ' -n {}'.format(self.getIndexFile())
+          args += f' -n {self.getIndexFile()}'
       gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Clustering'),
                                      args=args, cwd=oDir)
       return oPaths
