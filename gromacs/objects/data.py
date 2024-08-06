@@ -65,7 +65,7 @@ class GromacsSystem(MDSystem):
     def getChainNames(self):
         return self._chainNames.get().split(',')
     def setChainNames(self, values):
-        if type(values) == str:
+        if isinstance(values, str):
             self._chainNames.set(values)
         elif type(values) in [list, tuple]:
             self._chainNames.set(','.join(values))
