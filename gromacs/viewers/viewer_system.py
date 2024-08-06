@@ -203,7 +203,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                   prevX = xi
 
         self.plotter = EmPlotter(x=1, y=1, windowTitle='Gromacs trajectory analysis')
-        a = self.plotter.createSubPlot(title, xlabel, ylabel)
+        self.plotter.createSubPlot(title, xlabel, ylabel)
         if len(xs) > 1:
             system = self.getMDSystem()
             chainNames = system.getChainNames()
