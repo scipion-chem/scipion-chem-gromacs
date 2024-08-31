@@ -34,11 +34,12 @@ jobs:
         activate-environment: scipion3
         python-version: "3.8"
     
-    - uses: Jimver/cuda-toolkit@v0.2.10
+    - uses: Jimver/cuda-toolkit@v0.2.11
       id: cuda-toolkit
       with:
         cuda: '11.7.0'
-        linux-local-args: '[ "--toolkit" ]'
+        method: network
+        sub-packages: '["nvcc", "toolkit"]'
     
     - name: Install Scipion
       working-directory: ${{ github.workspace }}/../
