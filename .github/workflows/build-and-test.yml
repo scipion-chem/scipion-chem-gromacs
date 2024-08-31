@@ -75,5 +75,5 @@ jobs:
     - name: Run tests
       working-directory: ${{ github.workspace }}/${{ vars.FOLDER_WITH_VERSION }}
       run: |
-        wget https://raw.githubusercontent.com/scipion-chem/scipion-chem/devel/pwchem/runTests.py
-        python runTests.py ${{ github.workspace }}/../scipion/scipion3 ${{ vars.FOLDER_WITH_VERSION }} -noGPU -testData=testData.json
+        pip install --user scipion-testrunner
+        scipion_testrunner ${{ github.workspace }}/../scipion/scipion3 ${{ vars.FOLDER_WITH_VERSION }} --noGpu --testData=testData.json
