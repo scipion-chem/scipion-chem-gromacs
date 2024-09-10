@@ -493,10 +493,11 @@ class GromacsMDSimulation(EMProtocol):
           msjDic[pName] = paramDic[pName].default
       return msjDic
 
-    def createIndexFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', inputCommands=['q']):
+    def createIndexFile(self, system, inIndex=None, outIndex=None, inputCommands=['q']):
+        outIndex = self._getTmpPath('indexes.ndx') if not outIndex else outIndex
         outDir = os.path.dirname(outIndex)
-        inIndex = ' -n {}'.format(inIndex) if inIndex else ''
-        command = 'make_ndx -f {}{} -o {}'.format(system.getSystemFile(), inIndex, outIndex)
+        inIndex = f' -n {inIndex}' if inIndex else ''
+        command = f'make_ndx -f {system.getSystemFile()}{inIndex} -o {outIndex}'
 
         if inputCommands[-1] != 'q':
             inputCommands.append('q')
