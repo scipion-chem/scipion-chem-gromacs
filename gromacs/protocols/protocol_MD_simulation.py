@@ -498,7 +498,7 @@ class GromacsMDSimulation(EMProtocol):
         inIndex = ' -n {}'.format(inIndex) if inIndex else ''
         command = 'make_ndx -f {}{} -o {}'.format(system.getSystemFile(), inIndex, outIndex)
 
-        if not inputCommands[-1] == 'q':
+        if inputCommands[-1] != 'q':
             inputCommands.append('q')
         gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
         groups = self.parseIndexFile(outIndex)
