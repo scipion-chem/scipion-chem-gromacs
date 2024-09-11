@@ -31,7 +31,7 @@ This module will perform energy minimizations for the system
 """
 import glob, uuid
 
-from pyworkflow.object import Integer
+from pyworkflow.object import String
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
@@ -65,8 +65,7 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      self.restraintID = str(uuid.uuid4().replace("-", ""))
-
+      self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -425,7 +424,7 @@ class GromacsMDSimulation(EMProtocol):
         indexFile = self.gromacsSystem.get().getIndexFile()
         if not indexFile or not os.path.exists(indexFile):
             projDir = self.getProject().getPath()
-            indexFile = os.path.join(projDir, f'{self.getCustomRestraintID()}_custom_indexes.ndx'))
+            indexFile = os.path.join(projDir, f'{self.getCustomRestraintID()}_custom_indexes.ndx')
         return indexFile
 
     def parseIndexFile(self, indexFile):

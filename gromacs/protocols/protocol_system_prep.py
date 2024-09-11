@@ -315,7 +315,6 @@ class GromacsSystemPrep(ProtocolLiganParametrization):
         self.addLigandCoords(groFile, self.getLigandPath(f'{molName}_GMX.gro'))
         shutil.copy(self.getLigandPath(f'{molName}_GMX.itp'), self._getPath(f'{molName}_GMX.itp'))
 
-
     def editConfStep(self):
         systemBasename = self.getSystemName()
 
