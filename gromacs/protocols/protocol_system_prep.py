@@ -120,6 +120,50 @@ class GromacsSystemPrep(ProtocolLiganParametrization):
 
     It is necessary to insert a cleaned PDB strucrture from Protocol Import Atomic Structure
     or other similar protocols.
+
+User IA Manual: SystemPrep Protocol
+
+The SystemPrep protocol is used to build and parameterize a complete molecular
+system for simulation with GROMACS. It integrates several preparatory steps,
+starting from a molecular structure and ending with a ready-to-simulate system
+that includes the topology, solvent, ions, and box dimensions. This protocol
+serves as a foundation for energy minimization, equilibration, or production
+runs and is typically applied after the initial structural model has been
+assembled or imported.
+
+To begin, the user must provide a structure file, usually in PDB format. This
+file should contain all components to be simulated, including protein, ligands,
+cofactors, or other relevant molecules. The protocol assigns force field
+parameters using a specified GROMACS-compatible force field, and it can also
+process ligand parameters provided in `.itp` and `.gro` or `.top` formats if the
+ligand is not covered by standard biomolecular force fields.
+
+The user defines the simulation box by selecting the box type and distance from
+the solute to the box edges. The box is then solvated with a water model
+compatible with the chosen force field. The user may also specify the ionic
+strength of the system by adding counterions to neutralize the charge and
+optionally introduce physiological salt concentrations. These parameters help
+establish the thermodynamic environment in which the simulation will be carried
+out.
+
+Additional configuration includes selecting the protonation state of titratable
+residues, applying position restraints to parts of the molecule, or merging
+topology files when multiple components are included. The protocol handles
+automatic generation of the system topology and coordinate files, as well as
+index groups for use in later stages of the simulation workflow.
+
+Once the preparation is complete, the output consists of a fully parameterized
+system including `.top`, `.gro`, and `.ndx` files, along with any additional
+restraint or ligand definitions. These outputs can be directly passed to GROMACS
+simulation protocols within Scipion-Chem for energy minimization, dynamics, or
+further system modification.
+
+In summary, the SystemPrep protocol provides an automated and customizable
+workflow for preparing molecular systems for GROMACS simulations. It ensures
+that all components are correctly parameterized and spatially organized,
+establishing a robust starting point for high-quality molecular dynamics
+experiments.
+
     """
     _label = 'system preparation'
     IMPORT_FROM_FILE = 0
