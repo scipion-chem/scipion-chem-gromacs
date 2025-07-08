@@ -43,6 +43,41 @@ from gromacs.objects import GromacsSystem
 class GromacsImportSystem(EMProtocol):
     """
     This protocol import a gromacs system trajectory and/or coordinates:
+
+User IA Manual: ImportSystem Protocol
+
+The ImportSystem protocol is used to bring into Scipion-Chem a molecular system
+that has been previously prepared for simulation with GROMACS. This system
+typically includes a set of coordinate and topology files, which together define
+the atomic structure, molecular interactions, and simulation box configuration.
+By importing the system into the workflow, users can integrate it with downstream
+protocols for energy minimization, molecular dynamics, or analysis.
+
+To run the protocol, the user must provide at least the structure file in GRO
+format, which contains the atomic coordinates and box vectors. In addition, a
+topology file is required to define the molecular components, parameters, and
+force field assignments. This file is usually in TOP format and may reference
+other files such as ITP or include directives. The protocol ensures that all
+referenced files are accessible and properly parsed for integration.
+
+The user may also specify whether the imported system contains solvent, ions, or
+restraints, which can influence how the system is treated in later steps. For
+example, solvent molecules may be needed for pressure coupling, while positional
+restraints may be required to maintain the stability of certain components during
+equilibration. The protocol records all such metadata to ensure reproducibility
+and correct behavior in downstream simulations.
+
+Once executed, the protocol registers the molecular system as a Scipion object,
+preserving the directory structure and file dependencies. This object becomes
+the reference for subsequent GROMACS protocols, including energy minimization,
+equilibration, and production runs. The imported system is not modified, and
+users retain full control over how it is used in the workflow.
+
+In summary, the ImportSystem protocol serves as the entry point for GROMACS-ready
+systems in Scipion-Chem. It enables seamless integration of externally prepared
+systems into structured workflows for molecular simulation, ensuring consistency,
+traceability, and compatibility with other components of the platform.
+
     """
     _label = 'import system'
 
