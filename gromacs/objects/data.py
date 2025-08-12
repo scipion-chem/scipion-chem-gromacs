@@ -120,6 +120,7 @@ class GromacsSystem(MDSystem):
         return self._indexFile.get()
 
     def setIndexFile(self, value):
+        value = os.path.relpath(value)
         self._indexFile.set(value)
 
     def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
