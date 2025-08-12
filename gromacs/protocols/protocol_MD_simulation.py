@@ -283,16 +283,12 @@ class GromacsMDSimulation(EMProtocol):
 
     def createOutputStep(self):
         lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
-        if self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
-            oriGroFile = self.gromacsSystem.get().getOriStructFile()
-        else:
-            oriGroFile = self.gromacsSystem.get().getSystemFile()
 
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
 
-        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
+        outSystem = GromacsSystem(filename=localGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:

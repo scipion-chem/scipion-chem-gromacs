@@ -68,7 +68,6 @@ class GromacsImportSystem(EMProtocol):
     def createOutputStep(self):
       outSystem = GromacsSystem()
       outSystem.setSystemFile(self.inputCoords.get())
-      outSystem.setOriStructFile(self.inputCoords.get())
       outSystem.setTopologyFile(self.inputTopology.get())
       if self.inputTrajectory.get():
           outSystem.setTrajectoryFile(self.inputTrajectory.get())

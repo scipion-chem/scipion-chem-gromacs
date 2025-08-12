@@ -366,7 +366,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
     def getStageFiles(self, stage, tpr=False):
       if stage == 'All':
         system = self.getMDSystem()
-        groFile, trjFile, tprFile = system.getOriStructFile(), system.getTrajectoryFile(), system.getTprFile()
+        groFile, trjFile, tprFile = system.getSystemFile(), system.getTrajectoryFile(), system.getTprFile()
       else:
         groFile, _, tprFile = self.protocol.getPrevFinishedStageFiles(stage)
         trjFile = self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
