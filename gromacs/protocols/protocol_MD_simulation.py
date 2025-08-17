@@ -54,7 +54,7 @@ class GromacsMDSimulation(EMProtocol):
 
     _integrators = ['steep', 'cg']
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
-    _barostats = ['no', 'Berendsen', 'Parrinello-Rahman']
+    _barostats = ['no', 'Berendsen', 'Parrinello-Rahman', 'C-rescale']
     #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
     _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
@@ -137,7 +137,7 @@ class GromacsMDSimulation(EMProtocol):
                                   'Relaxation time constant for barostat (ps)')
         line.addParam('pressure', params.FloatParam, default=1.0,
                       label='   Pressure (bar):   ')
-        line.addParam('barostat', params.EnumParam, default=2,
+        line.addParam('barostat', params.EnumParam, default=3,
                       label='  Barostat type:   ', choices=self._barostats)
         line.addParam('presRelaxCons', params.FloatParam, default=2.0,
                       label='   Pressure constant (ps)[tau-p]:   ', expertLevel=params.LEVEL_ADVANCED)
@@ -381,19 +381,31 @@ class GromacsMDSimulation(EMProtocol):
             else:
                 msjDic = eval(wStep)
 
-            if msjDic['ensemType'] == 'NPT' and msjDic['barostat'] != 'Berendsen' and not prevTrj and msjDic['saveTrj']:
-                warns.append('\nStep {} : Berendsen is the barostat recommended for system equilibration, '
+            if msjDic['ensemType'] == 'NPT' and msjDic['barostat'] not in ['Berendsen', 'C-rescale'] and not prevTrj and msjDic['saveTrj']:
+                warns.append('\nStep {} : Berendsen and C-rescale are the barostats recommended for system equilibration, '
                              '{} might not be the best option for the first trajectory saved'.
                              format(step+1, msjDic['barostat']))
+            if prevTrj and msjDic['barostat'] == 'Berendsen':
+                warns.append('\nStep {} : Berendsen is the barostat recommended for system equilibration only, '
+                             'it might not be the best option for later trajectories saved'.
+                             format(step+1))                
             if msjDic['saveTrj']:
                 prevTrj = True
 
             if msjDic['ensemType'] != 'Energy min':
+                if msjDic['thermostat'] not in ['Berendsen', 'V-rescale'] and not prevTrj and msjDic['saveTrj']:
+                    warns.append('\nStep {} : Berendsen and V-rescale are the barostat recommended for system equilibration, '
+                                 '{} might not be the best option for the first trajectory saved'.
+                                 format(step+1, msjDic['thermostat']))
+                if prevTrj and msjDic['thermostat'] == 'Berendsen':
+                    warns.append('\nStep {} : Berendsen is the thermostat recommended for system equilibration only, '
+                                'it might not be the best option for later trajectories saved'.
+                                format(step+1))
                 tCoup = msjDic['timeNeigh'] if msjDic['tempCouple'] == -1 else msjDic['tempCouple']
                 if msjDic['thermostat'] == 'Nose-Hoover' and 20*tCoup*msjDic['timeStep'] > msjDic['tempRelaxCons']:
-                  warns.append('\nStep {} : For proper integration of the Nose-Hoover thermostat, tau-t ({}) should '
-                               'be at least 20 times larger than nsttcouple*dt ({}*{})'.format(step+1,
-                                msjDic['tempRelaxCons'], tCoup, msjDic['timeStep']))
+                    warns.append('\nStep {} : For proper integration of the Nose-Hoover thermostat, tau-t ({}) should '
+                                 'be at least 20 times larger than nsttcouple*dt ({}*{})'.format(step+1,
+                                 msjDic['tempRelaxCons'], tCoup, msjDic['timeStep']))
 
         return warns
 
