@@ -114,7 +114,7 @@ class GromacsSystemPrep(EMProtocol):
     It is necessary to insert a cleaned PDB strucrture from Protocol Import Atomic Structure
     or other similar protocols.
     """
-    _label = 'system preparation'
+    _label = 'System preparation'
     IMPORT_FROM_FILE = 0
     IMPORT_FROM_SCIPION = 1
     IMPORT_MDP_FILE = 0
