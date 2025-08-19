@@ -590,6 +590,8 @@ class GromacsMDSimulation(EMProtocol):
         if os.path.exists(tprFile): return tprFile
         groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
 
+        if not groFile:
+            groFile = self.gromacsSystem.get().getSystemFile()
 
         if self.checkIfPrevTrj(stageNum):
             prevTrjStr = '-t ' + os.path.abspath(self.checkIfPrevTrj(stageNum))
@@ -631,6 +633,8 @@ class GromacsMDSimulation(EMProtocol):
         '''Return the previous .gro and topology files if number stage is provided.
         If not, returns the ones of the lastest stage'''
         topFile = self.gromacsSystem.get().getTopologyFile()
+        if topFile:
+            topFile = os.path.abspath(topFile)
         if stage:
             stageNum = stage.replace('stage_', '').strip()
             if stageNum == '1':
@@ -648,11 +652,11 @@ class GromacsMDSimulation(EMProtocol):
             stageDirs = natural_sort(glob.glob(self._getExtraPath('stage_*')), rev=reverse)
             for file in os.listdir(stageDirs[-1]):
                 if '.gro' in file:
-                    groFile = os.path.join(stageDirs[-1], file)
+                    groFile = os.path.abspath(os.path.join(stageDirs[-1], file))
                 elif '.tpr' in file:
                     tprFile = os.path.join(stageDirs[-1], file)
 
-        return os.path.abspath(groFile),  os.path.abspath(topFile), tprFile
+        return groFile, topFile, tprFile
 
     def checkIfPrevTrj(self, stageNum):
         if stageNum == '1':
