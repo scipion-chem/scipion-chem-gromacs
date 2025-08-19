@@ -59,6 +59,8 @@ class GromacsImportSystem(EMProtocol):
                       help='Gromacs topology file (top)')
         form.addParam('inputTrajectory', params.FileParam, label="Input Gromacs Trajectory (trr, xtc): ",
                       help='Gromacs trajectory file (xtc / trr)')
+        form.addParam('inputTpr', params.FileParam, label="Input Gromacs run input file (tpr): ",
+                      help='Gromacs portable run input file (tpr)')
 
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
@@ -73,6 +75,8 @@ class GromacsImportSystem(EMProtocol):
       if self.inputTrajectory.get():
           outSystem.setTrajectoryFile(self.inputTrajectory.get())
           outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
+      if self.inputTpr.get():
+          outSystem.setTprFile(self.inputTpr.get())
 
       self._defineOutputs(outputSystem=outSystem)
 
