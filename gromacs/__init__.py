@@ -77,7 +77,7 @@ class Plugin(pwem.Plugin):
 		""" This function installs Plumed's package. """
 
 		# Instantiating install helper
-		installer = InstallHelper(PLUMED_DIC['name'], cls.getVar(PLUMED_DIC['home']), ver)
+		installer = InstallHelper(PLUMED_DIC['name'], f"{PLUMED_DIC['name']}-{ver}", ver)
 
 		# Defining some variables
 		libTorchFileName = f"libtorch-{LIBTORCH_DIC['version']}.zip"
@@ -122,7 +122,7 @@ class Plugin(pwem.Plugin):
 		mpiExt = '_MPI'
 
 		# Instantiating install helper
-		installer = InstallHelper(GROMACS_DIC['name'], cls.getVar(GROMACS_DIC['home']), ver)
+		installer = InstallHelper(GROMACS_DIC['name'], f"{GROMACS_DIC['name']}-{ver}", ver)
 
 		# Defining some variables
 		gromacsFileName = f"gromacs-{ver}.tar.gz"
