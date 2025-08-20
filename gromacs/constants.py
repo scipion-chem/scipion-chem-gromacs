@@ -27,10 +27,26 @@
 # Versions
 V2020 = '2020.6'
 V2021 = '2021.5'
-CMAKE_MINIMUM_VERSION = '3.13'
+V2024 = '2024.3'
+GROMACS_VERSIONS = [V2020, V2021, V2024]
+CMAKE_MINIMUM_VERSION = '3.16'
 
 # Package dictionaries
-GROMACS_DIC = {'name': 'gromacs', 'version': V2021, 'home': 'GROMACS_HOME'}
+GROMACS_DIC = {'name': 'gromacs', 'version': V2024, 'home': 'GROMACS_HOME'}
+
+def getGromacsEnvName():
+    return "gromacs-%s" % GROMACS_DIC['version']
+
+ENV_NAME = getGromacsEnvName()
+
+MASTER = 'master'
+V292 = 'v2.9.2'
+V210B = 'v2.10b'
+PLUMED_VERSIONS = [MASTER, V292, V210B]
+PLUMED_DIC = {'name': 'plumed2', 'version': MASTER, 'home': 'PLUMED_HOME'}
+
+V200 = '2.0.0'
+LIBTORCH_DIC = {'name': 'libtorch', 'version': V200, 'home': 'LIBTORCH_HOME'}
 
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'

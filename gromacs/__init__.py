@@ -27,6 +27,9 @@
 # General imports
 import subprocess, multiprocessing
 from os.path import join
+import os
+ENV_YAML_PATH = join(os.path.split(os.path.split(os.path.abspath(__file__))[0])[0],
+					 'environment.yaml')
 
 # Scipion em imports
 import pwem
@@ -58,19 +61,68 @@ class Plugin(pwem.Plugin):
 		modifiedProcs = cls.checkRequirements(env)
 
 		# Installing packages
-		cls.addGromacs(env, modifiedProcs)
-	
+		for ver in PLUMED_VERSIONS:
+			cls.addPlumed(env, ver,
+				 default=(ver==PLUMED_DIC['version']))
+
+		for ver in GROMACS_VERSIONS:
+			cls.addGromacs(env, modifiedProcs, ver,
+				  default=(ver==GROMACS_DIC['version']))
+
 	@classmethod
-	def addGromacs(cls, env, modifiedProcs, default=True):
+	def addPlumed(cls, env, ver, default=True):
+		""" This function installs Plumed's package. """
+
+		# Instantiating install helper
+		installer = InstallHelper(PLUMED_DIC['name'], cls.getVar(PLUMED_DIC['home']), PLUMED_DIC['version'])
+
+		# Defining some variables
+		libTorchFileName = f"libtorch-{LIBTORCH_DIC['version']}.zip"
+		plumedFileName = f"plumed-{ver}.tar.gz"
+
+		installEnv = [
+			cls.getCondaActivationCmd(),
+			"if ! conda info --envs | awk '{print $1}' | grep -qx %s; then" % ENV_NAME,
+			f'    conda env create -f {ENV_YAML_PATH} -n {ENV_NAME};',
+			'fi &&',
+			f'conda activate {ENV_NAME} &&',
+			'pip install torch==2.0.0+cu118 torchvision==0.15.1+cu118 torchaudio==2.0.1+cu118 ',
+			'--index-url https://download.pytorch.org/whl/cu118 &&',
+			f'touch ENV_INSTALLED'
+		]
+
+		installPlumed = [
+			cls.getCondaActivationCmd(),
+			f'conda activate {ENV_NAME} &&',
+			'TORCH_DIR=$(pwd)/../libtorch',
+			'CPPFLAGS="-I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include"',
+			'LDFLAGS="-L$TORCH_DIR/lib -Wl,-rpath,$TORCH_DIR/lib"',
+			'./configure --enable-libtorch --enable-modules=pytorch',
+			' --prefix=$(pwd)/../plumed2-master-install &&'
+			'make && make install &&',
+			f'touch PLUMED_INSTALLED'
+		]
+
+		# Installing package
+		installer.addCommand(' '.join(installEnv), 'ENV_INSTALLED')\
+			.getExtraFile(cls._getLibTorchDownloadUrl(LIBTORCH_DIC['version']), 'LIBTORCH_DOWNLOADED', fileName=libTorchFileName)\
+			.addCommand(f'unzip {libTorchFileName}', 'LIBTORCH_EXTRACTED')\
+			.getExtraFile(cls._getPlumedDownloadUrl(ver), 'PLUMED_DOWNLOADED', fileName=plumedFileName)\
+			.addCommand(f'tar -xf {plumedFileName} --strip-components 1', 'PLUMED_EXTRACTED')\
+			.addCommand(' '.join(installPlumed), 'PLUMED_INSTALLED')\
+			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
+
+	@classmethod
+	def addGromacs(cls, env, modifiedProcs, ver, default=True):
 		""" This function installs Gromacs's package. """
 		# Target suffix for MPI installation
 		mpiExt = '_MPI'
 
 		# Instantiating install helper
-		installer = InstallHelper(GROMACS_DIC['name'], cls.getVar(GROMACS_DIC['home']), GROMACS_DIC['version'])
+		installer = InstallHelper(GROMACS_DIC['name'], cls.getVar(GROMACS_DIC['home']), ver)
 
 		# Defining some variables
-		gromacsFileName = f"gromacs-{GROMACS_DIC['version']}.tar.gz"
+		gromacsFileName = f"gromacs-{ver}.tar.gz"
 		
 		charmInnerLocation = join('share', 'top')
 		charmFileName = 'charmm36-feb2021.ff.tgz'
@@ -81,21 +133,32 @@ class Plugin(pwem.Plugin):
 		# If number of processors has been modified, show message
 		if modifiedProcs:
 			message = "\\nWARNING: Only 1 process has been defined to install Gromacs.\\n"
-			message += f"This will take a very long time. Instead, the number of parallel processes has been changed to the maximum avaliable in your system: {env.getProcessors()}."
+			message += f"This will take a very long time. Instead, the number of parallel processes has been changed to the maximum available in your system: {env.getProcessors()}."
 			installer.addCommand(f'echo -e "{yellowStr(message)}"', 'WARNING_SHOWN')
 
+		patchGromacsWithPlumed = [
+            cls.getCondaActivationCmd(),
+            f'conda activate {ENV_NAME} &&',
+            'export PATH=$PATH:$(pwd)/plumed2-master-install/bin &&',
+            'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/plumed2-master-install/lib &&',
+            'export PLUMED_KERNEL=$(pwd)/plumed2-master-install/lib/libplumedKernel.so &&',			
+			'echo "3" >> patch_option.txt',
+			'plumed patch -p --runtime < patch_option.txt'
+		]
+
 		# Installing package
-		installer.getExtraFile(cls._getGromacsDownloadUrl(), 'GROMACS_DOWNLOADED', fileName=gromacsFileName)\
+		installer.getExtraFile(cls._getGromacsDownloadUrl(ver), 'GROMACS_DOWNLOADED', fileName=gromacsFileName)\
 			.addCommand(f'tar -xf {gromacsFileName} --strip-components 1', 'GROMACS_EXTRACTED')\
+			.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')\
 			.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3', 
-	       				'GROMACS_BUILT', workDir=normalInnerLocation)\
+		   				'GROMACS_BUILT', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED', workDir=normalInnerLocation)\
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=on', 
-	       				'GROMACS_BUILT' + mpiExt, workDir=mpiInnerLocation)\
+		   				'GROMACS_BUILT' + mpiExt, workDir=mpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt, workDir=mpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)\
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
@@ -123,8 +186,18 @@ class Plugin(pwem.Plugin):
 		pass
 
 	@classmethod
-	def _getGromacsDownloadUrl(cls):
-		return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(GROMACS_DIC['version'])
+	def _getLibTorchDownloadUrl(cls, ver):
+		return 'https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-{}%2Bcu118.zip'.format(ver)
+
+	@classmethod
+	def _getPlumedDownloadUrl(cls, ver):
+		if ver == MASTER:
+			return 'https://github.com/plumed/plumed2/archive/refs/heads/{}.tar.gz'.format(ver)
+		return 'https://github.com/plumed/plumed2/archive/refs/tags/{}.tar.gz'.format(ver)
+
+	@classmethod
+	def _getGromacsDownloadUrl(cls, ver):
+		return 'https://ftp.gromacs.org/gromacs/gromacs-{}.tar.gz'.format(ver)
 
 	# ---------------------------------- Utils functions  -----------------------
 	@classmethod
@@ -185,3 +258,23 @@ class Plugin(pwem.Plugin):
 			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
 		except Exception:
 			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
+
+	@classmethod
+	def _getNvccCudaVersion(cls):
+		"""
+		### This function checks what version of cuda and nvcc is active and returns the result
+
+		### Excepts:
+		An error message in color red in a string if there is a problem with nvcc
+		"""
+		try:
+			# Getting CMake version
+			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
+			nvccVersion = result.split('\n')[-2].split('_')[1].split('/')[0][:4]
+			return nvccVersion
+
+			# Checking if installed version is below minimum required
+		except FileNotFoundError:
+			raise FileNotFoundError(redStr(f"nvcc is not installed.\nPlease install A CUDA toolkit in development to include nvcc."))
+		except Exception:
+			raise Exception(redStr("Can not get the nvcc version.\nPlease install A CUDA toolkit in development to include nvcc."))
