@@ -1,0 +1,17 @@
+channels:
+  - conda-forge
+  - defaults
+  - simpleitk
+dependencies:
+  - python=3.10
+  - mrcfile
+  - mdanalysis
+  - biopython
+  - simpleitk
+  - pip
+  - cudatoolkit=11.8
+  - setuptools
+  - cython=0.29
+  - doxygen
+  - pybind11
+  - prody=2.6.1

@@ -46,7 +46,6 @@ _references = ['Abraham2015']
 class Plugin(pwem.Plugin):
 	_homeVar = GROMACS_DIC['home']
 	_pathVars = [GROMACS_DIC['home'], PLUMED_DIC['home']]
-	_
 	_supportedVersions = [V2020, V2021, V2024]
 	_gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
 	_plumedName = PLUMED_DIC['name'] + '-' + PLUMED_DIC['version']
