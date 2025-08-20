@@ -38,6 +38,7 @@ def getGromacsEnvName():
     return "gromacs-%s" % GROMACS_DIC['version']
 
 ENV_NAME = getGromacsEnvName()
+PLUMED_ENV_ACT = 'PLUMED_ENV_ACT'
 
 MASTER = 'master'
 V292 = 'v2.9.2'

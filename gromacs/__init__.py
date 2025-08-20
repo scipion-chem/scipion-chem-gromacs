@@ -45,14 +45,18 @@ _references = ['Abraham2015']
 
 class Plugin(pwem.Plugin):
 	_homeVar = GROMACS_DIC['home']
-	_pathVars = [GROMACS_DIC['home']]
-	_supportedVersions = [V2020, V2021]
+	_pathVars = [GROMACS_DIC['home'], PLUMED_DIC['home']]
+	_
+	_supportedVersions = [V2020, V2021, V2024]
 	_gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
+	_plumedName = PLUMED_DIC['name'] + '-' + PLUMED_DIC['version']
 
 	@classmethod
 	def _defineVariables(cls):
 		""" Return and write a variable in the config file. """
 		cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
+		cls._defineEmVar(PLUMED_DIC['home'], cls._plumedName)
+		cls._defineVar(PLUMED_ENV_ACT, "conda activate plumed-{0}".format(PLUMED_DIC['version']))
 	
 	@classmethod
 	def defineBinaries(cls, env):
@@ -74,7 +78,7 @@ class Plugin(pwem.Plugin):
 		""" This function installs Plumed's package. """
 
 		# Instantiating install helper
-		installer = InstallHelper(PLUMED_DIC['name'], cls.getVar(PLUMED_DIC['home']), PLUMED_DIC['version'])
+		installer = InstallHelper(PLUMED_DIC['name'], cls.getVar(PLUMED_DIC['home']), ver)
 
 		# Defining some variables
 		libTorchFileName = f"libtorch-{LIBTORCH_DIC['version']}.zip"
@@ -98,7 +102,7 @@ class Plugin(pwem.Plugin):
 			'CPPFLAGS="-I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include"',
 			'LDFLAGS="-L$TORCH_DIR/lib -Wl,-rpath,$TORCH_DIR/lib"',
 			'./configure --enable-libtorch --enable-modules=pytorch',
-			' --prefix=$(pwd)/../plumed2-master-install &&'
+			' --prefix=$(pwd)/../plumed2-master-install &&',
 			'make && make install &&',
 			f'touch PLUMED_INSTALLED'
 		]
