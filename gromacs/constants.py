@@ -1,6 +1,7 @@
 # **************************************************************************
 # *
 # * Authors: Daniel Del Hoyo Gomez
+# *          James M. Krieger
 # *
 # * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
@@ -24,30 +25,77 @@
 # *
 # **************************************************************************
 
-# Versions
+########################* Versions and Package dictionaries ###########################
 V2020 = '2020.6'
 V2021 = '2021.5'
+V2022 = '2022.5'
+V2023 = '2023.5'
 V2024 = '2024.3'
-GROMACS_VERSIONS = [V2020, V2021, V2024]
+GROMACS_VERSIONS = [V2021]
 CMAKE_MINIMUM_VERSION = '3.16'
 
-# Package dictionaries
-GROMACS_DIC = {'name': 'gromacs', 'version': V2024, 'home': 'GROMACS_HOME'}
-
-def getGromacsEnvName():
-    return "gromacs-%s" % GROMACS_DIC['version']
-
-ENV_NAME = getGromacsEnvName()
-PLUMED_ENV_ACT = 'PLUMED_ENV_ACT'
+GROMACS_DIC = {'name': 'gromacs', 'version': V2021, 'home': 'GROMACS_HOME'}
 
 MASTER = 'master'
-V292 = 'v2.9.2'
-V210B = 'v2.10b'
-PLUMED_VERSIONS = [MASTER, V292, V210B]
-PLUMED_DIC = {'name': 'plumed2', 'version': MASTER, 'home': 'PLUMED_HOME'}
+V292 = '2.9.2'
+V210B = '2.10b'
+V210A = '2.10a'
+PLUMED_VERSIONS = [MASTER, V292, V210B, V210A]
+PLUMED_DIC = {'name': 'plumed', 'version': V210A, 'home': 'PLUMED_HOME'}
 
 V200 = '2.0.0'
+LIBTORCH_VERSIONS = [V200]
 LIBTORCH_DIC = {'name': 'libtorch', 'version': V200, 'home': 'LIBTORCH_HOME'}
+
+V01 = '0.1'
+EMMIVOX_VERSIONS = [V01]
+EMMIVOX_DIC = {'name': 'emmivox', 'version': V01, 'home': 'EMMIVOX_HOME'}
+
+GROMACS_ENV_ACT = 'GROMACS_ENV_ACT'
+
+"""
+plumed 2.9.2 patching options:
+1) gromacs-2020.7     3) gromacs-2022.5    5) gromacs-2024.2    7) namd-2.13         9) qespresso-5.0.2  11) qespresso-7.0
+2) gromacs-2021.7     4) gromacs-2023.5    6) namd-2.12         8) namd-2.14        10) qespresso-6.2    12) qespresso-7.2
+
+plumed 2.10b and master patching options:
+ 1) gromacs-2022.5
+ 2) gromacs-2023.5
+ 3) gromacs-2024.2
+ 4) namd-2.12
+ 5) namd-2.13
+ 6) namd-2.14
+ 7) qespresso-5.0.2
+ 8) qespresso-6.2
+ 9) qespresso-7.0
+10) qespresso-7.2
+
+plumed 2.10a patching options:
+1) gromacs-2021.7     4) namd-2.12         7) qespresso-5.0.2  10) qespresso-7.2
+2) gromacs-2022.5     5) namd-2.13         8) qespresso-6.2
+3) gromacs-2023.2     6) namd-2.14         9) qespresso-7.0
+"""
+
+SCIPION_SOFTWARE = None
+
+try:
+    from pyworkflow import Config
+    vars = Config.getVars()
+    SCIPION_SOFTWARE = vars.get('SCIPION_SOFTWARE')
+except Exception:
+    pass
+
+PATCH_DIC = {V292:  {V2020: 1, V2021: 2,
+                     V2022: 3, V2023: 4,
+                     V2024: 5},
+            V210B:  {V2022: 1, V2023: 2,
+                     V2024: 3},
+            MASTER: {V2024: 3},
+            V210A:  {V2021: 1, 
+                     V2022: 2,
+                     V2023: 3}}
+
+########################################* ION NAMES #####################################
 
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
