@@ -197,9 +197,10 @@ class Plugin(pwem.Plugin):
 		# Installing package
 		installer.getExtraFile(cls._getGromacsDownloadUrl(ver), 'GROMACS_DOWNLOADED', fileName=gromacsFileName)\
 			.addCommand(f'tar -xf {gromacsFileName} --strip-components 1', 'GROMACS_EXTRACTED')
-		
-		if (cls._isInstalled(PLUMED_DIC, marker='PLUMED_INSTALLED', location=plumedLocation) and 
-	  		PATCH_DIC.get(plumed_ver, None).get(ver, None) is not None):
+
+		patchPlumed = PATCH_DIC.get(plumed_ver, None)
+		if (cls._isInstalled(PLUMED_DIC, marker='PLUMED_INSTALLED', location=plumedLocation) and
+						patchPlumed is not None and patchPlumed.get(ver, None) is not None):
 			installer.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')
 
 		CUDA_ARCH_FLAG = '-DGMX_CUDA_TARGET_SM="50;52;60;61;70;75;80"' if ver==V2021 else '-DCUDA_ARCH_BIN=all'
