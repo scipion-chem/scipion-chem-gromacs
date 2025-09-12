@@ -183,7 +183,7 @@ class GromacsSystemPrep(EMProtocol):
                        help='Force field applied to the waters')
 
         group = form.addGroup('Ions', condition=water_not_none)
-        group.addParam('placeIons', params.EnumParam, default=0,
+        group.addParam('placeIons', params.EnumParam, default=1,
                        condition=water_not_none,
                        label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
                        help='Whether to add ions to the system.'
@@ -223,8 +223,8 @@ class GromacsSystemPrep(EMProtocol):
         self._insertFunctionStep('editConfStep')
         if self.placeWater():
             self._insertFunctionStep('solvateStep')
-        if self.placeIons.get() != 0:
-            self._insertFunctionStep('addIonsStep')
+            if self.placeIons.get() != 0:
+                self._insertFunctionStep('addIonsStep')
         self._insertFunctionStep('createOutputStep')
 
     def PDB2GMXStep(self):
