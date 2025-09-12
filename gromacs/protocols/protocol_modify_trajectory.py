@@ -47,7 +47,7 @@ class GromacsModifySystem(EMProtocol):
         - Subsamples trajectory and applies filters
         - Fits trajectory to initial structure
     """
-    _label = 'system modification'
+    _label = 'System modification'
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
