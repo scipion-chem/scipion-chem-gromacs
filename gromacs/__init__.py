@@ -217,6 +217,7 @@ class Plugin(pwem.Plugin):
 		if (cls._isInstalled(PLUMED_DIC, marker='PLUMED_INSTALLED', location=plumedLocation) and
 			PATCH_DIC.get(plumed_ver, None).get(ver, None) is not None):
 			installer.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')\
+			.addCommand(f'mkdir {plumedMpiInnerLocation}', 'PLUMED_BUILD_DIR_MADE')\
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=ON',
 						'GROMACS_BUILT' + mpiExt + plumedExt, workDir=plumedMpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt + plumedExt, workDir=plumedMpiInnerLocation)\
