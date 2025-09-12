@@ -30,7 +30,7 @@
 This module will prepare the system for the simulation
 """
 import os
-from os.path import abspath, relpath
+import shutil
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
@@ -93,6 +93,7 @@ GROMACS_SPCE = 1
 GROMACS_TIP3P = 2
 GROMACS_TIP4P = 3
 GROMACS_TIP5P = 4
+GROMACS_NO_WATER = 5
 
 GROMACS_WATERFF_NAME = dict()
 GROMACS_WATERFF_NAME[GROMACS_SPC] = 'spc'
@@ -100,11 +101,16 @@ GROMACS_WATERFF_NAME[GROMACS_SPCE] = 'spce'
 GROMACS_WATERFF_NAME[GROMACS_TIP3P] = 'tip3p'
 GROMACS_WATERFF_NAME[GROMACS_TIP4P] = 'tip4p'
 GROMACS_WATERFF_NAME[GROMACS_TIP5P] = 'tip5p'
+GROMACS_WATERFF_NAME[GROMACS_NO_WATER] = 'none'
 
 GROMACS_WATERS_LIST = [GROMACS_WATERFF_NAME[GROMACS_SPC], GROMACS_WATERFF_NAME[GROMACS_SPCE],
 GROMACS_WATERFF_NAME[GROMACS_TIP3P], GROMACS_WATERFF_NAME[GROMACS_TIP4P],
-GROMACS_WATERFF_NAME[GROMACS_TIP5P]]
+GROMACS_WATERFF_NAME[GROMACS_TIP5P], GROMACS_WATERFF_NAME[GROMACS_NO_WATER]]
 
+water_not_none = 'waterForceField!=%d' % (len(GROMACS_WATERS_LIST)-1)
+placeIons_not_zero_str = 'placeIons!=0 and ' + water_not_none
+placeIons_equal_1 = 'placeIons==1 and ' + water_not_none
+placeIons_equal_2 = 'placeIons==2 and ' + water_not_none
 
 class GromacsSystemPrep(EMProtocol):
     """
@@ -176,35 +182,36 @@ class GromacsSystemPrep(EMProtocol):
                        label='Water Force Field: ',
                        help='Force field applied to the waters')
 
-        group = form.addGroup('Ions')
+        group = form.addGroup('Ions', condition=water_not_none)
         group.addParam('placeIons', params.EnumParam, default=1,
+                       condition=water_not_none,
                        label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
                        help='Whether to add ions to the system.'
                             'https://manual.gromacs.org/documentation/2021.5/onlinehelp/gmx-genion.html')
 
-        line = group.addLine('Cation type:', condition='placeIons!=0',
+        line = group.addLine('Cation type:', condition=placeIons_not_zero_str,
                              help='Type of the cations to add')
-        line.addParam('cationType', params.EnumParam, condition='placeIons!=0',
+        line.addParam('cationType', params.EnumParam, condition=placeIons_not_zero_str,
                       label='Cation to add: ', choices=self._cations, default=7,
                       help='Which anion to add in the system')
-        line.addParam('cationNum', params.IntParam, condition='placeIons==2',
+        line.addParam('cationNum', params.IntParam, condition=placeIons_equal_2,
                       label='Number of cations to add: ',
                       help='Number of cations to add')
 
-        line = group.addLine('Anion type:', condition='placeIons!=0',
+        line = group.addLine('Anion type:', condition=placeIons_not_zero_str,
                              help='Type of the anions to add')
-        line.addParam('anionType', params.EnumParam, condition='placeIons!=0',
+        line.addParam('anionType', params.EnumParam, condition=placeIons_not_zero_str,
                       label='Anions to add: ', choices=self._anions, default=1,
                       help='Which anion to add in the system')
-        line.addParam('anionNum', params.IntParam, condition='placeIons==2',
+        line.addParam('anionNum', params.IntParam, condition=placeIons_equal_2,
                       label='Number of anions to add: ',
                       help='Number of anions to add')
 
         group.addParam('addSalt', params.BooleanParam, default=False,
-                       condition='placeIons==1',
+                       condition=placeIons_equal_1,
                        label='Add more salt into the system: ',
                        help='Add more salt into the system')
-        group.addParam('saltConc', params.FloatParam, condition='addSalt and placeIons==1',
+        group.addParam('saltConc', params.FloatParam, condition='addSalt and ' + placeIons_equal_1,
                        default=0.15,
                        label='Salt concentration (M): ',
                        help='Salt concentration')
@@ -214,9 +221,10 @@ class GromacsSystemPrep(EMProtocol):
         # Insert processing steps
         self._insertFunctionStep('PDB2GMXStep')
         self._insertFunctionStep('editConfStep')
-        self._insertFunctionStep('solvateStep')
-        if self.placeIons.get() != 0:
-            self._insertFunctionStep('addIonsStep')
+        if self.placeWater():
+            self._insertFunctionStep('solvateStep')
+            if self.placeIons.get() != 0:
+                self._insertFunctionStep('addIonsStep')
         self._insertFunctionStep('createOutputStep')
 
     def PDB2GMXStep(self):
@@ -260,10 +268,11 @@ class GromacsSystemPrep(EMProtocol):
         if waterModel in ['spc', 'spce', 'tip3p']:
             waterModel = 'spc216'
 
-        params_solvate = ' solvate -cp %s_newbox.gro -cs %s.gro -o %s_solv.gro' \
-                         ' -p topol.top' % (systemBasename, waterModel, systemBasename)
+        if waterModel != 'none':
+            params_solvate = ' solvate -cp %s_newbox.gro -cs %s.gro -o %s_solv.gro' \
+                            ' -p topol.top' % (systemBasename, waterModel, systemBasename)
 
-        gromacsPlugin.runGromacs(self, 'gmx', params_solvate, cwd=self._getPath())
+            gromacsPlugin.runGromacs(self, 'gmx', params_solvate, cwd=self._getPath())
 
     def addIonsStep(self):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
@@ -304,8 +313,10 @@ class GromacsSystemPrep(EMProtocol):
 
         if self.placeIons.get() != 0:
             groBaseName = '%s_solv_ions.gro' % (systemBasename)
-        else:
+        elif self.placeWater():
             groBaseName = '%s_solv.gro' % (systemBasename)
+        else:
+            groBaseName = '%s_newbox.gro' % (systemBasename)
 
         topoPath, groPath, posrePath = self._getPath('topol.top'), self._getPath(groBaseName), \
                                        self._getPath('posre.itp')
@@ -430,3 +441,6 @@ class GromacsSystemPrep(EMProtocol):
         structureHandler.getStructure()
         chains, _ = structureHandler.getModelsChains()
         return list(chains[0].keys())
+
+    def placeWater(self):
+        return self.waterForceField.get() != (len(GROMACS_WATERS_LIST)-1)
