@@ -160,6 +160,7 @@ class Plugin(pwem.Plugin):
 		""" This function installs Gromacs's package. """
 		# Target suffix for MPI installation
 		mpiExt = '_MPI'
+		plumedExt = '_PLUMED'
 
 		# Instantiating install helper
 		installer = InstallHelper(GROMACS_DIC['name'], join(SCIPION_SOFTWARE, 'em', f"{GROMACS_DIC['name']}-{ver}"), ver)
@@ -175,6 +176,7 @@ class Plugin(pwem.Plugin):
 
 		normalInnerLocation = 'build'
 		mpiInnerLocation = 'build_mpi'
+		plumedMpiInnerLocation = 'build_mpi_plumed'
 
 		# If number of processors has been modified, show message
 		if modifiedProcs:
@@ -197,25 +199,30 @@ class Plugin(pwem.Plugin):
 		# Installing package
 		installer.getExtraFile(cls._getGromacsDownloadUrl(ver), 'GROMACS_DOWNLOADED', fileName=gromacsFileName)\
 			.addCommand(f'tar -xf {gromacsFileName} --strip-components 1', 'GROMACS_EXTRACTED')
-		
-		if (cls._isInstalled(PLUMED_DIC, marker='PLUMED_INSTALLED', location=plumedLocation) and 
-	  		PATCH_DIC.get(plumed_ver, None).get(ver, None) is not None):
-			installer.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')
 
 		CUDA_ARCH_FLAG = '-DGMX_CUDA_TARGET_SM="50;52;60;61;70;75;80"' if ver==V2021 else '-DCUDA_ARCH_BIN=all'
 
 		installer.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
-			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install -DGMX_FFT_LIBRARY=fftw3', 
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install -DGMX_FFT_LIBRARY=fftw3',
 		   				'GROMACS_BUILT', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED', workDir=normalInnerLocation)\
-			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=ON', 
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=ON',
 		   				'GROMACS_BUILT' + mpiExt, workDir=mpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt, workDir=mpiInnerLocation)\
-			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)\
-			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
+			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)
+
+		if (cls._isInstalled(PLUMED_DIC, marker='PLUMED_INSTALLED', location=plumedLocation) and
+			PATCH_DIC.get(plumed_ver, None).get(ver, None) is not None):
+			installer.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')\
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=ON',
+						'GROMACS_BUILT' + mpiExt + plumedExt, workDir=plumedMpiInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt + plumedExt, workDir=plumedMpiInnerLocation)\
+			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt + plumedExt, workDir=plumedMpiInnerLocation)
+
+		installer.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
 
 	@classmethod
 	def addEmmiVox(cls, env, ver, default=True):
