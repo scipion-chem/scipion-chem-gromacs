@@ -46,6 +46,7 @@ class GromacsSystem(MDSystem):
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
         self._tprFile = pwobj.String(kwargs.get('tprFile', None))
         self._indexFile = pwobj.String(kwargs.get('indexFile', None))
+        self._colvarFile = pwobj.String(kwargs.get('colvarFile', None))
 
         self._chainNames = pwobj.String(kwargs.get('chainNames', None))
 
@@ -122,6 +123,13 @@ class GromacsSystem(MDSystem):
     def setIndexFile(self, value):
         value = os.path.relpath(value)
         self._indexFile.set(value)
+
+    def getColvarFile(self):
+        return self._colvarFile.get()
+
+    def setColvarFile(self, value):
+        value = os.path.relpath(value)
+        self._colvarFile.set(value)
 
     def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
