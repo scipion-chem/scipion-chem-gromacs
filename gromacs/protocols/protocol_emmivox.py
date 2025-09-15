@@ -91,7 +91,10 @@ class EMMIVoxProtocol(EMProtocol):
             self.inputPdbFn = inputStructFn
 
         inputSystem = self.inputSystem.get()
-        self.inputGroFn = inputSystem.getOriStructFile()
+        if self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
+            self.inputGroFn = self.gromacsSystem.get().getOriStructFile()
+        else:
+            self.inputGroFn = self.gromacsSystem.get().getSystemFile()
         self.inputTopFn = inputSystem.getTopologyFile()
 
         self.outputPdbFn = self._getPath(splitext(basename(self.inputPdbFn))[0] + '_fixed.pdb')
