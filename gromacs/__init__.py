@@ -202,6 +202,7 @@ class Plugin(pwem.Plugin):
 
 		CUDA_ARCH_FLAG = '-DGMX_CUDA_TARGET_SM="50;52;60;61;70;75;80"' if ver==V2021 else '-DCUDA_ARCH_BIN=all'
 
+		# noqa: S324  # SonarQube rule for insecure HTTP
 		installer.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
