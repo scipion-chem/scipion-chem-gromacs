@@ -311,12 +311,12 @@ class GromacsSystemPrep(EMProtocol):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
         systemBasename = os.path.basename(inputStructure.split(".")[0])
 
-        if self.placeIons.get() != 0:
-            groBaseName = '%s_solv_ions.gro' % (systemBasename)
-        elif self.placeWater():
-            groBaseName = '%s_solv.gro' % (systemBasename)
-        else:
+        if not self.placeWater():
             groBaseName = '%s_newbox.gro' % (systemBasename)
+        elif self.placeIons.get() != 0:
+            groBaseName = '%s_solv_ions.gro' % (systemBasename)
+        else:
+            groBaseName = '%s_solv.gro' % (systemBasename)
 
         topoPath, groPath, posrePath = self._getPath('topol.top'), self._getPath(groBaseName), \
                                        self._getPath('posre.itp')
