@@ -189,9 +189,9 @@ class Plugin(pwem.Plugin):
 		patchGromacsWithPlumed = [
 			cls.getCondaActivationCmd(),
 			f'conda activate {ENV_NAME} &&',
-			f"export PATH=$PATH:{plumedLocation}/bin &&",
-			f"export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{plumedLocation}/lib &&",
-			f"export PLUMED_KERNEL={plumedLocation}/lib/libplumedKernel.so &&",			
+			f"export PATH=$PATH:{plumedLocation}/install/bin &&",
+			f"export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{plumedLocation}/install/lib &&",
+			f"export PLUMED_KERNEL={plumedLocation}/install/lib/libplumedKernel.so &&",			
 			f'echo "{PATCH_DIC.get(plumed_ver, None).get(ver, None)}" >> patch_option.txt',
 			'plumed patch -p --runtime < patch_option.txt'
 		]
@@ -282,7 +282,8 @@ class Plugin(pwem.Plugin):
 	@classmethod
 	def runPlumed(cls, protocol, program='plumed', args='', cwd=None, **kwargs):
 		""" Run Plumed command from a given protocol. """
-		protocol.runJob(cls.getPlumedBin(program), args, cwd=cwd, **kwargs)
+		protocol.runJob(cls.getPlumedEnvVars() + ' ' + cls.getPlumedBin(program),
+				  args, cwd=cwd, **kwargs)
 
 	@classmethod
 	def runPlumedPrintf(cls, printfValues, args, cwd, program='plumed'):
@@ -522,3 +523,10 @@ class Plugin(pwem.Plugin):
 	@classmethod
 	def getEnvName(cls):
 		return LIBTORCH_DIC['name']+"-"+LIBTORCH_DIC['version']
+
+	@classmethod
+	def getPlumedEnvVars(cls):
+		plumedLocation = cls._getLocation(PLUMED_DIC) + '/install'
+		return ' '.join([f"export PATH=$PATH:{plumedLocation}/bin &&",
+			f"export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{plumedLocation}/lib &&",
+			f"export PLUMED_KERNEL={plumedLocation}/lib/libplumedKernel.so &&"])
