@@ -129,8 +129,7 @@ class GromacsSystemPrep(EMProtocol):
     _cations = [CA, CS, CU, CU2, K, LI, MG, NA, RB, ZN]
     _anions = [BR, CL, F, I]
 
-    # -------------------------- DEFINE constants ----------------------------
-
+    _possibleOutputs = {'outputSystem': grobj.GromacsSystem}
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -169,6 +168,11 @@ class GromacsSystemPrep(EMProtocol):
 
         line.addParam('padDist', params.FloatParam, condition='sizeType == 1',
                       default=1.0, label='Buffer distance: ')
+
+        form.addParam('mergeChains', params.BooleanParam, default=True,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label="Choose whether to merge chains",
+                       help="Both merging and not merging can come with problems")
 
         form.addSection('Force Field')
         group = form.addGroup('Force field')
@@ -238,7 +242,9 @@ class GromacsSystemPrep(EMProtocol):
         params = ' pdb2gmx -f %s ' \
                  '-o %s_processed.gro ' \
                  '-water %s ' \
-                 '-ff %s -merge all' % (inputStructure, systemBasename, Waterff, Mainff)
+                 '-ff %s ' % (inputStructure, systemBasename, Waterff, Mainff)
+        if self.mergeChains.get():
+            params += ' -merge all'
         # todo: managing several chains (restrictions, topologies...) instead of merging them
         try:
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
