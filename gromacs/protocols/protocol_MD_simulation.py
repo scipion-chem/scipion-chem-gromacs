@@ -27,7 +27,7 @@
 
 
 """
-This module will perform energy minimizations for the system
+This module will perform energy minimizations and MD simulation for the system
 """
 import glob, random
 
@@ -46,8 +46,9 @@ from multiprocessing import cpu_count
 
 class GromacsMDSimulation(EMProtocol):
     """
-    This protocol will perform energy minimization on the system previosly prepared by the protocol "system prepartion".
-    This step is necessary to energy minize the system in order to avoid unwanted conformations.
+    This protocol will perform energy minimization and MD simulation on the system previously
+    prepared by the protocol "system prepartion".
+    This step is necessary to energy minimize the system in order to avoid unwanted conformations.
     """
     _label = 'Run MD simulation'
     _ensemTypes = ['Energy min', 'NVT',  'NPT']
@@ -115,7 +116,7 @@ class GromacsMDSimulation(EMProtocol):
                        label='Simulation type: ',
                        choices=self._ensemTypes, default=0,
                        help='Type of simulation to perform in the step: Energy minimization, NVT or NPT\n'
-                            'https://manual.gromacs.org/5.1.1/user-guide/mdp-options.html')
+                            'https://manual.gromacs.org/{0}/user-guide/mdp-options.html'.format(gromacsPlugin._getActiveVersion(GROMACS_DIC)))
 
         group.addParam('integrator', params.EnumParam, label='Simulation integrator: ', condition='ensemType==0',
                       choices=self._integrators, default=0, help='Type of integrator to use in simulation.')
