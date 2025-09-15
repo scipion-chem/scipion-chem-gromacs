@@ -183,3 +183,42 @@ pbc             = xyz       ; Periodic Boundary Conditions in all 3 dimensions
 gen_vel                 = {}       ; assign velocities from Maxwell distribution
 {}
 '''
+
+PLUMED_STR = '''
+RESTART
+
+list: GROUP ATOMS=1-6096,6096-1281:-1,7377-6097:-1,6097-12193
+WHOLEMOLECULES STRIDE=1 ENTITY0=list
+
+# set up groups and coms for variables for opening angle and displacement. 
+# For opening, a torsion t is used to project the angle back into the right plane.
+# The ghost atom is placed in order to define said plane with a perpendicular axis vector.
+# For displacement, a torsion td is used.
+gr1: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_&_C-alpha
+gr2: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_&_C-alpha
+gr3: GROUP NDX_FILE=index.ndx NDX_GROUP=ulD_&_C-alpha
+gr4: GROUP NDX_FILE=index.ndx NDX_GROUP=llD_&_C-alpha
+gr13: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_ulD_&_C-alpha
+gr24: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_llD_&_C-alpha
+COM ATOMS=gr1 LABEL=com1
+COM ATOMS=gr2 LABEL=com2
+COM ATOMS=gr3 LABEL=com3
+COM ATOMS=gr4 LABEL=com4
+COM ATOMS=gr13 LABEL=com13
+COM ATOMS=gr24 LABEL=com24
+
+GHOST ATOMS=com24,com1,com3 COORDINATES=0,0.5,0 LABEL=g2
+t: TORSION VECTOR1=com13,com2 AXIS=com24,g2 VECTOR2=com13,com4
+td: TORSION ATOMS=com2,com1,com3,com4
+
+# Activate metadynamics in opening angle/torsion t and displacement torsion td
+# depositing a Gaussian every 5000 time steps (10ps),
+# with well-tempering and starting height set to 1.2 kJoule/mol,
+# and Gaussian width fixed to 0.9 radians (5 degrees) for both CVs,
+# allowing storing of grids with "1/5 of the Gaussian width as grid spacing".
+#
+metad: METAD ARG=t,td BIASFACTOR=10 TEMP=300.0 SIGMA=0.9,0.9 PACE=5000 HEIGHT=1.2 FILE=HILLS STORE_GRIDS
+
+# monitor the angle variable and the metadynamics bias potential
+PRINT STRIDE=10 ARG=t,td,metad.bias FILE=COLVAR
+'''
