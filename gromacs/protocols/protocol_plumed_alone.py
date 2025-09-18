@@ -26,21 +26,37 @@
 # *
 # **************************************************************************
 
-DISTANCE = 0
-ANGLE = 1
-DIHEDRAL = 2
+ALPHARMSD = 0
+DISTANCE = 1
+ANGLE = 2
+TORSION = 3
+
+CV_TYPES = {}
+CV_TYPES[ALPHARMSD] = 'ALPHARMSD'
+CV_TYPES[DISTANCE] = 'DISTANCE'
+CV_TYPES[ANGLE] = 'ANGLE'
+CV_TYPES[TORSION] = 'TORSION'
+
+CVS_LIST = [CV_TYPES[ALPHARMSD], CV_TYPES[DISTANCE], 
+			CV_TYPES[ANGLE], CV_TYPES[TORSION]]
 
 selstrHelp = '''The distance, angle, or dihedral will be calculated using the centers of the selections.
+The ALPHARMSD will be calculated using a range of residues directly and cannot handle chains.
+This gives a sum of a measure between 0 and 1 for 6-residue blocks being within a small RMSD from an idealised alpha helix.
 Selections are defined using comma-separated lists of ProDy selection strings
 (see http://http://www.bahargroup.org/prody/tutorials/prody_tutorial/selection.html)
-but are reinterpreted using MDTraj and Biopython to get atom IDs.
-Each of the comma-separated selection strings can only have one chain name.'''
+but are reinterpreted using MDTraj and Biopython to get atom IDs or Plumed residue selection strings as appropriate.
+Each of the comma-separated selection strings can only have one chain name.
+If no chain name is provided then the first chain will be used if needed.'''
+
+labelHelp = 'This is the label for the virtual atom in plumed.dat'
 
 defaultSelstr1 = "chain A and name CA and resid 117 to 243,chain A and name CA and resid 354 to 380"
 defaultSelstr2 = "chain A and name CA and resid 4 to 116,chain A and name CA and resid 244 to 353"
 defaultSelstr3 = "chain B and name CA and resid 4 to 116,chain B and name CA and resid 244 to 353"
 defaultSelstr4 = "chain B and name CA and resid 117 to 243,chain B and name CA and resid 354 to 380"
-measureTypeCheck = "measureType>%d"
+
+measureTypeCheck = "measureType>=%d"
 
 GROUP_ATOMS_STR = '{0}: CENTER ATOMS={1}\n'
 PRINT_STR = 'PRINT STRIDE=1 ARG={0} FILE=COLVAR FMT=%6.3f\n'
@@ -101,7 +117,7 @@ class PlumedRunAnalysis(EMProtocol):
 					   help='Type of analysis to perform in a step')
 
 		form.addParam('measureType', params.EnumParam,
-					  choices=['distance', 'angle', 'dihedral'], default=DISTANCE,
+					  choices=CVS_LIST, default=DISTANCE,
 					  label='Measure type',
 					  help='Select the type of measure for defining a collective variable.')
 
@@ -109,33 +125,40 @@ class PlumedRunAnalysis(EMProtocol):
 		group.addParam('selection1', params.StringParam, default=defaultSelstr1,
 					  label="Selection string 1",
 					  help=selstrHelp)
+		group.addParam('rmsd1', params.FloatParam, default=0.1,
+				 		condition="measureType==%d" % ALPHARMSD,
+						label="RMSD cutoff for ALPHARMSD (nm)",
+						help=labelHelp)
+
 		group.addParam('label1', params.StringParam, default='com1',
-					  label="Label for selection 1 center",
-					  help=labelHelp)
+				 		condition=measureTypeCheck % DISTANCE,
+						label="Label for selection 1 center",
+						help=labelHelp)
 
-		group = form.addGroup('Selection 2')
+		group = form.addGroup('Selection 2', condition=measureTypeCheck % DISTANCE)
 		group.addParam('selection2', params.StringParam, default=defaultSelstr2,
-					  label="Selection string 2",
-					  help=selstrHelp)
+						label="Selection string 2", condition=measureTypeCheck % DISTANCE,
+						help=selstrHelp)
 		group.addParam('label2', params.StringParam, default='com2',
-					  label="Label for selection 2 center",
-					  help=labelHelp)
+				 		condition=measureTypeCheck % DISTANCE,
+						label="Label for selection 2 center",
+						help=labelHelp)
 		
-		group = form.addGroup('Selection 3', condition=measureTypeCheck % DISTANCE)
+		group = form.addGroup('Selection 3', condition=measureTypeCheck % ANGLE)
 		group.addParam('selection3', params.StringParam, default=defaultSelstr3,
-					  label="Selection string 3", condition=measureTypeCheck % DISTANCE,
-					  help=selstrHelp)
+						label="Selection string 3", condition=measureTypeCheck % ANGLE,
+						help=selstrHelp)
 		group.addParam('label3', params.StringParam, default='com3',
-					  label="Label for selection 3 center", condition=measureTypeCheck % DISTANCE,
-					  help=labelHelp)
+						label="Label for selection 3 center", condition=measureTypeCheck % ANGLE,
+						help=labelHelp)
 
-		group = form.addGroup('Selection 4', condition=measureTypeCheck % ANGLE)
+		group = form.addGroup('Selection 4', condition=measureTypeCheck % TORSION)
 		group.addParam('selection4', params.StringParam, default=defaultSelstr4,
-					  label="Selection string 4", condition=measureTypeCheck % ANGLE,
-					  help=selstrHelp)
+						label="Selection string 4", condition=measureTypeCheck % TORSION,
+						help=selstrHelp)
 		group.addParam('label4', params.StringParam, default='com4',
-					  label="Label for selection 4 center", condition=measureTypeCheck % ANGLE,
-					  help=labelHelp)
+						label="Label for selection 4 center", condition=measureTypeCheck % TORSION,
+						help=labelHelp)
 
 	# --------------------------- STEPS functions ------------------------------
 	def _insertAllSteps(self):
@@ -152,9 +175,14 @@ class PlumedRunAnalysis(EMProtocol):
 		inputSystem = self.inputSystem.get()
 		if isinstance(inputSystem, MDSystem):
 			outSystem = GromacsSystem(filename=inputSystem.getFileName(),
-									topoFile=inputSystem.getTopologyFile(),
+							 		topoFile=inputSystem.getTopologyFile(),
 									colvarFile=self.getColvarFile(),
-									trjFile=inputSystem.getTrajectoryFile())
+									trjFile=inputSystem.getTrajectoryFile(),
+									chainNames=inputSystem.getChainNames(),
+									firstFrame=inputSystem._firstFrame.get(),
+									lastFrame=inputSystem._lastFrame.get(),
+									firstTime=inputSystem._firstTime.get(),
+									lastTime=inputSystem._lastTime.get())
 			self._defineOutputs(outputSystem=outSystem)
 		else:
 			outStructure = AtomStruct(filename=self.getPdbFile())
@@ -168,31 +196,39 @@ class PlumedRunAnalysis(EMProtocol):
 		mdtrajTop = mdtraj.load(self.getPdbFile()).top
 
 		measureType = self.measureType.get()
-		atomIds1 = self.selectAtomIds(self.selection1.get(), mdtrajTop, idLists)
-		plumedStr += GROUP_ATOMS_STR.format(self.label1.get(), atomIds1)
-		
-		atomIds2 = self.selectAtomIds(self.selection2.get(), mdtrajTop, idLists)
-		plumedStr += GROUP_ATOMS_STR.format(self.label2.get(), atomIds2)
 
-		if measureType == DISTANCE:
-			plumedStr += 'd0: DISTANCE ATOMS={0},{1}\n'.format(self.label1.get(), self.label2.get())
-			plumedStr += PRINT_STR.format('d0')
+		if measureType == ALPHARMSD:
+			residueStr = self.selectAtomIds(self.selection1.get(), mdtrajTop, idLists, 
+								   			returnResidueStr=True)
+			plumedStr += 'MOLINFO STRUCTURE={0}\n'.format(os.path.abspath(self.getPdbFile()))
+			plumedStr += 'alpha: ALPHARMSD RESIDUES={0} R_0={1}\n'.format(residueStr, self.rmsd1.get())
+			plumedStr += PRINT_STR.format('alpha')
 		else:
-			atomIds3 = self.selectAtomIds(self.selection3.get(), mdtrajTop, idLists)
-			plumedStr += GROUP_ATOMS_STR.format(self.label3.get(), atomIds3)
+			atomIds1 = self.selectAtomIds(self.selection1.get(), mdtrajTop, idLists)
+			plumedStr += GROUP_ATOMS_STR.format(self.label1.get(), atomIds1)
 
-			if measureType == ANGLE:
-				plumedStr += 'a0: ANGLE ATOMS={0},{1},{2}\n'.format(self.label1.get(), self.label2.get(),
-													self.label3.get())
-				plumedStr += PRINT_STR.format('a0')
+			atomIds2 = self.selectAtomIds(self.selection2.get(), mdtrajTop, idLists)
+			plumedStr += GROUP_ATOMS_STR.format(self.label2.get(), atomIds2)
+
+			if measureType == DISTANCE:
+				plumedStr += 'd0: DISTANCE ATOMS={0},{1}\n'.format(self.label1.get(), self.label2.get())
+				plumedStr += PRINT_STR.format('d0')
 			else:
-				atomIds4 = self.selectAtomIds(self.selection4.get(), mdtrajTop, idLists)
-				plumedStr += GROUP_ATOMS_STR.format(self.label4.get(), atomIds4)
+				atomIds3 = self.selectAtomIds(self.selection3.get(), mdtrajTop, idLists)
+				plumedStr += GROUP_ATOMS_STR.format(self.label3.get(), atomIds3)
 
-				if measureType == DIHEDRAL:
-					plumedStr += 't0: TORSION ATOMS={0},{1},{2},{3}\n'.format(self.label1.get(), self.label2.get(),
-														self.label3.get(), self.label4.get())
-					plumedStr += PRINT_STR.format('t0')
+				if measureType == ANGLE:
+					plumedStr += 'a0: ANGLE ATOMS={0},{1},{2}\n'.format(self.label1.get(), self.label2.get(),
+														self.label3.get())
+					plumedStr += PRINT_STR.format('a0')
+				else:
+					atomIds4 = self.selectAtomIds(self.selection4.get(), mdtrajTop, idLists)
+					plumedStr += GROUP_ATOMS_STR.format(self.label4.get(), atomIds4)
+
+					if measureType == TORSION:
+						plumedStr += 't0: TORSION ATOMS={0},{1},{2},{3}\n'.format(self.label1.get(), self.label2.get(),
+															self.label3.get(), self.label4.get())
+						plumedStr += PRINT_STR.format('t0')
 
 		with open(plumedFile, 'w') as f:
 			f.write(plumedStr)
@@ -200,14 +236,13 @@ class PlumedRunAnalysis(EMProtocol):
 
 	def generatePdbFile(self):
 		inFileName = os.path.abspath(self.inputSystem.get().getFileName())
-		pdbFileName = self._getPath(os.path.basename(inFileName))[:-4] + '.pdb'
+		pdbFileName = os.path.abspath(self._getPath(os.path.basename(inFileName))[:-4] + '.pdb')
 		if inFileName.endswith('.cif'):
 			cifToPdb(inFileName, pdbFileName)
 		else:
 			args = ' trjconv -s {} -f {} -o {}'.format(inFileName, inFileName,
 											  pdbFileName)
-			gromacsPlugin.runGromacsPrintf(printfValues=['System'], args=args,
-								  cwd=self._getPath())
+			gromacsPlugin.runGromacsPrintf(printfValues=['System'], args=args, cwd=self._getPath())
 		return pdbFileName
 
 	def callPlumed(self, plumedFile, progType):
@@ -258,31 +293,38 @@ class PlumedRunAnalysis(EMProtocol):
 		return pdbFileName
 
 	def getChainNames(self):
-		inputSystem = self.inputSystem.get()
-		if hasattr(inputSystem, 'getChainNames') and inputSystem.getChainNames():
-			return inputSystem.getChainNames()
-
 		parser = PDBParser()
 		structure = parser.get_structure('', self.getPdbFile())
-		chainNames = [ch.get_id() for ch in list(structure.get_models())[0].get_chains()]
+
+		inputSystem = self.inputSystem.get()
+		if hasattr(inputSystem, 'getChainNames') and inputSystem.getChainNames():
+			chainNames = inputSystem.getChainNames()
+		else:
+			chainNames = [ch.get_id() for ch in list(structure.get_models())[0].get_chains()]
 
 		resids = [''.join([str(x) for x in r.get_id()]).strip() for r in structure.get_residues()]
 		atomids = [a.get_serial_number() for a in structure.get_atoms()]
 
 		return chainNames, resids, atomids
 
-	def selectAtomIds(self, selstrs, mdtrajTop, idLists):
+	def selectAtomIds(self, selstrs, mdtrajTop, idLists, returnResidueStr=False):
 		chainNames, resids, atomids = idLists
 
 		atomIds1 = []
+		plumedResidStr = ''
 		for selstr in [selstr.strip() for selstr in selstrs.split(',')]:
-			chainStrStart = selstr.find('chain')
-			chainStrEnd = selstr.find('chain') + len('chain ')
-			chainNameStr = selstr[chainStrEnd: chainStrEnd + selstr[chainStrEnd:].find(' ')]
-			chainId = chainNames.index(chainNameStr)
-			chainIdSel = 'chainid {0}'.format(chainId)
+			if selstr.find('chain') == -1:
+				chainStrStart = 0
+				chainStrEnd = 0
+				chainId = 0
+			else:
+				chainStrStart = selstr.find('chain')
+				chainStrEnd = selstr.find('chain') + len('chain ')
+				chainNameStr = selstr[chainStrEnd: chainStrEnd + selstr[chainStrEnd:].find(' ')]
+				chainId = chainNames.index(chainNameStr)
+				chainIdSel = 'chainid {0}'.format(chainId)
 			
-			selstr = selstr.replace(selstr[chainStrStart:chainStrEnd+len(chainNameStr)], chainIdSel)
+				selstr = selstr.replace(selstr[chainStrStart:chainStrEnd+len(chainNameStr)], chainIdSel)
 
 			selstr = selstr.replace('resnum','resid').replace(' to ','-')
 			
@@ -292,9 +334,15 @@ class PlumedRunAnalysis(EMProtocol):
 			else:
 				residNameStr = selstr[residsStrEnd:]
 
-			selstr = selstr[:residsStrEnd] + ' to '.join([str(np.nonzero(np.array(resids) == residName)[0][chainId])
-												 		  for residName in residNameStr.split('-')])
+			plumedResidStr += f'{residNameStr}'
+
+			residsFromZero = [str(np.nonzero(np.array(resids) == residName)[0][chainId])
+							  for residName in residNameStr.split('-')]
+			selstr = selstr[:residsStrEnd] + ' to '.join(residsFromZero)
 
 			atomIds1.extend(list(np.array(atomids)[mdtrajTop.select(selstr)]))
+
+		if returnResidueStr:
+			return plumedResidStr
 
 		return ','.join([str(atomId) for atomId in atomIds1])

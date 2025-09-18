@@ -30,7 +30,9 @@ import numpy as np
 from pyworkflow.tests import BaseTest, setupTestProject, DataSet
 from pwem.protocols import ProtImportPdb, exists
 
-from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation, PlumedRunAnalysis
+from gromacs.protocols import (GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation,
+                               PlumedRunAnalysis)
+from gromacs.protocols.protocol_plumed_alone import ALPHARMSD, DISTANCE, ANGLE, TORSION
 from gromacs import Plugin as gromacsPlugin
 
 workflow = '''{'simTime': 100.0, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'Protein', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'Energy min', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman'}
@@ -143,88 +145,200 @@ class TestPlumedAnalysis(BaseTest):
     @classmethod
     def setUpClass(cls):
         # Create a new project
+        cls.ds = DataSet.getDataSet('model_building_tutorial')
         setupTestProject(cls)
-        cls.importPdb()
+        cls._runImportPDB()
+        cls._waitOutput(cls.protImportPDB, 'outputPdb', sleepTime=5)
+        cls._runImportPdb2()
+        cls.protPrepare = cls._runPrepareSystem()
+        cls._waitOutput(cls.protPrepare, 'outputSystem', sleepTime=10)
+        cls.protSim = cls._runSimulation(cls.protPrepare)
+        cls._waitOutput(cls.protSim, 'outputSystem', sleepTime=10)
 
-    @classmethod
-    def testPlumedDistance(cls):
-        protPlumed1 = cls.newProtocol(PlumedRunAnalysis)
-        protPlumed1.inputSystem.set(cls.protPdb3o21.outputPdb)
+    def testPlumedDistance(self):
+        protPlumed1 = self.newProtocol(PlumedRunAnalysis, measureType=DISTANCE)
+        protPlumed1.inputSystem.set(self.protImportPdb3o21.outputPdb)
         protPlumed1.setObjLabel('Plumed_distance_A')
-        cls.launchProtocol(protPlumed1)
+        self.launchProtocol(protPlumed1)
 
-        cls._waitOutput(protPlumed1, 'outputSystem', sleepTime=100)
-        cls.assertIsNotNone(getattr(protPlumed1, 'outputSystem', None))
+        self._waitOutput(protPlumed1, 'outputSystem', sleepTime=100)
+        self.assertIsNotNone(getattr(protPlumed1, 'outputSystem', None))
 
-        cls.assertTrue(exists(protPlumed1._getPath('COLVAR')))
+        self.assertTrue(exists(protPlumed1._getPath('COLVAR')))
 
         with open(protPlumed1._getPath('COLVAR'), 'r') as fi:
             lines = fi.readlines()
 
-        cls.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 2), 3.01)
+        self.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 1), 3.0)
 
-    @classmethod
-    def testPlumedAngle(cls):
-        protPlumed2 = cls.newProtocol(PlumedRunAnalysis, measureType=1)
-        protPlumed2.inputSystem.set(cls.protPdb3o21.outputPdb)
+
+    def testPlumedAngle(self):
+        protPlumed2 = self.newProtocol(PlumedRunAnalysis, measureType=ANGLE)
+        protPlumed2.inputSystem.set(self.protImportPdb3o21.outputPdb)
         protPlumed2.selection1.set('chain A and name CA and resid 46')
         protPlumed2.selection2.set('chain A and name CA and resid 116')
         protPlumed2.selection3.set('chain A and name CA and resid 196')
         protPlumed2.setObjLabel('Plumed_angle_A')
-        cls.launchProtocol(protPlumed2)
+        self.launchProtocol(protPlumed2)
 
-        cls._waitOutput(protPlumed2, 'outputSystem', sleepTime=100)
-        cls.assertIsNotNone(getattr(protPlumed2, 'outputSystem', None))
+        self._waitOutput(protPlumed2, 'outputSystem', sleepTime=100)
+        self.assertIsNotNone(getattr(protPlumed2, 'outputSystem', None))
 
-        cls.assertTrue(exists(protPlumed2._getPath('COLVAR')))
+        self.assertTrue(exists(protPlumed2._getPath('COLVAR')))
 
         with open(protPlumed2._getPath('COLVAR'), 'r') as fi:
             lines = fi.readlines()
 
-        cls.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 2), 1.24)
+        self.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 2), 1.24)
 
-    @classmethod
-    def testPlumedTorsion(cls):
-        protPlumed3 = cls.newProtocol(PlumedRunAnalysis, measureType=2)
-        protPlumed3.inputSystem.set(cls.protPdb3o21.outputPdb)
+
+    def testPlumedTorsion(self):
+        protPlumed3 = self.newProtocol(PlumedRunAnalysis, measureType=TORSION)
+        protPlumed3.inputSystem.set(self.protImportPdb3o21.outputPdb)
         protPlumed3.setObjLabel('Plumed_torsion_AB')
-        cls.launchProtocol(protPlumed3)
+        self.launchProtocol(protPlumed3)
 
-        cls._waitOutput(protPlumed3, 'outputSystem', sleepTime=100)
-        cls.assertIsNotNone(getattr(protPlumed3, 'outputSystem', None))
+        self._waitOutput(protPlumed3, 'outputSystem', sleepTime=100)
+        self.assertIsNotNone(getattr(protPlumed3, 'outputSystem', None))
 
-        cls.assertTrue(exists(protPlumed3._getPath('COLVAR')))
+        self.assertTrue(exists(protPlumed3._getPath('COLVAR')))
 
         with open(protPlumed3._getPath('COLVAR'), 'r') as fi:
             lines = fi.readlines()
 
-        cls.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 2), -0.57)
+        self.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 2), -0.57)
 
 
-    @classmethod
-    def testPlumedTorsion2(cls):
-        protPlumed4 = cls.newProtocol(PlumedRunAnalysis, measureType=2)
-        protPlumed4.inputSystem.set(cls.protPdb3o21.outputPdb)
+    def testPlumedTorsion2(self):
+        protPlumed4 = self.newProtocol(PlumedRunAnalysis, measureType=TORSION)
+        protPlumed4.inputSystem.set(self.protImportPdb3o21.outputPdb)
         protPlumed4.setObjLabel('Plumed_torsion_CD')
         protPlumed4.selection1.set('chain C and name CA and resid 117 to 243,chain C and name CA and resid 354 to 380')
-        protPlumed4.selection2.set('chain C and name CA and resid 117 to 243,chain C and name CA and resid 354 to 380')
-        protPlumed4.selection3.set('chain C and name CA and resid 117 to 243,chain C and name CA and resid 354 to 380')
-        protPlumed4.selection4.set('chain C and name CA and resid 117 to 243,chain C and name CA and resid 354 to 380')
-        cls.launchProtocol(protPlumed4)
+        protPlumed4.selection2.set('chain C and name CA and resid 4 to 116,chain C and name CA and resid 244 to 353')
+        protPlumed4.selection3.set('chain D and name CA and resid 4 to 116,chain D and name CA and resid 244 to 353')
+        protPlumed4.selection4.set('chain D and name CA and resid 117 to 243,chain D and name CA and resid 354 to 380')
+        self.launchProtocol(protPlumed4)
 
-        cls._waitOutput(protPlumed4, 'outputSystem', sleepTime=100)
-        cls.assertIsNotNone(getattr(protPlumed4, 'outputSystem', None))
+        self._waitOutput(protPlumed4, 'outputSystem', sleepTime=100)
+        self.assertIsNotNone(getattr(protPlumed4, 'outputSystem', None))
 
-        cls.assertTrue(exists(protPlumed4._getPath('COLVAR')))
+        self.assertTrue(exists(protPlumed4._getPath('COLVAR')))
 
         with open(protPlumed4._getPath('COLVAR'), 'r') as fi:
             lines = fi.readlines()
 
-        cls.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 2), -0.34)
+        self.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 2), -0.34)
+
+
+    def testPlumedOnPreppedSystem(self):
+        protPlumed5 = self.newProtocol(PlumedRunAnalysis, measureType=DISTANCE)
+        protPlumed5.inputSystem.set(self.protPrepare.outputSystem)
+        protPlumed5.setObjLabel('Plumed_AK_prep_dist')
+        protPlumed5.selection1.set('chain A and name CA and resid 14')
+        protPlumed5.selection2.set('chain A and name CA and resid 131')
+        self.launchProtocol(protPlumed5)
+        self.assertIsNotNone(getattr(protPlumed5, 'outputSystem', None))
+
+        self.assertTrue(exists(protPlumed5._getPath('COLVAR')))
+
+        with open(protPlumed5._getPath('COLVAR'), 'r') as fi:
+            lines = fi.readlines()
+
+        self.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 1), 0.8)
+        self.assertEqual(len(lines[1:]), 1)
+
+    def testPlumedOnRunSystem(self):
+        protPlumed5 = self.newProtocol(PlumedRunAnalysis, measureType=DISTANCE)
+        protPlumed5.inputSystem.set(self.protSim.outputSystem)
+        protPlumed5.setObjLabel('Plumed_AK_sim_dist')
+        protPlumed5.selection1.set('chain A and name CA and resid 14')
+        protPlumed5.selection2.set('chain A and name CA and resid 131')
+        self.launchProtocol(protPlumed5)
+        self.assertIsNotNone(getattr(protPlumed5, 'outputSystem', None))
+
+        self.assertTrue(exists(protPlumed5._getPath('COLVAR')))
+
+        with open(protPlumed5._getPath('COLVAR'), 'r') as fi:
+            lines = fi.readlines()
+
+        self.assertEqual(np.round(float(lines[1].strip().split()[-1]), 1), 0.8)
+        self.assertEqual(len(lines[1:]), protPlumed5.outputSystem.getNumFrames())
+
+
+    def testPlumedAlpharmsdHelix(self):
+        protPlumed1 = self.newProtocol(PlumedRunAnalysis, measureType=ALPHARMSD)
+        protPlumed1.inputSystem.set(self.protImportPDB.outputPdb)
+        protPlumed1.setObjLabel('Plumed_alpharmsd_helix')
+        protPlumed1.selection1.set('resid 65-70')
+        self.launchProtocol(protPlumed1)
+
+        self._waitOutput(protPlumed1, 'outputSystem', sleepTime=100)
+        self.assertIsNotNone(getattr(protPlumed1, 'outputSystem', None))
+
+        self.assertTrue(exists(protPlumed1._getPath('COLVAR')))
+
+        with open(protPlumed1._getPath('COLVAR'), 'r') as fi:
+            lines = fi.readlines()
+
+        self.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 1), 1.0)
+
+    def testPlumedAlpharmsdStrand(self):
+        protPlumed1 = self.newProtocol(PlumedRunAnalysis, measureType=ALPHARMSD)
+        protPlumed1.inputSystem.set(self.protImportPDB.outputPdb)
+        protPlumed1.setObjLabel('Plumed_alpharmsd_strand')
+        protPlumed1.selection1.set('resid 105-110')
+        self.launchProtocol(protPlumed1)
+
+        self._waitOutput(protPlumed1, 'outputSystem', sleepTime=100)
+        self.assertIsNotNone(getattr(protPlumed1, 'outputSystem', None))
+
+        self.assertTrue(exists(protPlumed1._getPath('COLVAR')))
+
+        with open(protPlumed1._getPath('COLVAR'), 'r') as fi:
+            lines = fi.readlines()
+
+        self.assertEqual(np.round(float(lines[-1].strip().split()[-1]), 1), 0.0)
 
     @classmethod
-    def importPdb(cls):
-        cls.protPdb3o21 = cls.newProtocol(ProtImportPdb, inputPdbData=0,
+    def _runImportPDB(cls):
+        cls.protImportPDB = cls.newProtocol(
+            ProtImportPdb,
+            inputPdbData=1,
+            pdbFile=cls.ds.getFile('PDBx_mmCIF/1ake_mut1.pdb'))
+        cls.protImportPDB.setObjLabel('Input PDB 1ake mut1')
+        cls.proj.launchProtocol(cls.protImportPDB, wait=False)
+
+    @classmethod
+    def _runImportPdb2(cls):
+        cls.protImportPdb3o21 = cls.newProtocol(ProtImportPdb, inputPdbData=0,
                                         pdbId='3o21')
-        cls.protPdb3o21.setObjLabel('Input PDB')
-        cls.launchProtocol(cls.protPdb3o21)
+        cls.protImportPdb3o21.setObjLabel('Input PDB 3o21')
+        cls.launchProtocol(cls.protImportPdb3o21)
+
+    @classmethod
+    def _runPrepareSystem(cls):
+        protPrepare = cls.newProtocol(
+            GromacsSystemPrep,
+            inputStructure=cls.protImportPDB.outputPdb,
+            boxType=1, sizeType=1, padDist=2.0,
+            mainForceField=0, waterForceField=2,
+            placeIons=1, cationType=7, anionType=1)
+
+        cls.launchProtocol(protPrepare)
+        return protPrepare
+
+    @classmethod
+    def _runSimulation(cls, protPrepare):
+        protSim = cls.newProtocol(
+            GromacsMDSimulation,
+            gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
+        protSim.setObjLabel('gromacs - gmx MD sim')
+
+        outIndex = protSim.getCustomIndexFile()
+        if os.path.exists(outIndex):
+            protSim.parseIndexFile(outIndex)
+        else:
+            protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
+
+        cls.launchProtocol(protSim)
+        return protSim

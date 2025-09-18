@@ -185,31 +185,39 @@ gen_vel                 = {}       ; assign velocities from Maxwell distribution
 '''
 
 PLUMED_STR = '''
-RESTART
+# RESTART
 
-list: GROUP ATOMS=1-6096,6096-1281:-1,7377-6097:-1,6097-12193
-WHOLEMOLECULES STRIDE=1 ENTITY0=list
+# list: GROUP ATOMS=1-6096,6096-1281:-1,7377-6097:-1,6097-12192
+# WHOLEMOLECULES STRIDE=1 ENTITY0=list
 
 # set up groups and coms for variables for opening angle and displacement. 
 # For opening, a torsion t is used to project the angle back into the right plane.
 # The ghost atom is placed in order to define said plane with a perpendicular axis vector.
 # For displacement, a torsion td is used.
-gr1: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_&_C-alpha
-gr2: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_&_C-alpha
-gr3: GROUP NDX_FILE=index.ndx NDX_GROUP=ulD_&_C-alpha
-gr4: GROUP NDX_FILE=index.ndx NDX_GROUP=llD_&_C-alpha
-gr13: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_ulD_&_C-alpha
-gr24: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_llD_&_C-alpha
-COM ATOMS=gr1 LABEL=com1
-COM ATOMS=gr2 LABEL=com2
-COM ATOMS=gr3 LABEL=com3
-COM ATOMS=gr4 LABEL=com4
-COM ATOMS=gr13 LABEL=com13
-COM ATOMS=gr24 LABEL=com24
+# gr1: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_&_C-alpha
+# gr2: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_&_C-alpha
+# gr3: GROUP NDX_FILE=index.ndx NDX_GROUP=ulD_&_C-alpha
+# gr4: GROUP NDX_FILE=index.ndx NDX_GROUP=llD_&_C-alpha
+# gr13: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_ulD_&_C-alpha
+# gr24: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_llD_&_C-alpha
 
-GHOST ATOMS=com24,com1,com3 COORDINATES=0,0.5,0 LABEL=g2
-t: TORSION VECTOR1=com13,com2 AXIS=com24,g2 VECTOR2=com13,com4
-td: TORSION ATOMS=com2,com1,com3,com4
+# gr1: GROUP ATOMS=1-1772,3872-5647
+# gr2: GROUP ATOMS=1773-3871,5648-6096
+# gr3: GROUP ATOMS=6097-7868,9968-11743
+# gr4: GROUP ATOMS=7869-9967,11744-12192
+# gr13: GROUP ATOMS=1-1772,3872-5647,6097-7868,9968-11743
+# gr24: GROUP ATOMS=1773-3871,5648-6096,7869-9967,11744-12192
+
+# CENTER ATOMS=gr1 LABEL=com1
+# CENTER ATOMS=gr2 LABEL=com2
+# CENTER ATOMS=gr3 LABEL=com3
+# CENTER ATOMS=gr4 LABEL=com4
+# CENTER ATOMS=gr13 LABEL=com13
+# CENTER ATOMS=gr24 LABEL=com24
+
+# GHOST ATOMS=com24,com1,com3 COORDINATES=0,0.5,0 LABEL=g2
+# t: TORSION VECTOR1=com13,com2 AXIS=com24,g2 VECTOR2=com13,com4
+# td: TORSION ATOMS=com2,com1,com3,com4
 
 # Activate metadynamics in opening angle/torsion t and displacement torsion td
 # depositing a Gaussian every 5000 time steps (10ps),
@@ -220,5 +228,5 @@ td: TORSION ATOMS=com2,com1,com3,com4
 metad: METAD ARG=t,td BIASFACTOR=10 TEMP=300.0 SIGMA=0.9,0.9 PACE=5000 HEIGHT=1.2 FILE=HILLS STORE_GRIDS
 
 # monitor the angle variable and the metadynamics bias potential
-PRINT STRIDE=10 ARG=t,td,metad.bias FILE=COLVAR
+PRINT STRIDE=1 ARG=t,td,metad.bias FILE=COLVAR FMT=%6.3f
 '''

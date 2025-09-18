@@ -76,6 +76,8 @@ class GromacsSystem(MDSystem):
         return self._firstFrame, self._lastFrame
     def setFrameIdxs(self, values):
         self._firstFrame.set(values[0]), self._lastFrame.set(values[1])
+    def getNumFrames(self):
+        return self._lastFrame.get() - self._firstFrame.get() + 1
 
     def getTimes(self):
         return self._firstTime, self._lastTime
