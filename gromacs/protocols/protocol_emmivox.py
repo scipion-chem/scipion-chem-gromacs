@@ -40,7 +40,7 @@ from pyworkflow.protocol.params import PointerParam
 
 from gromacs.constants import *
 from gromacs import Plugin
-from gromacs.objects import *
+from gromacs.objects import GromacsSystem
 
 SUMMARY_NO_OUTPUT = 'Output structure not ready yet'
 

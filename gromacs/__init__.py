@@ -74,9 +74,9 @@ class Plugin(pwem.Plugin):
 				   default=(ver==LIBTORCH_DIC['version']))
 
 		# Installing packages
-		for plumed_ver in PLUMED_VERSIONS:
-			cls.addPlumed(env, plumed_ver,
-				 default=(plumed_ver==PLUMED_DIC['version']))
+		for plumedVersion in plumedVersionSIONS:
+			cls.addPlumed(env, plumedVersion,
+				 default=(plumedVersion==PLUMED_DIC['version']))
 
 		for ver in GROMACS_VERSIONS:
 			cls.addGromacs(env, modifiedProcs, ver,
@@ -105,7 +105,7 @@ class Plugin(pwem.Plugin):
 			f'conda activate {ENV_NAME} &&',
 			'pip install torch==2.0.0+cu118 torchvision==0.15.1+cu118 torchaudio==2.0.1+cu118 ',
 			'--index-url https://download.pytorch.org/whl/cu118 &&',
-			f'touch ENV_INSTALLED'
+			'touch ENV_INSTALLED'
 		]
 
 		# Installing package
@@ -140,13 +140,13 @@ class Plugin(pwem.Plugin):
 				'./configure --enable-libtorch --enable-modules=pytorch',
 				f"--prefix={plumedLocation}/install &&",
 				'make && make install &&',
-				f'touch PLUMED_INSTALLED'
+				'touch PLUMED_INSTALLED'
 			])
 		else:
 			installPlumed.extend([
 				f"./configure --prefix={plumedLocation}/install &&",
 				'make && make install &&',
-				f'touch PLUMED_INSTALLED'
+				'touch PLUMED_INSTALLED'
 			])
 
 		# Installing package
@@ -171,8 +171,8 @@ class Plugin(pwem.Plugin):
 		charmInnerLocation = join('share', 'top')
 		charmFileName = 'charmm36-feb2021.ff.tgz'
 
-		plumed_ver = cls._getInstalledVersion(PLUMED_DIC)
-		plumedLocation = join(SCIPION_SOFTWARE, "em", f"{PLUMED_DIC['name']}-{plumed_ver}")
+		plumedVersion = cls._getInstalledVersion(PLUMED_DIC)
+		plumedLocation = join(SCIPION_SOFTWARE, "em", f"{PLUMED_DIC['name']}-{plumedVersion}")
 
 		normalInnerLocation = 'build'
 		mpiInnerLocation = 'build_mpi'
@@ -192,7 +192,7 @@ class Plugin(pwem.Plugin):
 			f"export PATH=$PATH:{plumedLocation}/install/bin &&",
 			f"export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{plumedLocation}/install/lib &&",
 			f"export PLUMED_KERNEL={plumedLocation}/install/lib/libplumedKernel.so &&",			
-			f'''echo "{PATCH_DIC.get(plumed_ver, PATCH_DIC[PLUMED_DIC['version']]).get(ver, 1)}" >> patch_option.txt''',
+			f'''echo "{PATCH_DIC.get(plumedVersion, PATCH_DIC[PLUMED_DIC['version']]).get(ver, 1)}" >> patch_option.txt''',
 			'plumed patch -p --runtime < patch_option.txt'
 		]
 
@@ -216,7 +216,7 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)
 
 		if (cls._isInstalled(PLUMED_DIC, marker='PLUMED_INSTALLED', location=plumedLocation) and
-			PATCH_DIC.get(plumed_ver, None).get(ver, None) is not None):
+			PATCH_DIC.get(plumedVersion, None).get(ver, None) is not None):
 			installer.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')\
 			.addCommand(f'mkdir {plumedMpiInnerLocation}', 'PLUMED_BUILD_DIR_MADE')\
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=ON',
@@ -298,8 +298,8 @@ class Plugin(pwem.Plugin):
 	@classmethod
 	def getPlumedBin(cls, program='plumed', location=None):
 		if location is None:
-			plumed_ver = cls._getInstalledVersion(PLUMED_DIC)
-			location = cls._getLocation(PLUMED_DIC, plumed_ver)
+			plumedVersion = cls._getInstalledVersion(PLUMED_DIC)
+			location = cls._getLocation(PLUMED_DIC, plumedVersion)
 		return f"{location}/install/bin/{program}"
 
 	@classmethod
@@ -458,7 +458,7 @@ class Plugin(pwem.Plugin):
 
 			# Checking if installed version is below minimum required
 		except FileNotFoundError:
-			raise FileNotFoundError(redStr(f"nvcc is not installed.\nPlease install A CUDA toolkit in development to include nvcc."))
+			raise FileNotFoundError(redStr("nvcc is not installed.\nPlease install A CUDA toolkit in development to include nvcc."))
 		except Exception:
 			raise Exception(redStr("Can not get the nvcc version.\nPlease install A CUDA toolkit in development to include nvcc."))
 
@@ -481,11 +481,11 @@ class Plugin(pwem.Plugin):
 	def _getInstalledVersion(cls, dic, marker=None):
 		"""Return installed version from directory name or version file."""
 		active = cls._getActiveVersion(dic)
-		all_versions = cls._getInstalledVersions(dic, marker=marker)
+		allVersions = cls._getInstalledVersions(dic, marker=marker)
 		if active is not None:
 			return active
-		elif len(all_versions):
-			return all_versions[-1]
+		elif len(allVersions):
+			return allVersions[-1]
 		return None
 
 	@classmethod
@@ -494,21 +494,21 @@ class Plugin(pwem.Plugin):
 		Return a list of installed versions for a software dictionary,
 		using _isInstalled() to verify marker files.
 		"""
-		em_dir = os.path.join(SCIPION_SOFTWARE, "em")
-		installed_versions = []
+		EM_DIR = os.path.join(SCIPION_SOFTWARE, "em")
+		installedVersions = []
 
-		if not os.path.exists(em_dir):
-			return installed_versions
+		if not os.path.exists(EM_DIR):
+			return installedVersions
 
-		for entry in os.listdir(em_dir):
-			path = os.path.join(em_dir, entry)
+		for entry in os.listdir(EM_DIR):
+			path = os.path.join(EM_DIR, entry)
 			if os.path.isdir(path):
 				if cls._isInstalled(dic, marker=marker, location=path):
 					# parse version from directory name (last part after '-')
 					version = entry.split('-')[-1]
-					installed_versions.append(version)
+					installedVersions.append(version)
 
-		return installed_versions
+		return installedVersions
 
 	@classmethod
 	def _getActiveVersion(cls, dic):

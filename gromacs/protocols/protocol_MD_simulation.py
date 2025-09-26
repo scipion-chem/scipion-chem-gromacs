@@ -459,10 +459,10 @@ class GromacsMDSimulation(EMProtocol):
             groups = self.parseIndexFile(indexFile)
         else:
             groups = self.createIndexFile(self.gromacsSystem.get(), inIndex=None, outIndex=indexFile)
-        inv_groups = {v: k for k, v in groups.items()}
+        invGroups = {v: k for k, v in groups.items()}
         for name in names:
-            if name in inv_groups:
-                idxs.append(inv_groups[name])
+            if name in invGroups:
+                idxs.append(invGroups[name])
             else:
                 idxs.append(name)
         return idxs
@@ -507,11 +507,12 @@ class GromacsMDSimulation(EMProtocol):
           msjDic[pName] = paramDic[pName].default
       return msjDic
 
-    def createIndexFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', inputCommands=['q']):
+    def createIndexFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', **kwargs):
         outDir = os.path.dirname(outIndex)
         inIndex = ' -n {}'.format(inIndex) if inIndex else ''
         command = 'make_ndx -f {}{} -o {}'.format(system.getSystemFile(), inIndex, outIndex)
 
+        inputCommands = kwargs.get('inputCommands', ['q'])
         if inputCommands[-1] != 'q':
             inputCommands.append('q')
         gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
