@@ -172,7 +172,7 @@ class Plugin(pwem.Plugin):
 		charmFileName = 'charmm36-feb2021.ff.tgz'
 
 		plumed_ver = cls._getInstalledVersion(PLUMED_DIC)
-		plumedLocation = join(SCIPION_SOFTWARE, 'em', f"{PLUMED_DIC['name']}-{plumed_ver}")
+		plumedLocation = join(SCIPION_SOFTWARE, "em", f"{PLUMED_DIC['name']}-{plumed_ver}")
 
 		normalInnerLocation = 'build'
 		mpiInnerLocation = 'build_mpi'
@@ -192,7 +192,7 @@ class Plugin(pwem.Plugin):
 			f"export PATH=$PATH:{plumedLocation}/install/bin &&",
 			f"export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{plumedLocation}/install/lib &&",
 			f"export PLUMED_KERNEL={plumedLocation}/install/lib/libplumedKernel.so &&",			
-			f'echo "{PATCH_DIC.get(plumed_ver, None).get(ver, None)}" >> patch_option.txt',
+			f'echo "{PATCH_DIC.get(plumed_ver, PLUMED_DIC['version']).get(ver, GROMACS_DIC['version'])}" >> patch_option.txt',
 			'plumed patch -p --runtime < patch_option.txt'
 		]
 
@@ -202,8 +202,9 @@ class Plugin(pwem.Plugin):
 
 		CUDA_ARCH_FLAG = '-DGMX_CUDA_TARGET_SM="50;52;60;61;70;75;80"' if ver==V2021 else '-DCUDA_ARCH_BIN=all'
 
-		installer.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
-			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
+		installer.getExtraFile(f'--no-check-certificate https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/{charmFileName}',
+						 'CHARMM36_FEB21_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
+			.addCommand(f'tar -xf {charmFileName}', 'CHARMM36_FEB21_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install -DGMX_FFT_LIBRARY=fftw3',
 		   				'GROMACS_BUILT', workDir=normalInnerLocation)\
