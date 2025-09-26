@@ -192,7 +192,7 @@ class Plugin(pwem.Plugin):
 			f"export PATH=$PATH:{plumedLocation}/install/bin &&",
 			f"export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{plumedLocation}/install/lib &&",
 			f"export PLUMED_KERNEL={plumedLocation}/install/lib/libplumedKernel.so &&",			
-			f'echo "{PATCH_DIC.get(plumed_ver, PLUMED_DIC['version']).get(ver, GROMACS_DIC['version'])}" >> patch_option.txt',
+			f'''echo "{PATCH_DIC.get(plumed_ver, PLUMED_DIC['version']).get(ver, GROMACS_DIC['version'])}" >> patch_option.txt''',
 			'plumed patch -p --runtime < patch_option.txt'
 		]
 
