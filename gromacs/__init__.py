@@ -310,8 +310,9 @@ class Plugin(pwem.Plugin):
 	
 	@classmethod
 	def _getLibTorchLocation(cls):
-		return cls._getLocation(LIBTORCH_DIC, marker="LIBTORCH_EXTRACTED")
-	
+		return cls._getLocation(LIBTORCH_DIC, version=LIBTORCH_DIC['version'],
+								marker="LIBTORCH_EXTRACTED")
+
 	@classmethod
 	def _getEmmiVoxLocation(cls):
 		return join(cls._getLocation(EMMIVOX_DIC, marker="EMMIVOX_CLONED"),
@@ -333,6 +334,10 @@ class Plugin(pwem.Plugin):
 		:arg python: whether it needs to be run with Python
 			Otherwise, use bash. Default is **False**
 		:type python: bool
+
+		:arg location: location for the program/script
+			Default is the scripts location
+		:type location: str
 		"""
 		baseLocation = cls._getEmmiVoxLocation()
 		if location is None:
@@ -347,7 +352,7 @@ class Plugin(pwem.Plugin):
 
 		if python:
 			fullProgram = '%s %s && python %s' % (
-				cls.getCondaActivationCmd(), cls.getEnvName(),
+				cls.getCondaActivationCmd(), "conda activate " + cls.getEnvName(),
 				join(location, program))
 		else:
 			fullProgram = '%s && bash %s' % (
