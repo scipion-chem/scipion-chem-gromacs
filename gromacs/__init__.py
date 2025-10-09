@@ -74,7 +74,7 @@ class Plugin(pwem.Plugin):
 				   default=(ver==LIBTORCH_DIC['version']))
 
 		# Installing packages
-		for plumedVersion in plumedVersionSIONS:
+		for plumedVersion in PLUMED_VERSIONS:
 			cls.addPlumed(env, plumedVersion,
 				 default=(plumedVersion==PLUMED_DIC['version']))
 
