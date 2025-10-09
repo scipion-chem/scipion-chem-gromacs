@@ -36,9 +36,8 @@ from pwem.convert.atom_struct import cifToPdb
 from pwem.objects import AtomStruct
 from pwem.protocols import EMProtocol
 
-from pyworkflow.protocol.params import PointerParam
+from pyworkflow.protocol import params
 
-from gromacs.constants import *
 from gromacs import Plugin
 from gromacs.objects import GromacsSystem
 
@@ -60,18 +59,18 @@ class EMMIVoxProtocol(EMProtocol):
         """
         form.addSection(label='EMMIVox options')
         
-        form.addParam('inputStructure', PointerParam, label="Reference structure",
+        form.addParam('inputStructure', params.PointerParam, label="Reference structure",
                       important=True,
                       pointerClass='AtomStruct',
                       help='This should be an AtomStruct corresponding to your starting structure that fits the map '
                             'and has the right residue numbers.')
         
-        form.addParam('inputSystem', PointerParam, label="Prepared MD system",
+        form.addParam('inputSystem', params.PointerParam, label="Prepared MD system",
                       important=True,
                       pointerClass='GromacsSystem',
                       help='This should be based on the reference structure, but it may have moved in space and/or been renumbered.')
 
-        form.addParam('inputVolumes', PointerParam, label="Target volumes",
+        form.addParam('inputVolumes', params.PointerParam, label="Target volumes",
                       important=True, allowsNull=True,
                       pointerClass='Volume',
                       help='This should be a main map and two half maps that the reference structure is already fitted to')
@@ -91,20 +90,20 @@ class EMMIVoxProtocol(EMProtocol):
             self.inputPdbFn = inputStructFn
 
         inputSystem = self.inputSystem.get()
-        if self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
-            self.inputGroFn = self.gromacsSystem.get().getOriStructFile()
+        if inputSystem.hasTrajectory() and self.prevTrj.get():
+            self.inputGroFn = inputSystem.getOriStructFile()
         else:
-            self.inputGroFn = self.gromacsSystem.get().getSystemFile()
+            self.inputGroFn = inputSystem.getSystemFile()
         self.inputTopFn = inputSystem.getTopologyFile()
 
         self.outputPdbFn = self._getPath(splitext(basename(self.inputPdbFn))[0] + '_fixed.pdb')
         self.outputGroFn = self._getPath(splitext(basename(self.inputGroFn))[0] + '_fixed.gro')
 
         tutorialLocation = Plugin._getEmmiVoxTutorialLocation()
-        step1_0_location = join(tutorialLocation, '1-refinement', '0-Building')
+        STEP1_0_LOCATION = join(tutorialLocation, '1-refinement', '0-Building')
 
-        args = '{0} {1} {2} {3} {4}'.format(self.inputGroFn, self.inputPdbFn, step1_0_location,
-                                        self._getExtraPath(), self.inputTopFn)
+        args = '{0} {1} {2} {3} {4}'.format(self.inputGroFn, self.inputPdbFn, STEP1_0_LOCATION,
+                                            self._getExtraPath(), self.inputTopFn)
         self.runJob(Plugin.getEmmiVoxProgram('renumber.sh',
                                              location='tutorials/1-refinement/0-Building'),
                     args)
