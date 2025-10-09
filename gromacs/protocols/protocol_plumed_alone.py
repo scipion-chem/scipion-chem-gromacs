@@ -67,6 +67,8 @@ This module will perform analyses using plumed programs, e.g. driver and sum_hil
 from Bio.PDB.PDBParser import PDBParser
 import mdtraj
 import numpy as np
+import os
+import shutil
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
@@ -75,8 +77,10 @@ from pwem.convert.atom_struct import cifToPdb
 from pwem.objects import AtomStruct
 from pwem.protocols import EMProtocol
 
-from gromacs.objects import *
-from gromacs.constants import *
+from pwchem.objects import MDSystem
+
+from gromacs.objects import GromacsSystem
+from gromacs.constants import PLUMED_DIC
 from gromacs import Plugin as gromacsPlugin
 
 plumed_ver = gromacsPlugin._getInstalledVersion(PLUMED_DIC)

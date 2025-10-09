@@ -38,8 +38,12 @@ from scipion.install.funcs import InstallHelper
 from pyworkflow.utils import redStr, yellowStr
 
 # Plugin imports
-from .objects import *
-from .constants import *
+from .constants import (GROMACS_DIC, V2020, V2021, V2024,
+						GROMACS_ENV_ACT, GROMACS_VERSIONS,
+						LIBTORCH_DIC, PLUMED_DIC, PATCH_DIC,
+						LIBTORCH_VERSIONS, PLUMED_VERSIONS, MASTER,
+						EMMIVOX_DIC, EMMIVOX_VERSIONS,
+						SCIPION_SOFTWARE, CMAKE_MINIMUM_VERSION)
 
 _logo = "gromacs_logo.png"
 _references = ['Abraham2015']
