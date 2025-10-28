@@ -300,16 +300,16 @@ class GromacsMDSimulation(EMProtocol):
 
         # create pdb file
         # gmx editconf -f outputSystem.gro -o outputSystem.pdb
-        pdbFile = os.path.abspath(self._getExtraPath('outputSystem.pdb'))
         args = [
             "editconf",
             "-f", str(localGroFile),
-            "-o", str(pdbFile)
+            "-o", str(self._getPath('outputSystem.pdb'))
         ]
         gromacsPlugin.runGromacs(self, 'gmx', args)
 
+        pdb = (self._getPath('outputSystem.pdb'))
         outSystem.pdbFile = String()
-        outSystem.pdbFile.setAttributeValue('pdbFile', pdbFile)
+        outSystem.setAttributeValue('pdbFile',(pdb), ignoreMissing=False)
 
         self._defineOutputs(outputSystem=outSystem)
 
