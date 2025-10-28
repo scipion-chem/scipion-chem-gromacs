@@ -31,7 +31,7 @@ This module will perform energy minimizations for the system
 """
 import glob, random
 
-from pyworkflow.object import Integer
+from pyworkflow.object import Integer, String
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
@@ -297,6 +297,19 @@ class GromacsMDSimulation(EMProtocol):
         indexFile = self.getCustomIndexFile()
         if os.path.exists(indexFile):
             outSystem.setIndexFile(indexFile)
+
+        # create pdb file
+        # gmx editconf -f outputSystem.gro -o outputSystem.pdb
+        pdbFile = os.path.abspath(self._getExtraPath('outputSystem.pdb'))
+        args = [
+            "editconf",
+            "-f", str(localGroFile),
+            "-o", str(pdbFile)
+        ]
+        gromacsPlugin.runGromacs(self, 'gmx', args)
+
+        outSystem.pdbFile = String()
+        outSystem.pdbFile.setAttributeValue('pdbFile', pdbFile)
 
         self._defineOutputs(outputSystem=outSystem)
 
