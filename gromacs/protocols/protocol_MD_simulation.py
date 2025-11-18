@@ -298,7 +298,7 @@ class GromacsMDSimulation(EMProtocol):
         if os.path.exists(indexFile):
             outSystem.setIndexFile(indexFile)
 
-        # create pdb file
+        # todo create pdb file
         # gmx editconf -f outputSystem.gro -o outputSystem.pdb
         args = [
             "editconf",
