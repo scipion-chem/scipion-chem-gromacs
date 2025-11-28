@@ -141,6 +141,7 @@ class Plugin(pwem.Plugin):
 			f'CPPFLAGS="-I{libtorchLocation}/include -I{libtorchLocation}/include/torch/csrc/api/include"',
 			f'LDFLAGS="-L{libtorchLocation}/lib -Wl,-rpath,{libtorchLocation}/lib"',
 			'./configure --enable-libtorch --enable-modules=pytorch',
+			'--enable-modules=drr --enable-boost_serialization',
 			f"--prefix={plumedLocation}/install &&",
 			'make && make install &&',
 			'touch PLUMED_INSTALLED'
