@@ -136,22 +136,15 @@ class Plugin(pwem.Plugin):
 			f'conda activate {ENV_NAME} &&'
 		]
 
-		if cls._isInstalled(LIBTORCH_DIC, marker='LIBTORCH_EXTRACTED', location=libtorchLocation):
-			libtorchLocation += '/libtorch'
-			installPlumed.extend([
-				f'CPPFLAGS="-I{libtorchLocation}/include -I{libtorchLocation}/include/torch/csrc/api/include"',
-				f'LDFLAGS="-L{libtorchLocation}/lib -Wl,-rpath,{libtorchLocation}/lib"',
-				'./configure --enable-libtorch --enable-modules=pytorch',
-				f"--prefix={plumedLocation}/install &&",
-				'make && make install &&',
-				'touch PLUMED_INSTALLED'
-			])
-		else:
-			installPlumed.extend([
-				f"./configure --prefix={plumedLocation}/install &&",
-				'make && make install &&',
-				'touch PLUMED_INSTALLED'
-			])
+		libtorchLocation += '/libtorch'
+		installPlumed.extend([
+			f'CPPFLAGS="-I{libtorchLocation}/include -I{libtorchLocation}/include/torch/csrc/api/include"',
+			f'LDFLAGS="-L{libtorchLocation}/lib -Wl,-rpath,{libtorchLocation}/lib"',
+			'./configure --enable-libtorch --enable-modules=pytorch',
+			f"--prefix={plumedLocation}/install &&",
+			'make && make install &&',
+			'touch PLUMED_INSTALLED'
+		])
 
 		# Installing package
 		installer.getExtraFile(cls._getPlumedDownloadUrl(ver), 'PLUMED_DOWNLOADED', fileName=plumedFileName)\
@@ -217,11 +210,8 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=ON',
 		   				'GROMACS_BUILT' + mpiExt, workDir=mpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt, workDir=mpiInnerLocation)\
-			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)
-
-		if (cls._isInstalled(PLUMED_DIC, marker='PLUMED_INSTALLED', location=plumedLocation) and
-			PATCH_DIC.get(plumedVersion, None).get(ver, None) is not None):
-			installer.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')\
+			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)\
+			.addCommand(' '.join(patchGromacsWithPlumed), 'PLUMED_PATCHED')\
 			.addCommand(f'mkdir {plumedMpiInnerLocation}', 'PLUMED_BUILD_DIR_MADE')\
 			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA {CUDA_ARCH_FLAG} -DCMAKE_INSTALL_PREFIX={cls._getLocation(GROMACS_DIC, ver)}/install{mpiExt.lower()} -DGMX_FFT_LIBRARY=fftw3 -DGMX_MPI=ON',
 						'GROMACS_BUILT' + mpiExt + plumedExt, workDir=plumedMpiInnerLocation)\
