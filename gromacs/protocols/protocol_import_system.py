@@ -45,7 +45,7 @@ class GromacsImportSystem(EMProtocol):
     This protocol import a gromacs system trajectory and/or coordinates:
     """
     _label = 'import system'
-
+    _possibleOutputs = {'outputSystem': GromacsSystem}
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
 

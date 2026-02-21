@@ -1,6 +1,7 @@
 # **************************************************************************
 # *
 # * Authors: Daniel Del Hoyo Gomez
+# *          James M. Krieger
 # *
 # * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
@@ -24,13 +25,77 @@
 # *
 # **************************************************************************
 
-# Versions
+########################* Versions and Package dictionaries ###########################
 V2020 = '2020.6'
 V2021 = '2021.5'
-CMAKE_MINIMUM_VERSION = '3.13'
+V2022 = '2022.5'
+V2023 = '2023.5'
+V2024 = '2024.3'
+GROMACS_VERSIONS = [V2021]
+CMAKE_MINIMUM_VERSION = '3.16'
 
-# Package dictionaries
 GROMACS_DIC = {'name': 'gromacs', 'version': V2021, 'home': 'GROMACS_HOME'}
+
+MASTER = 'master'
+V292 = '2.9.2'
+V210B = '2.10b'
+V210A = '2.10a'
+PLUMED_VERSIONS = [MASTER, V292, V210B, V210A]
+PLUMED_DIC = {'name': 'plumed', 'version': V210A, 'home': 'PLUMED_HOME'}
+
+V200 = '2.0.0'
+LIBTORCH_VERSIONS = [V200]
+LIBTORCH_DIC = {'name': 'libtorch', 'version': V200, 'home': 'LIBTORCH_HOME'}
+
+V01 = '0.1'
+EMMIVOX_VERSIONS = [V01]
+EMMIVOX_DIC = {'name': 'emmivox', 'version': V01, 'home': 'EMMIVOX_HOME'}
+
+GROMACS_ENV_ACT = 'GROMACS_ENV_ACT'
+
+"""
+plumed 2.9.2 patching options:
+1) gromacs-2020.7     3) gromacs-2022.5    5) gromacs-2024.2    7) namd-2.13         9) qespresso-5.0.2  11) qespresso-7.0
+2) gromacs-2021.7     4) gromacs-2023.5    6) namd-2.12         8) namd-2.14        10) qespresso-6.2    12) qespresso-7.2
+
+plumed 2.10b and master patching options:
+ 1) gromacs-2022.5
+ 2) gromacs-2023.5
+ 3) gromacs-2024.2
+ 4) namd-2.12
+ 5) namd-2.13
+ 6) namd-2.14
+ 7) qespresso-5.0.2
+ 8) qespresso-6.2
+ 9) qespresso-7.0
+10) qespresso-7.2
+
+plumed 2.10a patching options:
+1) gromacs-2021.7     4) namd-2.12         7) qespresso-5.0.2  10) qespresso-7.2
+2) gromacs-2022.5     5) namd-2.13         8) qespresso-6.2
+3) gromacs-2023.2     6) namd-2.14         9) qespresso-7.0
+"""
+
+SCIPION_SOFTWARE = None
+
+try:
+    from pyworkflow import Config
+    vars = Config.getVars()
+    SCIPION_SOFTWARE = vars.get('SCIPION_SOFTWARE')
+except Exception:
+    pass
+
+PATCH_DIC = {V292:  {V2020: 1, V2021: 2,
+                     V2022: 3, V2023: 4,
+                     V2024: 5},
+            V210B:  {V2022: 1, V2023: 2,
+                     V2024: 3},
+            MASTER: {V2024: 3},
+            V210A:  {V2021: 1, 
+                     V2022: 2,
+                     V2023: 3}}
+
+########################################* ION NAMES #####################################
 
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
@@ -117,4 +182,51 @@ pbc             = xyz       ; Periodic Boundary Conditions in all 3 dimensions
 ; Velocity generation
 gen_vel                 = {}       ; assign velocities from Maxwell distribution
 {}
+'''
+
+PLUMED_STR = '''
+# RESTART
+
+# list: GROUP ATOMS=1-6096,6096-1281:-1,7377-6097:-1,6097-12192
+# WHOLEMOLECULES STRIDE=1 ENTITY0=list
+
+# set up groups and coms for variables for opening angle and displacement. 
+# For opening, a torsion t is used to project the angle back into the right plane.
+# The ghost atom is placed in order to define said plane with a perpendicular axis vector.
+# For displacement, a torsion td is used.
+# gr1: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_&_C-alpha
+# gr2: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_&_C-alpha
+# gr3: GROUP NDX_FILE=index.ndx NDX_GROUP=ulD_&_C-alpha
+# gr4: GROUP NDX_FILE=index.ndx NDX_GROUP=llD_&_C-alpha
+# gr13: GROUP NDX_FILE=index.ndx NDX_GROUP=ulC_ulD_&_C-alpha
+# gr24: GROUP NDX_FILE=index.ndx NDX_GROUP=llC_llD_&_C-alpha
+
+# gr1: GROUP ATOMS=1-1772,3872-5647
+# gr2: GROUP ATOMS=1773-3871,5648-6096
+# gr3: GROUP ATOMS=6097-7868,9968-11743
+# gr4: GROUP ATOMS=7869-9967,11744-12192
+# gr13: GROUP ATOMS=1-1772,3872-5647,6097-7868,9968-11743
+# gr24: GROUP ATOMS=1773-3871,5648-6096,7869-9967,11744-12192
+
+# CENTER ATOMS=gr1 LABEL=com1
+# CENTER ATOMS=gr2 LABEL=com2
+# CENTER ATOMS=gr3 LABEL=com3
+# CENTER ATOMS=gr4 LABEL=com4
+# CENTER ATOMS=gr13 LABEL=com13
+# CENTER ATOMS=gr24 LABEL=com24
+
+# GHOST ATOMS=com24,com1,com3 COORDINATES=0,0.5,0 LABEL=g2
+# t: TORSION VECTOR1=com13,com2 AXIS=com24,g2 VECTOR2=com13,com4
+# td: TORSION ATOMS=com2,com1,com3,com4
+
+# Activate metadynamics in opening angle/torsion t and displacement torsion td
+# depositing a Gaussian every 5000 time steps (10ps),
+# with well-tempering and starting height set to 1.2 kJoule/mol,
+# and Gaussian width fixed to 0.9 radians (5 degrees) for both CVs,
+# allowing storing of grids with "1/5 of the Gaussian width as grid spacing".
+#
+metad: METAD ARG=t,td BIASFACTOR=10 TEMP=300.0 SIGMA=0.9,0.9 PACE=5000 HEIGHT=1.2 FILE=HILLS STORE_GRIDS
+
+# monitor the angle variable and the metadynamics bias potential
+PRINT STRIDE=1 ARG=t,td,metad.bias FILE=COLVAR FMT=%6.3f
 '''

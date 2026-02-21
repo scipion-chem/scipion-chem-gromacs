@@ -6,7 +6,7 @@ Scipion GROMACS plugin
 
 In order to use this plug-in, you need to have `Scipion3 <https://scipion-em.github.io/docs/docs/scipion-modes/how-to-install.html>`_ installed.
 
-GROMACS version 2021.5 is automatically installed.
+GROMACS version 2024.3 is automatically installed.
 If you wanted to use any other preinstalled version, you would need to modify the scipion.conf file adding:
 
 GROMACS_HOME=<path_to_gromacs_home_folder>

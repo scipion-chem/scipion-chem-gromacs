@@ -46,6 +46,8 @@ class GromacsSystem(MDSystem):
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
         self._tprFile = pwobj.String(kwargs.get('tprFile', None))
         self._indexFile = pwobj.String(kwargs.get('indexFile', None))
+        self._colvarFile = pwobj.String(kwargs.get('colvarFile', None))
+        self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
 
         self._chainNames = pwobj.String(kwargs.get('chainNames', None))
 
@@ -65,7 +67,7 @@ class GromacsSystem(MDSystem):
     def getChainNames(self):
         return self._chainNames.get().split(',')
     def setChainNames(self, values):
-        if type(values) == str:
+        if isinstance(values, str):
             self._chainNames.set(values)
         elif type(values) in [list, tuple]:
             self._chainNames.set(','.join(values))
@@ -74,6 +76,8 @@ class GromacsSystem(MDSystem):
         return self._firstFrame, self._lastFrame
     def setFrameIdxs(self, values):
         self._firstFrame.set(values[0]), self._lastFrame.set(values[1])
+    def getNumFrames(self):
+        return self._lastFrame.get() - self._firstFrame.get() + 1
 
     def getTimes(self):
         return self._firstTime, self._lastTime
@@ -123,16 +127,30 @@ class GromacsSystem(MDSystem):
         value = os.path.relpath(value)
         self._indexFile.set(value)
 
+    def getColvarFile(self):
+        return self._colvarFile.get()
+
+    def setColvarFile(self, value):
+        value = os.path.relpath(value)
+        self._colvarFile.set(value)
+
+    def getOriStructFile(self):
+        return self._oriStructFile.get()
+
+    def setOriStructFile(self, value):
+        value = os.path.relpath(value)
+        self._oriStructFile.set(value)
+
     def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
         from gromacs import Plugin as gromacsPlugin
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
 
         nArg = ' -n {}'.format(indexFile) if indexFile else ''
-        params_genrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
+        paramsGenrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
                           (os.path.abspath(self.getSystemFile()), nArg,
                            'posre_' + restraintSuffix.lower(), energy, energy, energy)
-        gromacsPlugin.runGromacsPrintf(printfValues=index, args=params_genrestr, cwd=outDir)
+        gromacsPlugin.runGromacsPrintf(printfValues=index, args=paramsGenrestr, cwd=outDir)
 
         topFile = self.getTopologyFile()
         if outDir:

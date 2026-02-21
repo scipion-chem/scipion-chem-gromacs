@@ -33,16 +33,20 @@ information such as name and number of residues.
 """
 
 # Imports
-import json
+import json, os
 from pyworkflow.gui import ListTreeProviderString, dialog
-
 from pwem.objects import Pointer, String
 
+from pwchem.utils import groupConsecutiveIdxs
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
     WatchElementWizard
-from pwchem.utils import groupConsecutiveIdxs
 
-from ..protocols.protocol_MD_simulation import *
+from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+
+SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
+                                targets=['inputLigand'],
+                                inputs=['inputSetOfMols'],
+                                outputs=['inputLigand'])
 
 AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
                              targets=['insertStep'],
@@ -94,7 +98,7 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
 
     def show(self, form, *params):
         protocol = form.protocol
-        inputParam, outputParam = self.getInputOutput(form)
+        inputParam, _ = self.getInputOutput(form)
 
         system = getattr(protocol, inputParam[0]).get()
 
@@ -105,7 +109,7 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
         inCommand = getattr(protocol, inputParam[1]).get()
         inCommand = ' '.join(protocol.translateNamesToIndexGroup(inCommand.split()))
 
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
+        protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
 
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
@@ -221,7 +225,7 @@ class SelectResidueWizardGromacs(VariableWizard):
         else:
             idxsDic = {ch: [] for ch in inputObj.getChainNames()}
             for val in dlg.values:
-                if not val.get() == ALL_RES:
+                if val.get() != ALL_RES:
                     idxsDic[json.loads(val.get())['chain']].append(json.loads(val.get())['index'])
 
             for ch in idxsDic:
@@ -276,7 +280,7 @@ class AddROIRestraintWizard(VariableWizard):
         newSet = getattr(protocol, inputParams[1]).get()
         newId = newSet.getObjId()
 
-        if not newId in prevIds:
+        if newId not in prevIds:
             newIndex = len(prevPointers)
             prevPointers.append(Pointer(newSet))
         else:
@@ -286,7 +290,7 @@ class AddROIRestraintWizard(VariableWizard):
         roiName = getattr(protocol, inputParams[2]).get()
         roi = self.getSelectedROI(prevPointers, newIndex, roiName)
         system = getattr(protocol, inputParams[0]).get()
-        roiIdx, roiName = self.createROIRestraintIndex(system, roi, protocol)
+        _, roiName = self.createROIRestraintIndex(system, roi, protocol)
 
 AddROIRestraintWizard().addTarget(protocol=GromacsMDSimulation,
                                   targets=['restraintROIInfo'],
@@ -324,9 +328,9 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
 
     def getResDic(self, resStr):
         resDic = {}
-        for chain_res in resStr.split()[1:]:
-            print('Chain_res: ', chain_res)
-            ch, res = chain_res.split('_')
+        for chainRes in resStr.split()[1:]:
+            print('ChainRes: ', chainRes)
+            ch, res = chainRes.split('_')
             resDic[ch] = res
         return resDic
 
@@ -366,20 +370,19 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         # Renaming group
         restIdx, restName = list(groups.keys())[-1], 'ResidueRestraint_{}'.format(len(self.getPrevResidueRest(groups)))
         inCommand = 'name {} {}'.format(restIdx, restName)
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
+        protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
         return restIdx, restName
 
     def show(self, form, *params):
-        inputParams, outputParam = self.getInputOutput(form)
+        inputParams, _ = self.getInputOutput(form)
         protocol = form.protocol
 
         resStr = getattr(protocol, inputParams[1]).get()
         system = getattr(protocol, inputParams[0]).get()
         resDic = self.getResDic(resStr)
-        restIdx, restName = self.createResiduesRestraintIndex(system, resDic, protocol)
+        self.createResiduesRestraintIndex(system, resDic, protocol)
 
 AddResidueRestraintWizard().addTarget(protocol=GromacsMDSimulation,
                                   targets=['restraintResidueInfo'],
                                   inputs=['gromacsSystem', 'restrainResidue'],
                                   outputs=[])
-

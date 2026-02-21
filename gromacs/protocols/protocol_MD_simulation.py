@@ -27,11 +27,11 @@
 
 
 """
-This module will perform energy minimizations for the system
+This module will perform energy minimizations and MD simulation for the system
 """
-import glob, random
+import glob, uuid
 
-from pyworkflow.object import Integer
+from pyworkflow.object import String
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
@@ -44,10 +44,13 @@ from gromacs import Plugin as gromacsPlugin
 
 from multiprocessing import cpu_count
 
+stage_fmt_str = 'stage_{}'
+
 class GromacsMDSimulation(EMProtocol):
     """
-    This protocol will perform energy minimization on the system previosly prepared by the protocol "system prepartion".
-    This step is necessary to energy minize the system in order to avoid unwanted conformations.
+    This protocol will perform energy minimization and MD simulation on the system previously
+    prepared by the protocol "system prepartion".
+    This step is necessary to energy minimize the system in order to avoid unwanted conformations.
     """
     _label = 'Run MD simulation'
     _ensemTypes = ['Energy min', 'NVT',  'NPT']
@@ -65,8 +68,7 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      self.restraintID = Integer(random.randint(1, 100000))
-
+      self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -115,7 +117,7 @@ class GromacsMDSimulation(EMProtocol):
                        label='Simulation type: ',
                        choices=self._ensemTypes, default=0,
                        help='Type of simulation to perform in the step: Energy minimization, NVT or NPT\n'
-                            'https://manual.gromacs.org/5.1.1/user-guide/mdp-options.html')
+                            'https://manual.gromacs.org/{0}/user-guide/mdp-options.html'.format(gromacsPlugin._getActiveVersion(GROMACS_DIC)))
 
         group.addParam('integrator', params.EnumParam, label='Simulation integrator: ', condition='ensemType==0',
                       choices=self._integrators, default=0, help='Type of integrator to use in simulation.')
@@ -291,6 +293,7 @@ class GromacsMDSimulation(EMProtocol):
 
         outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
+        outSystem.setLigandTopologyFile(self.gromacsSystem.get().getLigandTopologyFile())
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
@@ -416,7 +419,7 @@ class GromacsMDSimulation(EMProtocol):
                 msjDic = eval(wStep)
             if msjDic['ensemType'] != 'Energy min':
               if 'Andersen' in msjDic['thermostat'] and msjDic['integrator'] == 'md':
-                  vals.append('Step {} : Andersen temperature control not supported for integrator md.'.format(step+1))
+                  vals.append(f'Step {step+1} : Andersen temperature control not supported for integrator md.')
         return vals
 
 ######################## UTILS ##################################
@@ -434,7 +437,7 @@ class GromacsMDSimulation(EMProtocol):
         indexFile = self.gromacsSystem.get().getIndexFile()
         if not indexFile or not os.path.exists(indexFile):
             projDir = self.getProject().getPath()
-            indexFile = os.path.join(projDir, '{}_custom_indexes.ndx'.format(self.getCustomRestraintID()))
+            indexFile = os.path.join(projDir, f'{self.getCustomRestraintID()}_custom_indexes.ndx')
         return indexFile
 
     def parseIndexFile(self, indexFile):
@@ -453,10 +456,10 @@ class GromacsMDSimulation(EMProtocol):
             groups = self.parseIndexFile(indexFile)
         else:
             groups = self.createIndexFile(self.gromacsSystem.get(), inIndex=None, outIndex=indexFile)
-        inv_groups = {v: k for k, v in groups.items()}
+        invGroups = {v: k for k, v in groups.items()}
         for name in names:
-            if name in inv_groups:
-                idxs.append(inv_groups[name])
+            if name in invGroups:
+                idxs.append(invGroups[name])
             else:
                 idxs.append(name)
         return idxs
@@ -472,11 +475,9 @@ class GromacsMDSimulation(EMProtocol):
       paramsDic = {}
       for paramName, param in self._definition.iterAllParams():
         if paramName not in self._omitParamNames and not isinstance(param, params.Group) and not isinstance(param, params.Line):
-          if type == 'All':
-            paramsDic[paramName] = param
-          elif type == 'Enum' and isinstance(param, params.EnumParam):
-            paramsDic[paramName] = param
-          elif type == 'Normal' and not isinstance(param, params.EnumParam):
+          if (type == 'All'
+              or (type == 'Enum' and isinstance(param, params.EnumParam))
+              or (type == 'Normal' and not isinstance(param, params.EnumParam))):
             paramsDic[paramName] = param
       return paramsDic
 
@@ -499,30 +500,33 @@ class GromacsMDSimulation(EMProtocol):
       '''Add default values for missing parameters in the msjDic'''
       paramDic = self.getStageParamsDic()
       for pName in paramDic.keys():
-        if not pName in msjDic:
+        if pName not in msjDic:
           msjDic[pName] = paramDic[pName].default
       return msjDic
 
-    def createIndexFile(self, system, inIndex=None, outIndex='/tmp/indexes.ndx', inputCommands=['q']):
+    def createIndexFile(self, system, inIndex=None, outIndex=None, **kwargs):
+        outIndex = self._getTmpPath('indexes.ndx') if not outIndex else outIndex
         outDir = os.path.dirname(outIndex)
-        inIndex = ' -n {}'.format(inIndex) if inIndex else ''
-        command = 'make_ndx -f {}{} -o {}'.format(system.getSystemFile(), inIndex, outIndex)
+        inIndex = f' -n {inIndex}' if inIndex else ''
+        command = f'make_ndx -f {system.getSystemFile()}{inIndex} -o {outIndex}'
 
-        if not inputCommands[-1] == 'q':
+        inputCommands = kwargs.get('inputCommands', ['q'])
+        if inputCommands[-1] != 'q':
             inputCommands.append('q')
         gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
         groups = self.parseIndexFile(outIndex)
         return groups
 
     def generateMDPFile(self, msjDic, mdpStage):
-        stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
+        stageDir = self._getExtraPath(stage_fmt_str.format(mdpStage))
         if not os.path.exists(stageDir):
             os.mkdir(stageDir)
 
-        mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
+        mdpFile = os.path.join(stageDir, stage_fmt_str.format(mdpStage) + '.mdp')
         if os.path.exists(mdpFile): return mdpFile
 
-        if not msjDic['restraints'].strip() in ['', 'None']:
+        restrStr = ''
+        if msjDic['restraints'].strip() not in ['', 'None']:
             rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
             groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
 
@@ -530,13 +534,11 @@ class GromacsMDSimulation(EMProtocol):
             if not os.path.exists(indexFile):
                 indexFile = None
 
-            newSuffixes = self.gromacsSystem.get().\
+            _ = self.gromacsSystem.get().\
               defineNewRestriction(index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
                                    outDir=stageDir, indexFile=indexFile)
 
             restrStr = RESTR_STR.format(rSuffix.upper())
-        else:
-            restrStr = ''
 
         neighlist = msjDic['timeNeigh']
         if msjDic['ensemType'] == 'Energy min':
@@ -560,9 +562,8 @@ class GromacsMDSimulation(EMProtocol):
                                           *[msjDic['temperature']]*2, *[msjDic['tempRelaxCons']]*2,
                                           msjDic['tempCouple'], nstcomm)
 
-            if msjDic['ensemType'] == 'NVT':
-                presStr = ''
-            elif msjDic['ensemType'] == 'NPT':
+            presStr = ''
+            if msjDic['ensemType'] == 'NPT':
                 presStr = PRES_SETTING.format(msjDic['barostat'], 'isotropic',
                                               msjDic['pressure'], msjDic['presRelaxCons'],
                                               msjDic['presCouple'])
@@ -576,13 +577,11 @@ class GromacsMDSimulation(EMProtocol):
                 velParStr = VEL_GEN.format(msjDic['temperature'])
             nTrj = round(msjDic['trajInterval'] / tSteps)
 
+        outControlStr = OUTPUT_CONTROL.format(*[0]*2, nTrj)
         if msjDic['saveTrj']:
             outControlStr = OUTPUT_CONTROL.format(*[nTrj]*3)
-            print('Number of frames: ', nSteps/nTrj)
-        else:
-            outControlStr = OUTPUT_CONTROL.format(*[0]*2, nTrj)
+            print('Number of frames: ', nSteps/nTrj)           
 
-        title = 'Stage {}: {}, {} ps'.format(mdpStage, msjDic['ensemType'], msjDic['simTime'])
         mdpStr = MDP_STR.format(restrStr, integStr, nSteps, tStepsStr, neighlist, dispCorrStr, outControlStr,
                                 bondParStr, electroStr, tempStr, presStr, velStr, velParStr)
 
@@ -600,15 +599,24 @@ class GromacsMDSimulation(EMProtocol):
         if os.path.exists(tprFile): return tprFile
         groFile, topFile, _ = self.getPrevFinishedStageFiles(stage)
 
-
         if self.checkIfPrevTrj(stageNum):
             prevTrjStr = '-t ' + os.path.abspath(self.checkIfPrevTrj(stageNum))
         else:
             prevTrjStr = ''
 
+        localTop = os.path.join(stageDir, os.path.split(topFile)[-1])
+        if not os.path.exists(localTop):
+          os.link(topFile, localTop)
+
         command = 'grompp -f %s -c %s -r %s -p ' \
-                  '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, topFile,
+                  '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, os.path.split(topFile)[-1],
                                    prevTrjStr, outFile)
+
+        ligTopFile = self.gromacsSystem.get().getLigandTopologyFile()
+        if ligTopFile:
+          lTopFile = os.path.join(stageDir, os.path.split(ligTopFile)[-1])
+          os.link(ligTopFile, lTopFile)
+
         #Manage warnings
         nWarns = self.countWarns(stageNum)
         print('{} warnings in stage {}'.format(nWarns, stageNum))
@@ -620,17 +628,14 @@ class GromacsMDSimulation(EMProtocol):
     def callMDRun(self, tprFile, saveTrj=True):
         stageDir = os.path.dirname(tprFile)
         stage = os.path.split(stageDir)[-1]
-        gpuStr = ''
         if getattr(self, params.USE_GPU):
             gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
-            gpuStr = ' -gpu_id {}'.format(gpuList)
-
-        if self.gmxMPI.get():
-            command = 'mdrun -v -deffnm {}{} -ntomp {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
-                                                                                    self.cptTime.get())
+            gpuStr = f' -nb gpu -gpu_id {gpuList}'
         else:
-            command = 'mdrun -v -deffnm {}{} -nt {} -pin on -cpi -cpt {}'.format(stage, gpuStr, self.numberOfThreads.get(),
-                                                                                 self.cptTime.get())
+            gpuStr = ' -nb cpu'
+
+        gmxMPIStr = f'-ntomp {self.numberOfThreads.get()}' if self.gmxMPI.get() else f'-nt {self.numberOfThreads.get()}'
+        command = f'mdrun -v -deffnm {stage}{gpuStr} {gmxMPIStr} -pin on -cpi -cpt {self.cptTime.get()}'
 
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir, mpi=self.gmxMPI.get())
         trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
@@ -648,7 +653,7 @@ class GromacsMDSimulation(EMProtocol):
                 tprFile = None
 
             else:
-                prevDir = self._getExtraPath('stage_{}'.format(int(stageNum) - 1))
+                prevDir = self._getExtraPath(stage_fmt_str.format(int(stageNum) - 1))
                 for file in os.listdir(prevDir):
                     if '.gro' in file:
                         groFile = os.path.join(prevDir, file)
@@ -668,7 +673,7 @@ class GromacsMDSimulation(EMProtocol):
         if stageNum == '1':
             return False
         else:
-            prevDir = self._getExtraPath('stage_{}'.format(int(stageNum) - 1))
+            prevDir = self._getExtraPath(stage_fmt_str.format(int(stageNum) - 1))
             for file in os.listdir(prevDir):
                 if '.cpt' in file:
                   return os.path.join(prevDir, file)
