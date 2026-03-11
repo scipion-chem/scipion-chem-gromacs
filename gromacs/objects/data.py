@@ -127,7 +127,7 @@ class GromacsSystem(MDSystem):
     def getOriStructFile(self):
         return self._oriStructFile.get()
 
-    def setOriStructFile(self, vallue):
+    def setOriStructFile(self, value):
         self._oriStructFile.set(value)
 
     def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):

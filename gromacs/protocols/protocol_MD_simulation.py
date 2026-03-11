@@ -293,7 +293,7 @@ class GromacsMDSimulation(EMProtocol):
 
         outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
-        outSystem.setLigandTopologyFile(self.gromacsSystem.get().getLigandTopologyFile())
+        outSystem.setLigTopologyFile(self.gromacsSystem.get().getLigTopologyFile())
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
@@ -617,7 +617,7 @@ class GromacsMDSimulation(EMProtocol):
                   '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, os.path.split(topFile)[-1],
                                    prevTrjStr, outFile)
 
-        ligTopFile = self.gromacsSystem.get().getLigandTopologyFile()
+        ligTopFile = self.gromacsSystem.get().getLigTopologyFile()
         if ligTopFile:
           lTopFile = os.path.join(stageDir, os.path.split(ligTopFile)[-1])
           os.link(ligTopFile, lTopFile)
