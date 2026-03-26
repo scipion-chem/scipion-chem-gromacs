@@ -163,7 +163,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       outTcl = self.protocol._getExtraPath('vmdSimulation.tcl')
       sysExt = os.path.splitext(system.getSystemFile())[1][1:]
       trjExt = os.path.splitext(trjFile)[1][1:]
-      self.writeTCL(outTcl, system.getSystemFile(), sysExt, trjFile, trjExt, system.getLigandTopologyFile())
+      self.writeTCL(outTcl, system.getSystemFile(), sysExt, trjFile, trjExt)
 
       args = '-e {}'.format(outTcl)
       return [VmdViewPopen(args)]

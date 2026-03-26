@@ -394,7 +394,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                                         ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
         if self.inputFrom.get() == LIGAND:
           molName = self.getLigandName()
-          groSystem.setLigandID(molName)
+          ligName = molName.split('_')[-1]
+          groSystem.setLigandID(ligName)
           groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
 
         self._defineOutputs(outputSystem=groSystem)

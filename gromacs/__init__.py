@@ -43,7 +43,7 @@ _references = ['Abraham2015']
 class Plugin(pwem.Plugin):
 	_homeVar = GROMACS_DIC['home']
 	_pathVars = [GROMACS_DIC['home']]
-	_supportedVersions = [V2020, V2021]
+	_supportedVersions = [V2020, V2021, V2026]
 	_gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
 
 	@classmethod
@@ -90,7 +90,7 @@ class Plugin(pwem.Plugin):
 			.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
-			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3', 
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_CUDA_ARCHITECTURES=native -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3',
 	       				'GROMACS_BUILT', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED', workDir=normalInnerLocation)\
@@ -179,8 +179,8 @@ class Plugin(pwem.Plugin):
 			cmakVersion = result.split('\n')[0].split()[-1]
 
 			# Checking if installed version is below minimum required
-			if CMAKE_MINIMUM_VERSION and (cls.versionTuple(cmakVersion) < cls.versionTuple(CMAKE_MINIMUM_VERSION)):
-				raise Exception(redStr(f"Your CMake version ({cmakVersion}) is below {CMAKE_MINIMUM_VERSION}.\nPlease update your CMake version by following the instructions at {cmakeInstallURL}"))
+			if CMAKE_MINIMUM_VERSION_V26 and (cls.versionTuple(cmakVersion) < cls.versionTuple(CMAKE_MINIMUM_VERSION_V26)):
+				raise Exception(redStr(f"Your CMake version ({cmakVersion}) is below {CMAKE_MINIMUM_VERSION_V26}.\nPlease update your CMake version by following the instructions at {cmakeInstallURL}"))
 		except FileNotFoundError:
 			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
 		except Exception:
