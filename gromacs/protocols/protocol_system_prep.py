@@ -293,11 +293,6 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def PDB2GMXStep(self):
       inputStructure = self.getInputReceptorFile()
-
-      # inputPDB = os.path.abspath(self._getExtraPath(f'{self.getSystemName()}.pdb'))
-      # args = f'{inputStructure} --output {inputPDB}'
-      # pwchemPlugin.runOPENBABEL(self, 'pdbfixer', args=args, cwd=self._getExtraPath())
-
       systemBasename = self.getSystemName()
 
       Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
