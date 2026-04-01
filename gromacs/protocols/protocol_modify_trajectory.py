@@ -43,9 +43,6 @@ from gromacs.objects import GromacsSystem
 class GromacsModifySystem(EMProtocol):
     """
     This protocol modifies a gromacs system trajectory and/or coordinates:
-        - Cleans from waters and ions
-        - Subsamples trajectory and applies filters
-        - Fits trajectory to initial structure
     
     AI Generated:
 

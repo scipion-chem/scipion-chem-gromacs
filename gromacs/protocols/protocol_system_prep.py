@@ -115,8 +115,7 @@ def replaceInFile(file, inStr, repStr):
 
 class GromacsSystemPrep(ProtocolLiganParametrization):
     """
-    This protocol will start a Molecular Dynamics preparation. It will create the system
-    and the topology, structure, and position restriction files
+    This protocol will start a Molecular Dynamics preparation.
 
     AI Generated:
 

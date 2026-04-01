@@ -47,7 +47,6 @@ from multiprocessing import cpu_count
 class GromacsMDSimulation(EMProtocol):
     """
     This protocol will perform energy minimization on the system previosly prepared by the protocol "system prepartion".
-    This step is necessary to energy minize the system in order to avoid unwanted conformations.
 
     AI Generated:
 
