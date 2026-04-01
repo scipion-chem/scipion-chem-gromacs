@@ -118,51 +118,117 @@ class GromacsSystemPrep(ProtocolLiganParametrization):
     This protocol will start a Molecular Dynamics preparation. It will create the system
     and the topology, structure, and position restriction files
 
-    It is necessary to insert a cleaned PDB strucrture from Protocol Import Atomic Structure
-    or other similar protocols.
+    AI Generated:
 
-User IA Manual: SystemPrep Protocol
+        GromacsSystemPrep
 
-The SystemPrep protocol is used to build and parameterize a complete molecular
-system for simulation with GROMACS. It integrates several preparatory steps,
-starting from a molecular structure and ending with a ready-to-simulate system
-that includes the topology, solvent, ions, and box dimensions. This protocol
-serves as a foundation for energy minimization, equilibration, or production
-runs and is typically applied after the initial structural model has been
-assembled or imported.
+        Overview
+        --------
+        This protocol prepares a molecular system for GROMACS-based molecular dynamics
+        simulations. It performs system setup including structure conversion, force field
+        assignment, box definition, solvation, ion addition, and topology generation.
 
-To begin, the user must provide a structure file, usually in PDB format. This
-file should contain all components to be simulated, including protein, ligands,
-cofactors, or other relevant molecules. The protocol assigns force field
-parameters using a specified GROMACS-compatible force field, and it can also
-process ligand parameters provided in `.itp` and `.gro` or `.top` formats if the
-ligand is not covered by standard biomolecular force fields.
+        It is designed as an automated entry point for MD system preparation in Scipion-Chem
+        workflows, supporting both apo systems and protein–ligand complexes.
 
-The user defines the simulation box by selecting the box type and distance from
-the solute to the box edges. The box is then solvated with a water model
-compatible with the chosen force field. The user may also specify the ionic
-strength of the system by adding counterions to neutralize the charge and
-optionally introduce physiological salt concentrations. These parameters help
-establish the thermodynamic environment in which the simulation will be carried
-out.
+        Inputs
+        ------
+        inputFrom:
+            Defines input type:
+            - AtomStruct: single molecular structure
+            - SetOfSmallMolecules: docking-derived ligand set
 
-Additional configuration includes selecting the protonation state of titratable
-residues, applying position restraints to parts of the molecule, or merging
-topology files when multiple components are included. The protocol handles
-automatic generation of the system topology and coordinate files, as well as
-index groups for use in later stages of the simulation workflow.
+        inputStructure (AtomStruct):
+            Input macromolecular structure to be prepared.
 
-Once the preparation is complete, the output consists of a fully parameterized
-system including `.top`, `.gro`, and `.ndx` files, along with any additional
-restraint or ligand definitions. These outputs can be directly passed to GROMACS
-simulation protocols within Scipion-Chem for energy minimization, dynamics, or
-further system modification.
+        inputSetOfMols (SetOfSmallMolecules):
+            Set of docked ligands and associated protein.
 
-In summary, the SystemPrep protocol provides an automated and customizable
-workflow for preparing molecular systems for GROMACS simulations. It ensures
-that all components are correctly parameterized and spatially organized,
-establishing a robust starting point for high-quality molecular dynamics
-experiments.
+        inputLigand:
+            Name of the ligand selected for system preparation (if applicable).
+
+        Workflow
+        --------
+        1. Input selection
+           - Determines whether system is ligand-free or protein–ligand complex
+           - Retrieves receptor structure and optional ligand
+
+        2. Ligand parametrization (optional)
+           - Uses ACPYPE/OpenBabel via pwchem
+           - Adds hydrogens and generates GROMACS-compatible ligand topology
+           - Produces .itp and coordinate files
+
+        3. Protein conversion (pdb2gmx)
+           - Converts input structure to GROMACS format (.gro)
+           - Assigns selected force field
+           - Generates topology (topol.top)
+           - Handles missing hydrogens if needed
+
+        4. Ligand integration (optional)
+           - Inserts ligand topology include into topol.top
+           - Adds ligand coordinates to system structure
+           - Ensures consistency between receptor and ligand system
+
+        5. Box definition (editconf)
+           - Defines simulation box geometry:
+             - Cubic or Orthorhombic
+           - Supports:
+             - Absolute box size
+             - Buffer-based padding around solute
+
+        6. Solvation (solvate)
+           - Adds water molecules to simulation box
+           - Uses selected water model
+           - Updates topology accordingly
+
+        7. Ion addition (genion, optional)
+           - Neutralizes system or adds user-defined ion concentration
+           - Supports:
+             - Neutralization mode
+             - Fixed number of ions
+             - Salt concentration addition
+           - Builds ion insertion parameter file (ions.mdp + ions.tpr)
+
+        8. Output generation
+           - Produces final solvated (and optionally ionized) system
+           - Generates:
+             - GRO structure file
+             - TOP topology file
+             - Position restraint files
+           - Builds GromacsSystem object for downstream protocols
+
+        Output
+        ------
+        outputSystem:
+            GromacsSystem object containing:
+            - Final prepared structure (.gro)
+            - Topology file (.top)
+            - Position restraints (if generated)
+            - Force field metadata
+            - Water model metadata
+            - Ligand topology (if present)
+
+        Summary
+        -------
+        This protocol automates full GROMACS system preparation:
+
+        - converts PDB/structure inputs into GROMACS format
+        - applies selected force fields (protein + water)
+        - optionally integrates ligands from docking results
+        - builds simulation box with configurable geometry
+        - solvates the system
+        - optionally neutralizes or salts the system with ions
+
+        It produces a fully simulation-ready system for molecular dynamics workflows.
+
+        Notes
+        -----
+        - Requires compatible GROMACS installation via plugin interface
+        - Ligand preparation uses ACPYPE/OpenBabel pipeline
+        - Force field selection affects ion compatibility
+        - GROMOS force fields are not recommended with TIP water models
+        - Ion selection must match force field compatibility rules
+        - Large systems may require significant preprocessing time
 
     """
     _label = 'system preparation'

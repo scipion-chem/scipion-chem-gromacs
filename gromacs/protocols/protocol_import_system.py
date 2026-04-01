@@ -44,39 +44,87 @@ class GromacsImportSystem(EMProtocol):
     """
     This protocol import a gromacs system trajectory and/or coordinates:
 
-User IA Manual: ImportSystem Protocol
+    AI Generated:
 
-The ImportSystem protocol is used to bring into Scipion-Chem a molecular system
-that has been previously prepared for simulation with GROMACS. This system
-typically includes a set of coordinate and topology files, which together define
-the atomic structure, molecular interactions, and simulation box configuration.
-By importing the system into the workflow, users can integrate it with downstream
-protocols for energy minimization, molecular dynamics, or analysis.
+        GromacsImportSystem
 
-To run the protocol, the user must provide at least the structure file in GRO
-format, which contains the atomic coordinates and box vectors. In addition, a
-topology file is required to define the molecular components, parameters, and
-force field assignments. This file is usually in TOP format and may reference
-other files such as ITP or include directives. The protocol ensures that all
-referenced files are accessible and properly parsed for integration.
+        Overview
+        --------
+        This protocol imports a molecular system prepared for GROMACS simulations
+        into Scipion-Chem.
 
-The user may also specify whether the imported system contains solvent, ions, or
-restraints, which can influence how the system is treated in later steps. For
-example, solvent molecules may be needed for pressure coupling, while positional
-restraints may be required to maintain the stability of certain components during
-equilibration. The protocol records all such metadata to ensure reproducibility
-and correct behavior in downstream simulations.
+        It registers coordinate, topology, and optional trajectory files as a
+        structured system object that can be used in downstream molecular dynamics
+        workflows.
 
-Once executed, the protocol registers the molecular system as a Scipion object,
-preserving the directory structure and file dependencies. This object becomes
-the reference for subsequent GROMACS protocols, including energy minimization,
-equilibration, and production runs. The imported system is not modified, and
-users retain full control over how it is used in the workflow.
+        The protocol acts as the entry point for GROMACS-based simulations within
+        Scipion.
 
-In summary, the ImportSystem protocol serves as the entry point for GROMACS-ready
-systems in Scipion-Chem. It enables seamless integration of externally prepared
-systems into structured workflows for molecular simulation, ensuring consistency,
-traceability, and compatibility with other components of the platform.
+        Inputs
+        ------
+        inputCoords:
+            Coordinate file defining atomic positions and simulation box.
+            Supported formats:
+            - GRO
+            - PDB
+
+        inputTopology:
+            Topology file describing molecular structure, force field parameters,
+            and system composition.
+            Typically in TOP format (may include ITP dependencies).
+
+        inputTrajectory:
+            Optional trajectory file containing simulation frames.
+            Supported formats:
+            - XTC
+            - TRR
+
+        Workflow
+        --------
+        1. Input acquisition
+           - Reads coordinate and topology files
+           - Optionally reads trajectory file
+
+        2. System construction
+           - Initializes a GromacsSystem object
+           - Assigns:
+             - coordinate file
+             - topology file
+             - original structure reference
+
+        3. Trajectory integration (optional)
+           - If trajectory is provided:
+             - Registers trajectory file
+             - Extracts trajectory metadata (frames, timing, etc.)
+
+        4. Output registration
+           - Stores system as a Scipion-compatible object
+           - Preserves file references and structure
+
+        Output
+        ------
+        outputSystem:
+            GromacsSystem object containing:
+            - Coordinates (structure)
+            - Topology (force field and connectivity)
+            - Optional trajectory data
+            - Simulation metadata
+
+        Summary
+        -------
+        This protocol imports a pre-built GROMACS system into Scipion,
+        enabling:
+        - integration with molecular dynamics workflows
+        - reproducible simulation setup
+        - reuse of externally prepared systems
+        - compatibility with energy minimization and MD protocols
+
+        Notes
+        -----
+        - Does not modify input files (read-only import)
+        - Requires consistent topology and coordinate files
+        - External topology dependencies (e.g., ITP files) must be accessible
+        - Trajectory input is optional but recommended for analysis workflows
 
     """
     _label = 'import system'
