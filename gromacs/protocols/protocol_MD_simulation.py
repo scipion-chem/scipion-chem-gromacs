@@ -136,7 +136,7 @@ class GromacsMDSimulation(EMProtocol):
                                   'Relaxation time constant for barostat (ps)')
         line.addParam('pressure', params.FloatParam, default=1.0,
                       label='   Pressure (bar):   ')
-        line.addParam('barostat', params.EnumParam, default=1,
+        line.addParam('barostat', params.EnumParam, default=3,
                       label='  Barostat type:   ', choices=self._barostats)
         line.addParam('presRelaxCons', params.FloatParam, default=2.0,
                       label='   Pressure constant (ps)[tau-p]:   ', expertLevel=params.LEVEL_ADVANCED)
