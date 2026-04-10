@@ -467,7 +467,6 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def getInputReceptorFile(self):
       if self.inputFrom.get() == LIGAND:
         inputStructure = os.path.abspath(self.inputSetOfMols.get().getProteinFile())
-        print(inputStructure)
       else:
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
 
