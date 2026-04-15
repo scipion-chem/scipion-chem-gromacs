@@ -38,6 +38,7 @@ from .objects import *
 from .constants import *
 
 _logo = "gromacs_logo.png"
+__version__ = '1.0.0'
 _references = ['Abraham2015']
 
 class Plugin(pwem.Plugin):
