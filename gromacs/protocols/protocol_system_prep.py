@@ -298,7 +298,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
       Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
       params = f' pdb2gmx -f {inputStructure} -o {systemBasename}_processed.gro ' \
-               f'-water {Waterff} -ff {Mainff} -merge all'
+               f'-water {Waterff} -ff {Mainff} -merge all '
       # todo: managing several chains (restrictions, topologies...) instead of merging them
       try:
           gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
@@ -347,7 +347,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                         'topol.top -o ions.tpr' % (ions_mdp, systemBasename)
         if 'gromos' in self.getEnumText('mainForceField'):
             params_grompp += ' -maxwarn 1'
-        gromacsPlugin.runGromacsPrintf(printfValues=['SOL'],
+        gromacsPlugin.runGromacsPrintf(self, printfValues=['SOL'],
                                        args=params_grompp, cwd=self._getPath())
 
         cation, cc = self.parseIon(self.getEnumText('cationType'))
@@ -368,7 +368,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         if self.addSalt:
           genStr += ' -conc {}'.format(self.saltConc.get())
 
-        gromacsPlugin.runGromacsPrintf(printfValues=['SOL'],
+        gromacsPlugin.runGromacsPrintf(self, printfValues=['SOL'],
                                        args=genStr, cwd=self._getPath())
 
     def createOutputStep(self):
@@ -434,6 +434,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         else:
             summary.append("The protocol has not finished.")
         return summary
+
     def _methods(self):
         methods = []
 
@@ -493,6 +494,9 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def addHydrogens(self, inpFile):
       sysbaseName = os.path.basename(inpFile).split('.')[0]
+      molName = self.getLigandName()
+      ligName = molName.split('_')[-1]
+
       tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
       inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
 

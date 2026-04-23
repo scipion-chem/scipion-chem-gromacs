@@ -33,6 +33,7 @@ CMAKE_MINIMUM_VERSION_V26 = '3.28'
 
 # Package dictionaries
 GROMACS_DIC = {'name': 'gromacs', 'version': V2026, 'home': 'GROMACS_HOME'}
+GMXMMPBSA_DIC = {'name': 'gmxMMPBSA', 'version': '1.6.4', 'home': 'GMXMMPBSA_HOME'}
 
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'

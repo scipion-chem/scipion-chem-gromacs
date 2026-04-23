@@ -31,9 +31,11 @@ from os.path import join
 # Scipion em imports
 import pwem
 from scipion.install.funcs import InstallHelper
-from pyworkflow.utils import redStr, yellowStr
+from pyworkflow.utils import redStr, yellowStr, Environ
 
 # Plugin imports
+from pwchem import Plugin as pwchemPlugin
+
 from .objects import *
 from .constants import *
 
@@ -41,7 +43,7 @@ _logo = "gromacs_logo.png"
 __version__ = '1.0.0'
 _references = ['Abraham2015']
 
-class Plugin(pwem.Plugin):
+class Plugin(pwchemPlugin):
 	_homeVar = GROMACS_DIC['home']
 	_pathVars = [GROMACS_DIC['home']]
 	_supportedVersions = [V2020, V2021, V2026]
@@ -51,7 +53,8 @@ class Plugin(pwem.Plugin):
 	def _defineVariables(cls):
 		""" Return and write a variable in the config file. """
 		cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
-	
+		cls._defineVar("GMXMMPBSA_ENV_ACTIVATION", 'conda activate %s' % pwchemPlugin.getEnvName(GMXMMPBSA_DIC))
+
 	@classmethod
 	def defineBinaries(cls, env):
 		""" This function defines all the packages that will be installed. """
@@ -60,6 +63,7 @@ class Plugin(pwem.Plugin):
 
 		# Installing packages
 		cls.addGromacs(env, modifiedProcs)
+		cls.addGmxMMPBSA(env)
 	
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
@@ -100,6 +104,28 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt, workDir=mpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)\
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
+
+	@classmethod
+	def addGmxMMPBSA(cls, env, default=True):
+		""" This function installs gmx_MMPBSA in a dedicated conda environment. """
+
+		installer = InstallHelper(GMXMMPBSA_DIC['name'],
+		                          packageHome=cls.getVar(GMXMMPBSA_DIC['home']),
+		                          packageVersion=GMXMMPBSA_DIC['version'])
+
+		envName = cls.getEnvName(GMXMMPBSA_DIC)
+		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
+
+		pip_cmd = (f"bash -c '{activation} && "
+		           f"pip install \"pyqt6==6.7.1\" gmx_MMPBSA=={GMXMMPBSA_DIC['version']}'")
+		installer \
+			.addCommand(f'conda create -y -c conda-forge --name {envName} python=3.11.8 '
+		                'mpi4py=4.0.1 "ambertools<=23.3" numpy=1.26.4 matplotlib=3.7.3 '
+		                'scipy=1.14.1 pandas=1.5.3 seaborn=0.11.2 "gromacs<=2023.4" '
+		                'pocl git pip', 'GMXMMPBSA_ENV_CREATED') \
+			.addCommand(pip_cmd, 'GMXMMPBSA_GMX_INSTALLED') \
+			.addPackage(env, dependencies=['conda', 'pip', 'git'], default=default)
 		
 	@classmethod
 	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False, **kwargs):
@@ -107,21 +133,43 @@ class Plugin(pwem.Plugin):
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
 
 	@classmethod
-	def runGromacsPrintf(cls, printfValues, args, cwd, mpi=False):
-		""" Run Gromacs command from a given protocol. """
+	def runGromacsPrintf(cls, protocol, printfValues, args, cwd, mpi=False):
+		""" Run Gromacs command with interactive printf input via Scipion's runJob. """
 		printfValues = list(map(str, printfValues))
-		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
-		print('Running: ', program, args)
-		subprocess.check_call(program + args, cwd=cwd, shell=True)
+		gmxBin = cls.getGromacsBin(mpi=mpi)
+		fullProgram = 'printf "{}\\n" | {}'.format('\\n'.join(printfValues), gmxBin)
+
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1)
+
+	@classmethod
+	def runGMXMMPBSA(cls, protocol, program='gmx_MMPBSA', args=None, cwd=None, numberOfMpi=1):
+		""" Run gmx_MMPBSA command from a given protocol. """
+		# if program is None:
+		# 	program = cls.getGromacsBin()
+
+		activation = cls.getGMXMMPBSAEnvActivation()
+		mpiPrefix = 'mpirun -np {} '.format(numberOfMpi) if numberOfMpi > 1 else ''
+		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
+
+		print('Running: ', fullProgram, args)
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
+
+	@classmethod
+	def getGMXMMPBSAEnvActivation(cls):
+		print(cls.getEnvActivationCommand(GMXMMPBSA_DIC))
+		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
 
 	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):
 		mpiExt = '_mpi' if mpi else ''
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
 
-	@classmethod  # Test that
+	@classmethod
 	def getEnviron(cls):
-		pass
+		return Environ(os.environ)
 
 	@classmethod
 	def _getGromacsDownloadUrl(cls):
@@ -186,3 +234,20 @@ class Plugin(pwem.Plugin):
 			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
 		except Exception:
 			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
+
+	@classmethod
+	def parseIndexFile(self, indexFile):
+		groups, index = {}, 0
+		with open(indexFile) as f:
+			for line in f:
+				if line.startswith('['):
+					groups[index] = line.replace('[', '').replace(']', '').strip()
+					index += 1
+		return groups
+
+	def translateNamesToIndexGroup(self, names):
+		"""Translate group name(s) to their numeric index in the index file."""
+		indexFile = self.ensureIndexFile()
+		groups = self.parseIndexFile(indexFile)
+		invGroups = {v: k for k, v in groups.items()}
+		return [invGroups.get(name, name) for name in names]

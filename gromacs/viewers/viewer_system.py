@@ -31,12 +31,14 @@ from pwem.objects import SetOfAtomStructs, AtomStruct
 from pwem.viewers import ChimeraViewer, EmPlotter
 
 from pwchem.viewers import VmdViewPopen, MDSystemViewer, MDSystemPViewer
+import pyworkflow.viewer as pwviewer
+
 from pwchem.utils import natural_sort
 from pwchem.constants import TCL_MD_STR
 
 from gromacs import Plugin as gromacsPlugin
-from ..objects import GromacsSystem
-from ..protocols import GromacsMDSimulation
+from ..objects import GromacsSystem, FreeEnergyCalculation
+from ..protocols import GromacsMDSimulation, GromacsMMPBSA
 
 program = gromacsPlugin.getGromacsBin()
 
@@ -421,10 +423,53 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
             return os.path.abspath(indexFile)
 
     def getIndexGroupsDic(self):
-        groups = self.protocol.parseIndexFile(self.protocol.getCustomIndexFile())
+        groups = gromacsPlugin.parseIndexFile(self.getIndexFile())
         return groups
 
     def getIndexGroups(self):
         groups = self.getIndexGroupsDic()
         return list(groups.values())
+
+
+class FreeEnergyViewer(pwviewer.ProtocolViewer):
+    """ Visualize the output of a Free Energy calculation """
+    _label = 'Viewer Free Energy Calculation'
+    _targets = [FreeEnergyCalculation]
+    _analysis = ['RMSD', 'RMSF', 'Gyration', 'SASA', 'HBond', 'Clustering']
+
+    def __init__(self, **args):
+        super().__init__(**args)
+
+    def getFreeEnergyObj(self, objType=FreeEnergyCalculation):
+        if type(self.protocol) == objType:
+            return self.protocol
+    # ------------------------------------------------------------------
+    # Form definition
+    # ------------------------------------------------------------------
+
+    def _defineParams(self, form):
+        form.addSection(label='Visualization of gmx_MMPBSA')
+        form.addParam('displayGmxMmpbsa', params.LabelParam,
+                       label='Open interactive analysis: ',
+                       help='Display the results of the free energy calculation unsing '
+                      'gmx_MMPBSA_ana')
+
+    def _getVisualizeDict(self):
+        return {
+            'displayGmxMmpbsa': self._showGmxMmpbsaAna
+        }
+
+    def _showGmxMmpbsaAna(self, paramName=None):
+        import subprocess
+        activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
+        args = '-r '
+        cmd = f"{activation} && gmx_MMPBSA_ana {args}"
+
+        subprocess.Popen(
+            cmd,
+            shell=True,
+            executable='/bin/bash',
+            env=gromacsPlugin.getEnviron(),
+            cwd=os.path.dirname(self.getFreeEnergyObj().getResultFile())
+        )
 

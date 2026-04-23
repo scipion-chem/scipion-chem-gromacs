@@ -65,7 +65,7 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
+      # self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -290,6 +290,8 @@ class GromacsMDSimulation(EMProtocol):
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
+        localPdbFile = self._getPath('outputSystem.pdb')
+        self._convertGroToPdb(localGroFile, localPdbFile) # save it as pdb too
 
         outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
@@ -431,15 +433,24 @@ class GromacsMDSimulation(EMProtocol):
         ids.append(p.get().getObjId())
       return ids
 
-    def getCustomRestraintID(self):
-        return self.restraintID.get()
+    def _convertGroToPdb(self, groFile, pdbFile):
+        """ Helper function to convert GRO to PDB using GROMACS editconf """
+        args = f'-f {groFile} -o {pdbFile}'
+        gromacsPlugin.runGromacs(self, 'gmx editconf', args)
+
+    def ensureIndexFile(self):
+        """Return the protocol index file, creating it first if it does not exist.
+        """
+        indexFile = self.getCustomIndexFile()
+        if not os.path.exists(indexFile):
+            system = self.gromacsSystem.get()
+            sysIndex = system.getIndexFile()
+            inIndex = sysIndex if sysIndex and os.path.exists(sysIndex) else None
+            self.createIndexFile(system, inIndex=inIndex, outIndex=indexFile)
+        return indexFile
 
     def getCustomIndexFile(self):
-        indexFile = self.gromacsSystem.get().getIndexFile()
-        if not indexFile or not os.path.exists(indexFile):
-            projDir = self.getProject().getPath()
-            indexFile = os.path.join(projDir, f'{self.getCustomRestraintID()}_custom_indexes.ndx')
-        return indexFile
+        return self._getExtraPath('custom_indexes.ndx')
 
     def parseIndexFile(self, indexFile):
         groups, index = {}, 0
@@ -451,19 +462,11 @@ class GromacsMDSimulation(EMProtocol):
         return groups
 
     def translateNamesToIndexGroup(self, names):
-        idxs = []
-        indexFile = self.getCustomIndexFile()
-        if os.path.exists(indexFile):
-            groups = self.parseIndexFile(indexFile)
-        else:
-            groups = self.createIndexFile(self.gromacsSystem.get(), inIndex=None, outIndex=indexFile)
+        """Translate group name(s) to their numeric index in the index file."""
+        indexFile = self.ensureIndexFile()
+        groups = self.parseIndexFile(indexFile)
         invGroups = {v: k for k, v in groups.items()}
-        for name in names:
-            if name in invGroups:
-                idxs.append(invGroups[name])
-            else:
-                idxs.append(name)
-        return idxs
+        return [invGroups.get(name, name) for name in names]
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -508,14 +511,14 @@ class GromacsMDSimulation(EMProtocol):
       return msjDic
 
     def createIndexFile(self, system, inIndex=None, outIndex=None, inputCommands=['q']):
-        outIndex = self._getTmpPath('indexes.ndx') if not outIndex else outIndex
-        outDir = os.path.dirname(outIndex)
+        outIndex = self._getExtraPath('indexes.ndx') if not outIndex else outIndex
+        outDir = (os.path.dirname(outIndex))
         inIndex = f' -n {inIndex}' if inIndex else ''
-        command = f'make_ndx -f {system.getSystemFile()}{inIndex} -o {outIndex}'
+        command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
 
         if inputCommands[-1] != 'q':
             inputCommands.append('q')
-        gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
+        gromacsPlugin.runGromacsPrintf(self, printfValues=inputCommands, args=command, cwd=outDir)
         groups = self.parseIndexFile(outIndex)
         return groups
 
@@ -527,13 +530,11 @@ class GromacsMDSimulation(EMProtocol):
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
         if os.path.exists(mdpFile): return mdpFile
 
-        if not msjDic['restraints'].strip() in ['', 'None']:
-            rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
-            groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
+        indexFile = self.ensureIndexFile()
 
-            indexFile = self.getCustomIndexFile()
-            if not os.path.exists(indexFile):
-                indexFile = None
+        if msjDic['restraints'].strip() not in ('', 'None'):
+            rSuffix = f"{msjDic['restraints']}_stg{mdpStage}"
+            groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
 
             newSuffixes = self.gromacsSystem.get().\
               defineNewRestriction(index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
@@ -716,12 +717,12 @@ class GromacsMDSimulation(EMProtocol):
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
             #Concatenates trajectory
             command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
-            gromacsPlugin.runGromacsPrintf(printfValues=['c'] * len(trjFiles),
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['c'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             #Fixes and center trajectory
             command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
               format(os.path.abspath(tprFile), tmpTrj, outTrj)
-            gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'System'] * len(trjFiles),
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'System'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             return os.path.abspath(self._getPath(outTrj))
         return None

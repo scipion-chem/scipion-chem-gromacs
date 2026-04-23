@@ -29,6 +29,7 @@
 import os, shutil
 from subprocess import check_call
 import pyworkflow.object as pwobj
+import pwem.objects.data as data
 
 from pwchem.objects import MDSystem
 from gromacs.constants import *
@@ -48,6 +49,8 @@ class GromacsSystem(MDSystem):
         self._indexFile = pwobj.String(kwargs.get('indexFile', None))
         self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
 
+        self._MMPGSA = pwobj.Float(kwargs.get('MMPGSA', None))
+        self._MMPGSAFile = pwobj.String(kwargs.get('MMPGSAFile', None))
         self._chainNames = pwobj.String(kwargs.get('chainNames', None))
 
         self._firstFrame = pwobj.Integer(kwargs.get('firstFrame', None))
@@ -124,6 +127,20 @@ class GromacsSystem(MDSystem):
         value = os.path.relpath(value)
         self._indexFile.set(value)
 
+    def getMMPGSA(self):
+        return self._MMPGSA.get()
+
+    def setMMPGSA(self, value):
+        value = float(value)
+        self._MMPGSA.set(value)
+
+    def getMMPGSAFile(self):
+        return self._MMPGSAFile.get()
+
+    def setMMPGSAFile(self, value):
+        value = os.path.relpath(value)
+        self._MMPGSAFile.set(value)
+
     def getOriStructFile(self):
         return self._oriStructFile.get()
 
@@ -167,3 +184,63 @@ class GromacsSystem(MDSystem):
         return ionsDic
 
 
+class FreeEnergyCalculation(data.EMFile):
+    """
+    Object representing the results of a Binding Free Energy calculation
+    (such as MM/PBSA or MM/GBSA) for a protein-ligand complex.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        # Core values
+        self._deltaG = pwobj.Float(kwargs.get('deltaG', None))
+        self._deviation = pwobj.Float(kwargs.get('deviation', None))
+        self._calcType = pwobj.String(kwargs.get('calcType', None))
+
+        # Output files
+        self._resultFile = pwobj.String(kwargs.get('resultFile', None))
+        self._csvFile = pwobj.String(kwargs.get('csvFile', None))
+
+        # Metadata
+        self._entropyType = pwobj.String(kwargs.get('entropyType', 'None'))
+
+    def __str__(self):
+        calcType = self.getCalcType()
+        dg = self.getDeltaG()
+        dgStr = f"{dg:.2f} kcal/mol" if dg is not None else "N/A"
+        return f"FreeEnergyCalculation ({calcType}  (ΔG = {dgStr})"
+
+    def getDeltaG(self):
+        return self._deltaG.get()
+
+    def setDeltaG(self, value):
+        self._deltaG.set(float(value))
+
+    def getCalcType(self):
+        return self._calcType.get()
+
+    def setCalcType(self, value):
+        self._calcType.set(value)
+
+    def getResultFile(self):
+        return self._resultFile.get()
+
+    def setResultFile(self, value):
+        if value is not None:
+            value = os.path.relpath(value)
+        self._resultFile.set(value)
+
+    def getCsvFile(self):
+        return self._csvFile.get()
+
+    def setCsvFile(self, value):
+        if value is not None:
+            value = os.path.relpath(value)
+        self._csvFile.set(value)
+
+    def getEntropyType(self):
+        return self._entropyType.get()
+
+    def setEntropyType(self, value):
+        self._entropyType.set(value)
