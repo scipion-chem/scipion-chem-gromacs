@@ -49,8 +49,8 @@ class GromacsSystem(MDSystem):
         self._indexFile = pwobj.String(kwargs.get('indexFile', None))
         self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
 
-        self._MMPGSA = pwobj.Float(kwargs.get('MMPGSA', None))
-        self._MMPGSAFile = pwobj.String(kwargs.get('MMPGSAFile', None))
+        self._freeEnergy = pwobj.Float(kwargs.get('MMPGSA', None))
+        self._freeEnergyFile = pwobj.String(kwargs.get('MMPGSAFile', None))
         self._chainNames = pwobj.String(kwargs.get('chainNames', None))
 
         self._firstFrame = pwobj.Integer(kwargs.get('firstFrame', None))
@@ -127,19 +127,19 @@ class GromacsSystem(MDSystem):
         value = os.path.relpath(value)
         self._indexFile.set(value)
 
-    def getMMPGSA(self):
-        return self._MMPGSA.get()
+    def getFreeEnergy(self):
+        return self._freeEnergy.get()
 
-    def setMMPGSA(self, value):
+    def setFreeEnergy(self, value):
         value = float(value)
-        self._MMPGSA.set(value)
+        self._freeEnergy.set(value)
 
-    def getMMPGSAFile(self):
-        return self._MMPGSAFile.get()
+    def getFreeEnergyFile(self):
+        return self._freeEnergyFile.get()
 
-    def setMMPGSAFile(self, value):
+    def setFreeEnergyFile(self, value):
         value = os.path.relpath(value)
-        self._MMPGSAFile.set(value)
+        self._freeEnergyFile.set(value)
 
     def getOriStructFile(self):
         return self._oriStructFile.get()
@@ -147,7 +147,7 @@ class GromacsSystem(MDSystem):
     def setOriStructFile(self, value):
         self._oriStructFile.set(value)
 
-    def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
+    def defineNewRestriction(self, protocol, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
         from gromacs import Plugin as gromacsPlugin
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
@@ -156,7 +156,7 @@ class GromacsSystem(MDSystem):
         paramsGenrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
                           (os.path.abspath(self.getSystemFile()), nArg,
                            'posre_' + restraintSuffix.lower(), energy, energy, energy)
-        gromacsPlugin.runGromacsPrintf(printfValues=index, args=paramsGenrestr, cwd=outDir)
+        gromacsPlugin.runGromacsPrintf(protocol, printfValues=index, args=paramsGenrestr, cwd=outDir)
 
         topFile = self.getTopologyFile()
         if outDir:

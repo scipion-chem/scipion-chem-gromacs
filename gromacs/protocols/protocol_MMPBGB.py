@@ -38,17 +38,32 @@ import os, subprocess, re, shutil
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
 from pyworkflow.object import Float, String
+import pyworkflow.object as pwobj
 from pwem.protocols import EMProtocol
 
-from pwchem.utils import getBaseName
+from pwchem.utils import getBaseName, convertToSdf, runOpenBabel
+from pwchem import Plugin as pwchemPlugin
+from pwchem.constants import RDKIT_DIC
+
 from gromacs import Plugin as gromacsPlugin
 from gromacs.objects import GromacsSystem, FreeEnergyCalculation
 from gromacs.protocols.protocol_MD_simulation import GromacsMDSimulation
 
 from multiprocessing import cpu_count
 
+from gromacs.protocols.protocol_system_prep import (
+    GromacsSystemPrep,
+    replaceInFile,
+    GROMACS_LIST, GROMACS_MAINFF_NAME,
+    GROMACS_WATERS_LIST, GROMACS_WATERFF_NAME,
+    GROMACS_AMBER03, GROMACS_TIP3P,
+)
+
 
 # ─── Constants ────────────────────────────────────────────────────────────────
+INPUT_GROMACS = 0
+INPUT_MOLS    = 1
+
 CALC_GB   = 0
 CALC_PB   = 1
 ENT_NONE  = 0
@@ -57,14 +72,16 @@ ENT_CA    = 2
 ENT_NMODE = 3
 IGB_VALS  = [1, 2, 5, 7, 8]          # AMBER igb numbers shown in the enum
 
+scriptLigPrepName = 'rdkit_addHydrogens.py'
 
-class GromacsMMPBSA(EMProtocol):
+
+class GromacsMMPBSA(GromacsSystemPrep):
     """
     Protein–ligand MM/PBSA / MM/GBSA binding free energy via gmx_MMPBSA.
 
-    The protocol prepares a consistent set of inputs (trajectory, index,
-    topology, input file) and calls gmx_MMPBSA, following the recommended
-    single-trajectory protocol (ST).
+    Mode A (Gromacs System): requires a finished MD trajectory.
+    Mode B (Docked Molecules): parametrizes the ligand, builds and solvates
+    the complex, minimizes it, and runs a single-frame MMPBSA calculation.
 
     Reference: Valdés-Tresanco et al., J. Chem. Theory Comput. 2021.
     https://valdes-tresanco-ms.github.io/gmx_MMPBSA/dev/
@@ -76,9 +93,27 @@ class GromacsMMPBSA(EMProtocol):
         form.addParallelSection(mpi=1)
 
         form.addSection(label=Message.LABEL_INPUT)
+        form.addParam('inputFrom', params.EnumParam,
+                      choices=['Gromacs System (post-MD)', 'Docked Molecules'],
+                      default=INPUT_GROMACS,
+                      label='Input type: ',
+                      display=params.EnumParam.DISPLAY_HLIST,
+                      help='Gromacs System: provide a finished MD run.\n'
+                           'Docked Molecules: provide a docked pose set; '
+                           'the protocol will prepare the system, minimize '
+                           'it and run a single-frame MMPBSA calculation.')
+        form.addParam('inputSetOfMols', params.PointerParam,
+                        pointerClass='SetOfSmallMolecules',
+                        label='Docked molecules: ',
+                        condition=f'inputFrom=={INPUT_MOLS}',
+                        allowsNull=True,
+                        help='Set of docked molecules. The associated protein '
+                             'file will be used as the receptor.')
+
+        # ── Mode A: Gromacs System ───────────────────────────────────────────
         form.addParam('gromacsSystem', params.PointerParam,
                       label='Input Gromacs System: ',
-                      pointerClass='GromacsSystem',
+                      pointerClass='GromacsSystem', condition=f'inputFrom=={INPUT_GROMACS}',
                       help='Gromacs system after production MD. '
                            'Must have a trajectory (.xtc), a TPR structure '
                            'file, a topology (.top) and a ligand (mol2).')
@@ -103,6 +138,50 @@ class GromacsMMPBSA(EMProtocol):
                      label='Frame interval: ',
                      default=10,
                      help='Take one frame every N frames (e.g. 10 = every 10th).')
+
+        # ── Mode B: Docked Molecules ─────────────────────────────────────────
+        grpMol = form.addGroup('Docked Molecules Input',
+                               condition=f'inputFrom=={INPUT_MOLS}')
+        # grpMol.addParam('inputLigand', params.StringParam,
+        #                 label='Ligand to prepare: ',
+        #                 condition=f'inputFrom=={INPUT_MOLS}',
+        #                 help='Exact string representation of the molecule '
+        #                      '(as displayed in the set viewer).')
+
+        # grpLig = form.addGroup('Ligand parametrization', condition=f'inputFrom=={INPUT_MOLS}')
+        self._defineACPYPEparams(form, condition=f'inputFrom=={INPUT_MOLS}')
+
+        grpSys = form.addGroup('System Preparation',
+                               condition=f'inputFrom=={INPUT_MOLS}')
+        grpSys.addParam('mainForceField', params.EnumParam,
+                        choices=GROMACS_LIST, default=GROMACS_AMBER03,
+                        label='Main Force Field: ',
+                        condition=f'inputFrom=={INPUT_MOLS}')
+        grpSys.addParam('waterForceField', params.EnumParam,
+                        choices=GROMACS_WATERS_LIST, default=GROMACS_TIP3P,
+                        label='Water Force Field: ',
+                        condition=f'inputFrom=={INPUT_MOLS}')
+        grpSys.addParam('padDist', params.FloatParam, default=1.0,
+                        label='Box buffer distance (nm): ',
+                        condition=f'inputFrom=={INPUT_MOLS}',
+                        help='Minimum distance from the solute to the box edge.')
+
+        grpIons = form.addGroup('Ions',
+                                condition=f'inputFrom=={INPUT_MOLS}')
+        grpIons.addParam('placeIons', params.EnumParam, default=1,
+                         choices=['None', 'Neutralize', 'Add number'],
+                         label='Add ions: ',
+                         condition=f'inputFrom=={INPUT_MOLS}')
+        grpIons.addParam('saltConc', params.FloatParam, default=0.15,
+                         label='Salt concentration (M): ',
+                         condition=f'inputFrom=={INPUT_MOLS} and placeIons==1',
+                         help='Additional NaCl after neutralization.')
+        grpIons.addParam('cationNum', params.IntParam, default=0,
+                         label='Number of Na+ cations: ',
+                         condition=f'inputFrom=={INPUT_MOLS} and placeIons==2')
+        grpIons.addParam('anionNum', params.IntParam, default=0,
+                         label='Number of Cl- anions: ',
+                         condition=f'inputFrom=={INPUT_MOLS} and placeIons==2')
 
         # ── Free Energy calculation ──
         grp = form.addGroup('Calculation')
@@ -228,104 +307,189 @@ class GromacsMMPBSA(EMProtocol):
 
     # ── Step insertion ──────────────────────────────────────────────────────
     def _insertAllSteps(self):
-        self._insertFunctionStep(self.makePreprocessingIndexStep)
-        self._insertFunctionStep(self.prepareTrajectoryStep)
-        self._insertFunctionStep(self.writeMmpbsaInputStep)
-        self._insertFunctionStep(self.runMmpbsaStep)
+        if self.inputFrom.get() == INPUT_MOLS:
+            cStep = self._insertFunctionStep(self.convertInputStep)
+
+            molNameSet = set()
+            for mol in self.inputSetOfMols.get():
+                molName = mol.getMolName()
+                if molName not in molNameSet:
+                    molFile = mol.getPoseFile()
+                    self._insertFunctionStep(self.parametrizeLigandStep, molFile, molName)
+                    molNameSet.add(molName)
+                poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
+                self._insertFunctionStep(self.prepareSystemStep, poseId)
+
+                self._insertFunctionStep(self.makePreprocessingIndexStep, poseId)
+                self._insertFunctionStep(self.prepareTrajectoryStep, poseId)
+                self._insertFunctionStep(self.writeMmpbsaInputStep, poseId)
+                self._insertFunctionStep(self.runMmpbsaStep, poseId)
+        else:
+            self._insertFunctionStep(self.makePreprocessingIndexStep)
+            self._insertFunctionStep(self.prepareTrajectoryStep)
+            self._insertFunctionStep(self.writeMmpbsaInputStep)
+            self._insertFunctionStep(self.runMmpbsaStep)
         self._insertFunctionStep(self.createOutputStep)
 
     # ── Step implementations ────────────────────────────────────────────────
-    def makePreprocessingIndexStep(self):
+    def parametrizeLigandStep(self, molFile, molName):
+        """Parametrize the ligand with ACPYPE/GAFF2."""
+        molFile = self.addHydrogens(molFile, molName)
+        kwargs = self.getParameters()
+
+        args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
+               f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
+        if 'netCharge' in kwargs:
+            args += f' -n {kwargs["netCharge"]}'
+        pwchemPlugin.runACPYPE(self, args=args, cwd=self.getLigandFileDir())
+
+
+    def prepareSystemStep(self, poseId):
+        """
+        For one pose: pdb2gmx on receptor, merge ligand topology and
+        coordinates, editconf (periodic box), solvate.
+        All outputs go into the pose-specific directory.
+        """
+        poseDir = self.getPoseDir(poseId)
+        molName = re.sub(r'_\d+$', '', poseId)
+        protFile = self.getInputReceptorFile()
+        sysName = os.path.splitext(os.path.basename(protFile))[0]
+        mainFF = GROMACS_MAINFF_NAME[self.mainForceField.get()]
+        waterFF = GROMACS_WATERFF_NAME[self.waterForceField.get()]
+
+        # ACPYPE outputs
+        ligItp = os.path.join(self.getLigParamDir(molName), f'{molName}_GMX.itp')
+        ligGro = os.path.join(self.getLigParamDir(molName), f'{molName}_GMX.gro')
+        # Copy ITP into pose dir so the topology #include resolves at run time
+        shutil.copy(ligItp, os.path.join(poseDir, f'{molName}_GMX.itp'))
+
+        # --- pdb2gmx --------------------------------------------------------
+        print(f'Preparing mol pose: {poseId}')
+        procGro = os.path.join(poseDir, f'{sysName}_processed.gro')
+        p2gArgs = (f'pdb2gmx -f {protFile} -o {procGro} '
+                   f'-water {waterFF} -ff {mainFF} -merge all')
+        try:
+            gromacsPlugin.runGromacs(self, 'gmx', p2gArgs, cwd=poseDir)
+        except Exception:
+            self.warning('pdb2gmx failed; retrying with -ignh')
+            topFile = os.path.join(poseDir, 'topol.top')
+            if os.path.exists(topFile):
+                os.remove(topFile)
+            gromacsPlugin.runGromacs(self, 'gmx', p2gArgs + ' -ignh',
+                                     cwd=poseDir)
+
+        # --- Merge ligand into topology and coordinates ----------------------
+        self.addLigandTopo(os.path.join(poseDir, 'topol.top'), molName)
+        self.addLigandCoords(procGro, ligGro)
+
+        # --- editconf: define periodic box -----------------------------------
+        newboxGro = os.path.join(poseDir, f'{sysName}_newbox.gro')
+        ecArgs = (f'editconf -f {procGro} -o {newboxGro} '
+                  f'-c -bt triclinic -d {self.padDist.get()}')
+        gromacsPlugin.runGromacs(self, 'gmx', ecArgs, cwd=poseDir)
+
+        # --- solvate ---------------------------------------------------------
+        waterModel = waterFF
+        if waterModel in ('spc', 'spce', 'tip3p'):
+            waterModel = 'spc216'
+        solvGro = os.path.join(poseDir, f'{sysName}_solv.gro')
+        svArgs = (f'solvate -cp {newboxGro} -cs {waterModel}.gro '
+                  f'-o {solvGro} -p {os.path.join(poseDir, "topol.top")}')
+        gromacsPlugin.runGromacs(self, 'gmx', svArgs, cwd=poseDir)
+
+        if self.placeIons.get() != 0:
+            self.addIons(poseId, sysName)
+        self.minimizeSystem(poseId, sysName)
+
+    def makePreprocessingIndexStep(self, poseId=None):
         """
         Build the initial GROMACS index on the full (solvated) system.
         Creates group 21 Protein_LIG
         """
-        inputStruct = os.path.abspath(self.gromacsSystem.get().getFileName())
-        ndxOut = self._getExtraPath('preproc.ndx')  # keep for reference elsewhere
-
-        args = "make_ndx -f {} -o {}".format(inputStruct, os.path.abspath(ndxOut))
-
-        gromacsPlugin.runGromacsPrintf(protocol=self, printfValues=["1 | 13", "q"], args=args,
-            cwd=self._getExtraPath(), mpi=False)
-
-    def prepareTrajectoryStep(self):
-        """
-        Trajectory preprocessing pipeline:
-          trjconv 1 — fix PBC (-pbc mol -center), output System
-          trjconv 2 — fit to initial structure (-fit rot+trans)  [optional]
-          trjconv 3 — strip to Protein+Ligand only
-          trjconv 4 — extract reference frame 0 as com_ref.gro
-        """
-        gromacsSys    = self.gromacsSystem.get()
-        inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
-        inputStruct = os.path.abspath(gromacsSys.getFileName())
-        lastTpr = os.path.abspath(gromacsSys.getTprFile())
-        ndxFile    = os.path.abspath(self._getExtraPath('preproc.ndx'))
-        ligName    =gromacsSys.getLigandID()
-        mergedGrp  = 'Protein_{}'.format(ligName)
-
-        # Step 1: Fix PBC (center on receptor, output all atoms)
-        noPBC = os.path.abspath(self._getExtraPath('noPBC.xtc'))
-        args = [
-            "trjconv",
-            "-f", inputTrj,
-            "-s", lastTpr,  # Notice we are pointing to the full .tpr here!
-            "-o", noPBC,
-            "-n", ndxFile,
-            "-pbc", "mol",
-            "-center"
-        ]
-
-        cmd2 = [mergedGrp, mergedGrp]
-        gromacsPlugin.runGromacsPrintf(self, printfValues=[mergedGrp, mergedGrp], args=args,
-                                       cwd=self._getExtraPath(), mpi=False)
-
-        #  3 (optional): Fit rot+trans
-        if self.doFit:
-            fitted = os.path.abspath(self._getExtraPath('fit.xtc'))
-            args = [
-                "trjconv",
-                "-f", inputTrj,
-                "-s", lastTpr,
-                "-o", fitted,
-                "-n", ndxFile,
-                "-fit", "rot+trans"
-            ]
-            cmd2 = [mergedGrp, mergedGrp]
-
-            gromacsPlugin.runGromacsPrintf(self, printfValues=[mergedGrp, mergedGrp], args=args,
-                                           cwd=self._getExtraPath(), mpi=False)
-            preFinalTrj = fitted
+        if self.inputFrom.get() == INPUT_GROMACS:
+            inputStruct = os.path.abspath(self.gromacsSystem.get().getFileName())
+            cwd = self._getExtraPath()
+            ndxOut = os.path.abspath(self._getExtraPath('preproc.ndx'))
         else:
-            preFinalTrj = noPBC
+            poseDir = self.getPoseDir(poseId)
+            inputStruct = os.path.abspath(os.path.join(poseDir, 'em.gro'))
+            cwd = poseDir
+            ndxOut = os.path.abspath(os.path.join(poseDir, 'preproc.ndx'))
 
-        procTrj = os.path.abspath(self._getPath('processTraj.xtc'))
-        shutil.copyfile(preFinalTrj, procTrj)
+        args = f'make_ndx -f {inputStruct} -o {ndxOut}'
+        gromacsPlugin.runGromacsPrintf(protocol=self,
+                                       printfValues=['1 | 13', 'q'],
+                                       args=args, cwd=cwd, mpi=False)
 
-    def makeMmpbsaIndexStep(self):
+    def prepareTrajectoryStep(self, poseId=None):
         """
-        Build the index file for the *stripped* complex (com_ref.gro).
-        In the stripped system only Protein and Ligand atoms remain, so the
-        default make_ndx groups already contain both. We just save it and
-        verify the expected groups are present.
+        Mode A: PBC fix + optional rot+trans fit, copy result as processTraj.xtc.
+        Mode B: convert the single em.gro to a pdb
         """
-        comRef  = self._getExtraPath('com_ref.gro')
-        ndxOut  = self._getExtraPath('mmpbsa.ndx')
-        recGrp  = self.receptorGroup.get().strip()
-        ligName = self.ligandName.get().strip()
+        if self.inputFrom.get() == INPUT_GROMACS:
+            gromacsSys = self.gromacsSystem.get()
+            inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
+            lastTpr    = os.path.abspath(gromacsSys.getTprFile())
+            ndxFile    = os.path.abspath(self._getExtraPath('preproc.ndx'))
+            ligName    = gromacsSys.getLigandID()
+            mergedGrp  = f'Protein_{ligName}'
+            procTrj    = os.path.abspath(self._getPath('processTraj.xtc'))
 
-        gromacsPlugin.runGromacsPrintf(
-            printfValues=['q'],
-            args=' make_ndx -f {} -o {}'.format(comRef, ndxOut),
-            cwd=self._getExtraPath()
-        )
+            noPBC = os.path.abspath(self._getExtraPath('noPBC.xtc'))
+            args  = ['trjconv', '-f', inputTrj, '-s', lastTpr,
+                     '-o', noPBC, '-n', ndxFile, '-pbc', 'mol', '-center']
+            gromacsPlugin.runGromacsPrintf(self,
+                                           printfValues=[mergedGrp, mergedGrp],
+                                           args=args, cwd=self._getExtraPath(),
+                                           mpi=False)
 
-        # Persist IDs so runMmpbsaStep can use them without re-parsing
-        self._storeGroupIds(recIdx, ligIdx)
-        self.info('MMPBSA index: receptor group {} (id={}), '
-                  'ligand group {} (id={})'.format(recGrp, recIdx, ligName, ligIdx))
+            if self.doFit:
+                fitted = os.path.abspath(self._getExtraPath('fit.xtc'))
+                args   = ['trjconv', '-f', inputTrj, '-s', lastTpr,
+                          '-o', fitted, '-n', ndxFile, '-fit', 'rot+trans']
+                gromacsPlugin.runGromacsPrintf(self,
+                                               printfValues=[mergedGrp, mergedGrp],
+                                               args=args, cwd=self._getExtraPath(),
+                                               mpi=False)
+                shutil.copyfile(fitted, procTrj)
+            else:
+                shutil.copyfile(noPBC, procTrj)
 
-    def writeMmpbsaInputStep(self):
+        else:
+            poseDir = self.getPoseDir(poseId)
+            emGro   = os.path.abspath(os.path.join(poseDir, 'em.gro'))
+            # emTpr   = os.path.abspath(os.path.join(poseDir, 'em.tpr'))
+            # ndxFile = os.path.abspath(os.path.join(poseDir, 'preproc.ndx'))
+            # procTrj = os.path.abspath(os.path.join(poseDir, 'processTraj.xtc'))
+            emPdb = os.path.abspath(os.path.join(poseDir, 'em.pdb'))
+
+            self.convertGroToPdb(emGro, emPdb)
+
+
+    # def makeMmpbsaIndexStep(self):
+    #     """
+    #     Build the index file for the *stripped* complex (com_ref.gro).
+    #     In the stripped system only Protein and Ligand atoms remain, so the
+    #     default make_ndx groups already contain both.
+    #     """
+    #     comRef  = self._getExtraPath('com_ref.gro')
+    #     ndxOut  = self._getExtraPath('mmpbsa.ndx')
+    #     recGrp  = self.receptorGroup.get().strip()
+    #     ligName = self.ligandName.get().strip()
+    #     # outPath =
+    #
+    #     gromacsPlugin.runGromacsPrintf(
+    #         printfValues=['q'],
+    #         args=' make_ndx -f {} -o {}'.format(comRef, ndxOut),
+    #         cwd=self._getExtraPath()
+    #     )
+    #
+    #     # Persist IDs so runMmpbsaStep can use them without re-parsing
+    #     self._storeGroupIds(recIdx, ligIdx)
+    #     self.info('MMPBSA index: receptor group {} (id={}), '
+    #               'ligand group {} (id={})'.format(recGrp, recIdx, ligName, ligIdx))
+
+    def writeMmpbsaInputStep(self, poseId=None):
         """
         Generate mmpbsa.in using gmx_MMPBSA --create_input to get a fully
         annotated template, then patch the variables that the user set in the
@@ -357,10 +521,19 @@ class GromacsMMPBSA(EMProtocol):
 
         # ── 5. Patch variables with regex ─────────────────────────────────
         # &general — always applied
-        content = self.patchInFile(content, 'startframe', self.startFrame.get())
-        content = self.patchInFile(content, 'endframe', self.endFrame.get())
-        content = self.patchInFile(content, 'interval', self.interval.get())
-        content = self.patchInFile(content, 'sys_name', getBaseName(self.gromacsSystem.get().getLigTopologyFile().replace("_GMX", "")))
+            # Frame selection
+        if self.inputFrom.get() == INPUT_MOLS:
+            content = self.patchInFile(content, 'startframe', 1)
+            content = self.patchInFile(content, 'endframe', 1)
+            content = self.patchInFile(content, 'interval', 1)
+            protName = os.path.splitext(os.path.basename(self.getInputReceptorFile()))[0]
+            sysName = protName + '_' + poseId
+        else:
+            content = self.patchInFile(content, 'startframe', self.startFrame.get())
+            content = self.patchInFile(content, 'endframe', self.endFrame.get())
+            content = self.patchInFile(content, 'interval', self.interval.get())
+            sysName = getBaseName(self.gromacsSystem.get().getLigTopologyFile().replace('_GMX', ''))
+        content = self.patchInFile(content, 'sys_name', sysName)
         content = self.patchInFile(content, 'gmx_path', f"{gromacsPlugin.getGromacsBin(program='')}")
         content = self.patchInFile(content, 'temperature', self.temperature.get())
         content = self.patchInFile(content, 'full_traj', 1)
@@ -403,103 +576,134 @@ class GromacsMMPBSA(EMProtocol):
 
         self.info(f'mmpbsa.in ready: {inputFile}')
 
-    def runMmpbsaStep(self):
+    def runMmpbsaStep(self, poseId=None):
         """
-        Execute gmx_MMPBSA with the prepared inputs.
-        gmx_MMPBSA must be available in the active environment (PATH).
+        Execute gmx_MMPBSA.
+        Mode A: single run using the full trajectory from GromacsSystem.
+        Mode B: one run per pose using pose-dir files; topology is resolved
+                relative to the pose dir so that #include paths work.
         """
-        extra   = self._getExtraPath
-        gromacsSys = self.gromacsSystem.get()
-        comTrj  = os.path.abspath(self._getPath('processTraj.xtc'))
-        ndxFile = os.path.abspath(extra('preproc.ndx'))
-        inFile  = os.path.abspath(extra('mmpbsa.in'))
-        lastTpr = os.path.abspath(gromacsSys.getTprFile())
+        inFile  = os.path.abspath(self._getExtraPath('mmpbsa.in'))
+        nMpi    = self.numberOfMpi.get()
 
-        topFile = os.path.abspath(self.gromacsSystem.get().getTopologyFile())
-        localTopFile = os.path.abspath(self._getExtraPath('topo.top'))
-        outFile = os.path.abspath(self._getPath('result.dat'))
-        outCsv = os.path.abspath(self._getPath('result.csv'))
+        if self.inputFrom.get() == INPUT_GROMACS:
+            gromacsSys   = self.gromacsSystem.get()
+            lastTpr      = os.path.abspath(gromacsSys.getTprFile())
+            comTrj       = os.path.abspath(self._getPath('processTraj.xtc'))
+            ndxFile      = os.path.abspath(self._getExtraPath('preproc.ndx'))
+            localTopFile = os.path.abspath(self._getExtraPath('topo.top'))
+            outFile      = os.path.abspath(self._getPath('result.dat'))
+            outCsv       = os.path.abspath(self._getPath('result.csv'))
+            cwd          = self._getExtraPath()
 
-        shutil.copy(gromacsSys.getLigTopologyFile(), self._getExtraPath())
-        shutil.copy(topFile, localTopFile)
+            shutil.copy(gromacsSys.getLigTopologyFile(), self._getExtraPath())
+            shutil.copy(os.path.abspath(gromacsSys.getTopologyFile()), localTopFile)
+        else:
+            poseDir      = self.getPoseDir(poseId)
+            lastTpr      = os.path.abspath(os.path.join(poseDir, 'em.tpr'))
+            comTrj       = os.path.abspath(os.path.join(poseDir, 'em.pdb'))
+            ndxFile      = os.path.abspath(os.path.join(poseDir, 'preproc.ndx'))
+            localTopFile = os.path.abspath(os.path.join(poseDir, 'topol.top'))
+            outFile      = os.path.abspath(os.path.join(poseDir, 'result.dat'))
+            outCsv       = os.path.abspath(os.path.join(poseDir, 'result.csv'))
+            cwd          = poseDir
 
         args = ('-O '
-                '-i {inp} '
-                '-cs {cs} '
-                '-ct {ct} '
-                '-ci {ci} '
-                '-cg 1 13 '
-                '-cp {cp} '
-                '-o {out} '
-                '-eo {outCsv} '
-                '-nogui').format(
+                '-i {inp} -cs {cs} -ct {ct} -ci {ci} -cg 1 13 '
+                '-cp {cp} -o {out} -eo {eo} -nogui').format(
             inp=inFile, cs=lastTpr, ct=comTrj,
-            ci=ndxFile, cp=localTopFile, out=outFile, outCsv=outCsv
+            ci=ndxFile, cp=localTopFile, out=outFile, eo=outCsv,
         )
-        # Build the same command string but force bash
-        condaHook = '/home/joaquin/miniconda/etc/profile.d/conda.sh'
-        envName = 'gmxMMPBSA-1.6.4'
-        nMpi = self.numberOfMpi.get()
-        mmpbsaCmd = f'mpirun -np {nMpi} gmx_MMPBSA {args}'
-
-        fullCmd = (
-            f'bash -c "source {condaHook} && '
-            f'conda activate {envName} && '
-            f'{mmpbsaCmd}"'
-        )
-
-        gromacsPlugin.runGMXMMPBSA(self, args=args, cwd=self._getExtraPath(), numberOfMpi=nMpi)
+        gromacsPlugin.runGMXMMPBSA(self, args=args, cwd=cwd, numberOfMpi=nMpi)
 
     def createOutputStep(self):
-        # ...
-        outFile = self._getPath('result.dat')
-        outCsv = self._getPath('result.csv')
+        """
+        Parse results and define Scipion outputs.
+        Mode A: single outputFreeEnergy object.
+        Mode B: one output per pose named outputFreeEnergy_{poseId};
+                a summary table is printed to the log.
+        """
+        calcModel = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
 
-        if not os.path.exists(outFile):
-            self.warning('MMPBSA output file not found: {}'.format(outFile))
-            return
-
-        dg, sd = _parseFinalDeltaG(outFile)
-
-        if dg is not None:
-            calcModel = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
-
-            # Update the print statement to include SD
-            self.infoAG = '{} ΔG_binding = {:.2f} ± {:.2f} kcal/mol'.format(calcModel, dg, sd)
-            print(self.infoAG)
-
-            output = FreeEnergyCalculation(
-                deltaG=dg,
-                deviation=sd,
-                calcType=calcModel,
-                resultFile=outFile,
-                csvFile=outCsv,
-                entropyType=self.entropyType.get()
-            )
-
-            self._defineOutputs(outputFreeEnergy=output)
+        if self.inputFrom.get() == INPUT_GROMACS:
+            outFile = self._getPath('result.dat')
+            outCsv  = self._getPath('result.csv')
+            if not os.path.exists(outFile):
+                self.warning(f'MMPBSA output not found: {outFile}')
+                return
+            dg, sd = _parseFinalDeltaG(outFile)
+            if dg is not None:
+                self.info(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
+                outSystem = self.gromacsSystem.get().clone()
+                outSystem.setFreeEnergy(dg), outSystem.setFreeEnergyFile(outFile)
+                self._defineOutputs(outputSystem=outSystem)
+            else:
+                self.warning(f'Could not parse ΔG from {outFile}')
 
         else:
-            self.warning('Could not parse ΔG_binding from {}'.format(outFile))
+            inMols = self.inputSetOfMols.get()
+            summaryLines = [f'{"Pose":<25} {"ΔG (kcal/mol)":>16}  {"SD":>8}']
+            summaryLines.append('-' * 52)
+            outputSet = inMols.createCopy(self._getPath(), copyInfo=True)
+            for mol in inMols:
+                poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
+                poseDir = self.getPoseDir(poseId)
+                outFile = os.path.join(poseDir, 'result.dat')
+                outCsv  = os.path.join(poseDir, 'result.csv')
+
+                if not os.path.exists(outFile):
+                    self.warning(f'Pose {poseId}: result file not found, skipping.')
+                    summaryLines.append(f'{poseId:<25}  {"N/A":>16}')
+                    continue
+
+                dg, sd = _parseFinalDeltaG(outFile)
+                if dg is None:
+                    self.warning(f'Pose {poseId}: could not parse ΔG from {outFile}')
+                    summaryLines.append(f'[{poseId:<25}  {"parse error":>16}')
+                    continue
+                mol.free_energy = pwobj.Float(dg)
+                outputSet.append(mol)
+            self._defineOutputs(outputSmallMolecules=outputSet)
+            summaryLines.append(f'{poseId:<25} {dg:>+16.2f}  {sd:>8.2f}')
+
+            self.info('\n'.join(summaryLines))
+
 
     # ── Validation / info ───────────────────────────────────────────────────
     def _validate(self):
         errors = []
-        gromacsSys = self.gromacsSystem.get()
-        if gromacsSys is None:
-            errors.append('An input Gromacs system is required.')
-            return errors
-        if not gromacsSys.getTrajectoryFile():
-            errors.append('The input system must have a trajectory file (.xtc).')
+        if self.inputFrom.get() == INPUT_GROMACS:
+            sys = self.gromacsSystem.get()
+            if sys is None:
+                errors.append('An input Gromacs system is required.')
+            elif not sys.getTrajectoryFile():
+                errors.append('The input system must have a trajectory file (.xtc).')
+        else:
+            if self.inputSetOfMols.get() is None:
+                errors.append('A set of docked molecules is required.')
         return errors
 
     def _summary(self):
-        summary = [f'Results in {self.getPath("result.dat")}']
-        outFile = self._getPath('result.dat')
-        dg, sd = _parseFinalDeltaG(outFile)
-        model = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
-        summary.append(f'{model} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol"')
-        return summary
+        summary = []
+        calcModel = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
+
+        if self.inputFrom.get() == INPUT_GROMACS:
+            outFile = self._getPath('result.dat')
+            if os.path.exists(outFile):
+                dg, sd = _parseFinalDeltaG(outFile)
+                if dg is not None:
+                    summary.append(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
+        else:
+            if self.inputSetOfMols.get() is not None:
+                for mol in self.inputSetOfMols.get():
+                    poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
+                    outFile = os.path.join(self.getPoseDir(poseId), 'result.dat')
+                    if os.path.exists(outFile):
+                        dg, sd = _parseFinalDeltaG(outFile)
+                        if dg is not None:
+                            summary.append(f'Pose {poseId} ({mol.getMolName()}): '
+                                           f'{dg:.2f} ± {sd:.2f} kcal/mol')
+        return summary or ['Protocol has not finished yet.']
 
     def _methods(self):
         return [
@@ -550,7 +754,158 @@ class GromacsMMPBSA(EMProtocol):
                          f'it will be appended manually.')
         return new_text
 
+    def convertInputStep(self):
+        sdfFiles = []
+        for mol in self.inputSetOfMols.get():
+            molFile = mol.getPoseFile()
+            sdfFiles.append(os.path.abspath(convertToSdf(self, molFile)))
 
+        paramFile = self.writePrepParamsFile(sdfFiles)
+        pwchemPlugin.runScript(self, scriptLigPrepName, paramFile, env=RDKIT_DIC, cwd=self._getPath())
+
+    def writePrepParamsFile(self, molFiles):
+        paramsFile = self.getLigParamFile()
+        with open(paramsFile, 'w') as f:
+            molFilesStr = ' '.join(molFiles)
+            f.write(f"ligandFiles: {molFilesStr}\n")
+
+            f.write(f'outputDir: {self.getLigandFileDir()}\n')
+            f.write('doHydrogens: True\n')
+            f.write('doGasteiger: False\n')
+            f.write('sanitize: False\n')
+        return paramsFile
+
+    def getLigParamFile(self):
+      return os.path.abspath(self._getExtraPath('addHydrogens.txt'))
+
+    def getLigandFileDir(self):
+      lDir = os.path.abspath(self._getExtraPath('ligand'))
+      if not os.path.exists(lDir):
+        os.mkdir(lDir)
+      return lDir
+
+    def addHydrogens(self, inpFile, molName):
+      sysbaseName = os.path.basename(inpFile).split('.')[0]
+      ligName = molName.split('_')[-1]
+
+      tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
+      inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
+
+      args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
+      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+
+      args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
+      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+
+      replaceInFile(inpMol2File, 'UNL1', 'LIG')
+      return inpMol2File
+
+    def getLigParamDir(self, molName):
+        lDir = os.path.abspath(os.path.join(self.getLigandFileDir(), f'{molName}.acpype'))
+        return lDir
+
+    def getPoseDir(self, poseId):
+        """Return (and create) the working directory for a given pose."""
+        d = os.path.abspath(self._getExtraPath(f'poses/{poseId}'))
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def addLigandTopo(self, topFile, molName):
+      inStr = '\/forcefield.itp"\n'
+      outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
+      replaceInFile(topFile, inStr, outStr)
+
+      emptyStr = ' ' * (20-len(molName))
+      inStr = '; Compound        #mols\nProtein_chain_A     1'
+      outStr = f'{inStr}\n{molName}{emptyStr}1'
+      replaceInFile(topFile, inStr, outStr)
+
+    def addIons(self, poseId, sysName):
+        """Add ions to neutralize (and optionally salt) one pose system."""
+        poseDir = self.getPoseDir(poseId)
+        topFile = os.path.join(poseDir, 'topol.top')
+        mainFF = GROMACS_MAINFF_NAME[self.mainForceField.get()]
+
+        ionsMdp = self.writeIonsMDP(poseDir)
+        ionsTpr = os.path.join(poseDir, 'ions.tpr')
+        solvGro = os.path.join(poseDir, f'{sysName}_solv.gro')  # pre-ions
+
+        gppArgs = (f'grompp -f {ionsMdp} -c {solvGro} '
+                   f'-p {topFile} -o {ionsTpr}')
+        if 'gromos' in mainFF:
+            gppArgs += ' -maxwarn 1'
+        gromacsPlugin.runGromacsPrintf(self, printfValues=['SOL'],
+                                       args=gppArgs, cwd=poseDir)
+
+        solvIonsGro = os.path.join(poseDir, f'{sysName}_solv_ions.gro')
+        genArgs = (f'genion -s {ionsTpr} -o {solvIonsGro} '
+                   f'-p {topFile} -pname NA -nname CL')
+        if self.placeIons.get() == 1:
+            genArgs += ' -neutral'
+            if self.saltConc.get():
+                genArgs += f' -conc {self.saltConc.get()}'
+        elif self.placeIons.get() == 2:
+            genArgs += f' -np {self.cationNum.get()} -nn {self.anionNum.get()}'
+        gromacsPlugin.runGromacsPrintf(self, printfValues=['SOL'],
+                                       args=genArgs, cwd=poseDir)
+
+    def writeIonsMDP(self, poseDir):
+        outFile = os.path.join(poseDir, 'ions.mdp')
+        with open(outFile, 'w') as f:
+            f.write('integrator    = steep\n'
+                    'emtol         = 1000.0\n'
+                    'emstep        = 0.01\n'
+                    'nsteps        = 50000\n'
+                    'nstlist       = 10\n'
+                    'cutoff-scheme = Verlet\n'
+                    'coulombtype   = cutoff\n'
+                    'rcoulomb      = 1.0\n'
+                    'rvdw          = 1.0\n'
+                    'pbc           = xyz\n')
+        return outFile
+
+    def minimizeSystem(self, poseId, sysName):
+        """Steepest-descent energy minimization for one pose."""
+        poseDir = self.getPoseDir(poseId)
+        topFile = os.path.join(poseDir, 'topol.top')
+        inputGro = self.getSolvatedGro(poseId, sysName)
+        emMdp = self.writeEMMDP(poseDir)
+        emTpr = os.path.join(poseDir, 'em.tpr')
+
+        gppArgs = (f'grompp -f {emMdp} -c {inputGro} '
+                   f'-p {topFile} -o {emTpr} -maxwarn 2')
+        gromacsPlugin.runGromacs(self, 'gmx', gppArgs, cwd=poseDir)
+
+        # -deffnm em writes em.gro, em.edr, em.log, em.trr into poseDir
+        gromacsPlugin.runGromacs(self, 'gmx', 'mdrun -v -deffnm em',
+                                 cwd=poseDir)
+
+    def getSolvatedGro(self, poseId, sysName):
+        """Path of the final solvated GRO for a pose (after ions if requested)."""
+        poseDir = self.getPoseDir(poseId)
+        if self.placeIons.get() != 0:
+            return os.path.join(poseDir, f'{sysName}_solv_ions.gro')
+        return os.path.join(poseDir, f'{sysName}_solv.gro')
+
+    def writeEMMDP(self, poseDir):
+        outFile = os.path.join(poseDir, 'em.mdp')
+        with open(outFile, 'w') as f:
+            f.write('integrator    = steep\n'
+                    'emtol         = 1000.0\n'
+                    'emstep        = 0.01\n'
+                    'nsteps        = 50000\n'
+                    'nstlist       = 10\n'
+                    'cutoff-scheme = Verlet\n'
+                    'coulombtype   = PME\n'
+                    'rcoulomb      = 1.0\n'
+                    'rvdw          = 1.0\n'
+                    'pbc           = xyz\n')
+        return outFile
+
+    def convertGroToPdb(self, groFile, pdbFile):
+        """ Helper function to convert GRO to PDB using GROMACS editconf """
+        args = f'-f {groFile} -o {pdbFile}'
+        gromacsPlugin.runGromacs(self, 'gmx editconf', args)
 # ── helpers ─────────────────
 
 def _parseFinalDeltaG(outFile):
@@ -574,3 +929,4 @@ def _parseFinalDeltaG(outFile):
         print(f"Error reading file: {e}")
 
     return None, None
+

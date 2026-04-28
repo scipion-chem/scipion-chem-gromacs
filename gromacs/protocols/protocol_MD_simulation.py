@@ -30,12 +30,13 @@
 This module will perform energy minimizations for the system
 """
 import glob, uuid
+import os.path
 
 from pyworkflow.object import String
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
-
+from pwem.objects import AtomStruct
 from pwchem.utils import natural_sort
 
 from gromacs.objects import *
@@ -291,7 +292,8 @@ class GromacsMDSimulation(EMProtocol):
         shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
         localPdbFile = self._getPath('outputSystem.pdb')
-        self._convertGroToPdb(localGroFile, localPdbFile) # save it as pdb too
+        self._convertGroToPdbNoWat(localGroFile, localPdbFile)
+        finalAtomStruct = AtomStruct(filename=os.path.relpath(localPdbFile))
 
         outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
@@ -305,7 +307,7 @@ class GromacsMDSimulation(EMProtocol):
         if os.path.exists(indexFile):
             outSystem.setIndexFile(indexFile)
 
-        self._defineOutputs(outputSystem=outSystem)
+        self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
 
     # --------------------------- INFO functions -----------------------------------
@@ -438,6 +440,14 @@ class GromacsMDSimulation(EMProtocol):
         args = f'-f {groFile} -o {pdbFile}'
         gromacsPlugin.runGromacs(self, 'gmx editconf', args)
 
+    def _convertGroToPdbNoWat(self, groFile, pdbFile):
+        """ Helper function to convert GRO to PDB while stripping water and ions """
+        args = (f'-f {groFile} -s {groFile} '
+                f'-select "not water and not ion" '
+                f'-ofpdb {pdbFile} -pdbatoms selected')
+
+        gromacsPlugin.runGromacs(self, 'gmx select', args)
+
     def ensureIndexFile(self):
         """Return the protocol index file, creating it first if it does not exist.
         """
@@ -530,14 +540,14 @@ class GromacsMDSimulation(EMProtocol):
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
         if os.path.exists(mdpFile): return mdpFile
 
-        indexFile = self.ensureIndexFile()
+        indexFile = os.path.abspath(self.ensureIndexFile())
 
         if msjDic['restraints'].strip() not in ('', 'None'):
             rSuffix = f"{msjDic['restraints']}_stg{mdpStage}"
             groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
 
             newSuffixes = self.gromacsSystem.get().\
-              defineNewRestriction(index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
+              defineNewRestriction(self, index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
                                    outDir=stageDir, indexFile=indexFile)
 
             restrStr = RESTR_STR.format(rSuffix.upper())

@@ -143,6 +143,14 @@ class Plugin(pwchemPlugin):
 		                numberOfMpi=1, numberOfThreads=1)
 
 	@classmethod
+	def runGromacsPrintfViewer(cls, printfValues, args, cwd, mpi=False):
+		""" Run Gromacs command from a given protocol. """
+		printfValues = list(map(str, printfValues))
+		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
+		print('Running: ', program, args)
+		subprocess.check_call(program + args, cwd=cwd, shell=True)
+
+	@classmethod
 	def runGMXMMPBSA(cls, protocol, program='gmx_MMPBSA', args=None, cwd=None, numberOfMpi=1):
 		""" Run gmx_MMPBSA command from a given protocol. """
 		# if program is None:

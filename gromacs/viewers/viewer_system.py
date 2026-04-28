@@ -50,6 +50,44 @@ class GromacsSystemPViewer(MDSystemPViewer):
     def __init__(self, **args):
       super().__init__(**args)
 
+
+    def _defineParams(self, form):
+        super()._defineParams(form)
+        system = self.getMDSystem()
+        if system and system.getFreeEnergyFile():
+            self._defineFreeEnergyMDSystemParams(form)
+
+
+    def _defineFreeEnergyMDSystemParams(self, form):
+        if form.getSection('Receptor-ligand interactions'):
+            section = form.getSection('Receptor-ligand interactions')
+        else:
+            section = form.addSection('Receptor-ligand interactions')
+        form.addGroup('Free energy analysis')
+        form.addParam('displayGmxMmpbsa', params.LabelParam,
+                      label='Open interactive analysis: ',
+                      help='Display the results of the free energy calculation unsing '
+                           'gmx_MMPBSA_ana')
+
+    def _getVisualizeDict(self):
+        visualizeDict = super()._getVisualizeDict()
+        visualizeDict['displayGmxMmpbsa'] = self._showGmxMmpbsaAna
+        return visualizeDict
+
+    def _showGmxMmpbsaAna(self, paramName=None):
+        import subprocess
+        activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
+        args = '-r '
+        cmd = f"{activation} && gmx_MMPBSA_ana {args}"
+
+        subprocess.Popen(
+            cmd,
+            shell=True,
+            executable='/bin/bash',
+            env=gromacsPlugin.getEnviron(),
+            cwd=os.path.dirname(self.getMDSystem().getFreeEnergyFile())
+        )
+
     def getMDSystem(self, objType=GromacsSystem):
         if type(self.protocol) == objType:
             return self.protocol
@@ -250,7 +288,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('RMSD'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('RMSD'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -268,7 +306,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if self.aveRes.get():
         args += ' -res'
 
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('RMSF'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('RMSF'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -283,7 +321,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       args = ' gyrate -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Gyration'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('Gyration'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -302,7 +340,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                                                  outOptions[self.sasaOut.get()], oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('SASA'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('SASA'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -321,7 +359,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                                            outOptions[self.hbondOut.get()], oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('HBond'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('HBond'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -342,7 +380,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
               self.getEnumText('clustMethod').lower(), self.clustCutoff.get())
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Clustering'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('Clustering'),
                                      args=args, cwd=oDir)
       return oPaths
 
@@ -360,7 +398,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
     def correctTrj(self, stage):
       args = ' trjconv -s {}.tpr -f {}.trr -o {}_corrected.xtc -pbc mol -center'.format(*[stage] * 3)
-      gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'System'],
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=['Protein', 'System'],
                                      args=args, cwd=self.protocol._getExtraPath(stage))
       return self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
 
@@ -431,45 +469,43 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         return list(groups.values())
 
 
-class FreeEnergyViewer(pwviewer.ProtocolViewer):
-    """ Visualize the output of a Free Energy calculation """
-    _label = 'Viewer Free Energy Calculation'
-    _targets = [FreeEnergyCalculation]
-    _analysis = ['RMSD', 'RMSF', 'Gyration', 'SASA', 'HBond', 'Clustering']
-
-    def __init__(self, **args):
-        super().__init__(**args)
-
-    def getFreeEnergyObj(self, objType=FreeEnergyCalculation):
-        if type(self.protocol) == objType:
-            return self.protocol
-    # ------------------------------------------------------------------
-    # Form definition
-    # ------------------------------------------------------------------
-
-    def _defineParams(self, form):
-        form.addSection(label='Visualization of gmx_MMPBSA')
-        form.addParam('displayGmxMmpbsa', params.LabelParam,
-                       label='Open interactive analysis: ',
-                       help='Display the results of the free energy calculation unsing '
-                      'gmx_MMPBSA_ana')
-
-    def _getVisualizeDict(self):
-        return {
-            'displayGmxMmpbsa': self._showGmxMmpbsaAna
-        }
-
-    def _showGmxMmpbsaAna(self, paramName=None):
-        import subprocess
-        activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
-        args = '-r '
-        cmd = f"{activation} && gmx_MMPBSA_ana {args}"
-
-        subprocess.Popen(
-            cmd,
-            shell=True,
-            executable='/bin/bash',
-            env=gromacsPlugin.getEnviron(),
-            cwd=os.path.dirname(self.getFreeEnergyObj().getResultFile())
-        )
-
+# class FreeEnergyViewer(MDSystemPViewer):
+#     """ Visualize the output of a Free Energy calculation """
+#     _targets = [GromacsSystem]
+#     _label = 'Free Energy viewer'
+#
+#     def _defineParams(self, form):
+#         if isinstance(self.protocol, GromacsSystem):
+#             super()._defineParams(form)
+#             self._defineFreeEnergyMDSystemParams(form)
+#
+#     def _defineFreeEnergyMDSystemParams(self, form):
+#         if form.getSection('Receptor-ligand interactions'):
+#             section = form.getSection('Receptor-ligand interactions')
+#         else:
+#             section = form.addSection('Receptor-ligand interactions')
+#         form.addGroup('Free energy analysis')
+#         form.addParam('displayGmxMmpbsa', params.LabelParam,
+#                       label='Open interactive analysis: ',
+#                       help='Display the results of the free energy calculation unsing '
+#                            'gmx_MMPBSA_ana')
+#
+#     def _getVisualizeDict(self):
+#         return {
+#             'displayGmxMmpbsa': self._showGmxMmpbsaAna
+#         }
+#
+#     def _showGmxMmpbsaAna(self, paramName=None):
+#         import subprocess
+#         activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
+#         args = '-r '
+#         cmd = f"{activation} && gmx_MMPBSA_ana {args}"
+#
+#         subprocess.Popen(
+#             cmd,
+#             shell=True,
+#             executable='/bin/bash',
+#             env=gromacsPlugin.getEnviron(),
+#             cwd=os.path.dirname(self.getMDSystem().getFreeEnergyFile())
+#         )
+#
