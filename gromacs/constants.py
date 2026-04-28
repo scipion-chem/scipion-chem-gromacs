@@ -30,6 +30,7 @@ V2021 = '2021.5'
 V2026 = '2026.1'
 CMAKE_MINIMUM_VERSION = '3.13'
 CMAKE_MINIMUM_VERSION_V26 = '3.28'
+CUDA_MINIMUM_VERSION_V26 = '12.1'
 
 # Package dictionaries
 GROMACS_DIC = {'name': 'gromacs', 'version': V2026, 'home': 'GROMACS_HOME'}

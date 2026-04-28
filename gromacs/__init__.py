@@ -132,6 +132,7 @@ class Plugin(pwem.Plugin):
 	def checkRequirements(cls, env):
 		""" This function checks if the software requirements are being met. """
 		cls.checkCMakeVersion()
+		cls.checkCudaVersion()
 		return cls.defineProcessors(env)
 
 	@classmethod
@@ -186,3 +187,31 @@ class Plugin(pwem.Plugin):
 			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
 		except Exception:
 			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
+
+	@classmethod
+	def checkCudaVersion(cls):
+		"""
+        ### This function checks if the current installed CUDA version (nvcc) is above the minimum required version.
+        ### If no version is provided it just checks if nvcc is installed.
+        """
+		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
+		try:
+			# Getting CUDA version from nvcc
+			# nvcc output usually looks like: "nvcc: NVIDIA (R) Cuda compiler driver... release 12.1, V12.1.105"
+			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
+
+			lines = result.split('\n')
+			releaseLine = [line for line in lines if 'release' in line][0]
+			cudaVersion = releaseLine.split('release ')[1].split(',')[0]
+
+			# Checking if installed version is below minimum required
+			if CUDA_MINIMUM_VERSION_V26 and (cls.versionTuple(cudaVersion) < cls.versionTuple(CUDA_MINIMUM_VERSION_V26)):
+				raise Exception(redStr(
+					f"CUDA version ({cudaVersion}) is below {CUDA_MINIMUM_VERSION_V26}.\nPlease update your CUDA version or set your PATH to a newer version by following instructions at {cudaInstallURL}"))
+
+		except FileNotFoundError:
+			raise FileNotFoundError(redStr(
+				f"nvcc (CUDA) is not installed or not in your PATH.\n"
+				f"Please install CUDA >= {CUDA_MINIMUM_VERSION_V26} or update your PATH by following the instructions at {cudaInstallURL}"))
+		except Exception as e:
+			raise Exception(redStr(f"Cannot get the CUDA version: {str(e)}\nPlease check your CUDA installation."))
