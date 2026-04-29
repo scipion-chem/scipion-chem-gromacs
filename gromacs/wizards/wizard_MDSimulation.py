@@ -42,6 +42,7 @@ from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, Variabl
     WatchElementWizard
 
 from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+from gromacs import Plugin as gromacsPlugin
 
 SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
                                 targets=['inputLigand'],
@@ -72,12 +73,8 @@ class GromacsCheckIndexWizard(VariableWizard):
         inputParam, outputParam = self.getInputOutput(form)
 
         system = getattr(protocol, inputParam[0]).get()
-
-        outIndex = protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            groups = protocol.parseIndexFile(outIndex)
-        else:
-            groups = protocol.createIndexFile(system, inIndex=None, outIndex=outIndex)
+        indexFile = system.getIndexFile()
+        groups = gromacsPlugin.parseIndexFile(protocol, indexFile)
 
         finalList = [String('-1: None')]
         for index, name in groups.items():

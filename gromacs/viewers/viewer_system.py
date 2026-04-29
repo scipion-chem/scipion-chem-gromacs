@@ -179,7 +179,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                           '4) Angles'
                      )
       group.addParam('clustMethod', params.EnumParam,
-                     choices=['Single', 'Jarvis Patrick', 'Monte Carlo', 'Diagonalization', 'Gromos'],
+                     choices=['Linkage', 'Jarvis-Patrick', 'Monte-Carlo', 'Diagonalization', 'Gromos'],
                      default=4, label='Clustering method: ', condition='displayAnalysis in [5]',
                      help='Clustering method'
                      )
@@ -461,56 +461,17 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         return ['All'] + system.getChainNames()
 
     def getIndexFile(self):
+        print(self.getMDSystem())
         indexFile = self.getMDSystem().getIndexFile()
         if indexFile and os.path.exists(indexFile):
             return os.path.abspath(indexFile)
 
     def getIndexGroupsDic(self):
-        groups = gromacsPlugin.parseIndexFile(self.getIndexFile())
+        print(self.getIndexFile())
+        groups = gromacsPlugin.parseIndexFile(self.protocol, self.getIndexFile())
         return groups
 
     def getIndexGroups(self):
         groups = self.getIndexGroupsDic()
         return list(groups.values())
 
-
-# class FreeEnergyViewer(MDSystemPViewer):
-#     """ Visualize the output of a Free Energy calculation """
-#     _targets = [GromacsSystem]
-#     _label = 'Free Energy viewer'
-#
-#     def _defineParams(self, form):
-#         if isinstance(self.protocol, GromacsSystem):
-#             super()._defineParams(form)
-#             self._defineFreeEnergyMDSystemParams(form)
-#
-#     def _defineFreeEnergyMDSystemParams(self, form):
-#         if form.getSection('Receptor-ligand interactions'):
-#             section = form.getSection('Receptor-ligand interactions')
-#         else:
-#             section = form.addSection('Receptor-ligand interactions')
-#         form.addGroup('Free energy analysis')
-#         form.addParam('displayGmxMmpbsa', params.LabelParam,
-#                       label='Open interactive analysis: ',
-#                       help='Display the results of the free energy calculation unsing '
-#                            'gmx_MMPBSA_ana')
-#
-#     def _getVisualizeDict(self):
-#         return {
-#             'displayGmxMmpbsa': self._showGmxMmpbsaAna
-#         }
-#
-#     def _showGmxMmpbsaAna(self, paramName=None):
-#         import subprocess
-#         activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
-#         args = '-r '
-#         cmd = f"{activation} && gmx_MMPBSA_ana {args}"
-#
-#         subprocess.Popen(
-#             cmd,
-#             shell=True,
-#             executable='/bin/bash',
-#             env=gromacsPlugin.getEnviron(),
-#             cwd=os.path.dirname(self.getMDSystem().getFreeEnergyFile())
-#         )
-#

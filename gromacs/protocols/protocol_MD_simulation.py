@@ -41,7 +41,7 @@ from pwchem.utils import natural_sort
 
 from gromacs.objects import *
 from gromacs.constants import *
-from gromacs import Plugin as gromacsPlugin
+from gromacs import Plugin as gromacsPlugin, GromacsSystem
 
 from multiprocessing import cpu_count
 
@@ -303,9 +303,10 @@ class GromacsMDSimulation(EMProtocol):
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
-        indexFile = self.getCustomIndexFile()
+        indexFile = self.gromacsSystem.get().getIndexFile()
         if os.path.exists(indexFile):
             outSystem.setIndexFile(indexFile)
+        # crearlo cuando no exista
 
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
@@ -442,41 +443,46 @@ class GromacsMDSimulation(EMProtocol):
 
     def _convertGroToPdbNoWat(self, groFile, pdbFile):
         """ Helper function to convert GRO to PDB while stripping water and ions """
-        args = (f'-f {groFile} -s {groFile} '
-                f'-select "not water and not ion" '
-                f'-ofpdb {pdbFile} -pdbatoms selected')
+        inpSystem = self.gromacsSystem.get()
+        if inpSystem.hasLig() is not None:
+            printGroup = ['21']
+        else:
+            printGroup = ['Protein']
 
-        gromacsPlugin.runGromacs(self, 'gmx select', args)
+        params = " editconf -f {} -n {} -o {}".format(os.path.abspath(groFile), os.path.abspath(self.gromacsSystem.get().getIndexFile()), os.path.abspath(pdbFile))
+        gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
+                                       args=params, cwd=self._getPath())
 
     def ensureIndexFile(self):
         """Return the protocol index file, creating it first if it does not exist.
         """
-        indexFile = self.getCustomIndexFile()
+        inpSystem = self.gromacsSystem.get()
+        indexFile = inpSystem.getIndexFile()
         if not os.path.exists(indexFile):
-            system = self.gromacsSystem.get()
-            sysIndex = system.getIndexFile()
+            indexFile = self.getCustomIndexFile()
+            sysIndex = inpSystem.getIndexFile()
             inIndex = sysIndex if sysIndex and os.path.exists(sysIndex) else None
-            self.createIndexFile(system, inIndex=inIndex, outIndex=indexFile)
+            gromacsPlugin.createIndexFile(self, inpSystem, inIndex=inIndex, outIndex=indexFile)
         return indexFile
 
     def getCustomIndexFile(self):
         return self._getExtraPath('custom_indexes.ndx')
 
-    def parseIndexFile(self, indexFile):
-        groups, index = {}, 0
-        with open(indexFile) as f:
-            for line in f:
-                if line.startswith('['):
-                    groups[index] = line.replace('[', '').replace(']', '').strip()
-                    index += 1
-        return groups
-
-    def translateNamesToIndexGroup(self, names):
-        """Translate group name(s) to their numeric index in the index file."""
-        indexFile = self.ensureIndexFile()
-        groups = self.parseIndexFile(indexFile)
-        invGroups = {v: k for k, v in groups.items()}
-        return [invGroups.get(name, name) for name in names]
+    # def parseIndexFile(self, indexFile):
+    #     groups, index = {}, 0
+    #     with open(indexFile) as f:
+    #         for line in f:
+    #             if line.startswith('['):
+    #                 groups[index] = line.replace('[', '').replace(']', '').strip()
+    #                 index += 1
+    #     return groups
+    #
+    # def translateNamesToIndexGroup(self, names):
+    #     """Translate group name(s) to their numeric index in the index file."""
+    #     indexFile = self.ensureIndexFile()
+    #     groups = self.parseIndexFile(indexFile)
+    #     invGroups = {v: k for k, v in groups.items()}
+    #     return [invGroups.get(name, name) for name in names]
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -520,17 +526,17 @@ class GromacsMDSimulation(EMProtocol):
           msjDic[pName] = paramDic[pName].default
       return msjDic
 
-    def createIndexFile(self, system, inIndex=None, outIndex=None, inputCommands=['q']):
-        outIndex = self._getExtraPath('indexes.ndx') if not outIndex else outIndex
-        outDir = (os.path.dirname(outIndex))
-        inIndex = f' -n {inIndex}' if inIndex else ''
-        command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
-
-        if inputCommands[-1] != 'q':
-            inputCommands.append('q')
-        gromacsPlugin.runGromacsPrintf(self, printfValues=inputCommands, args=command, cwd=outDir)
-        groups = self.parseIndexFile(outIndex)
-        return groups
+    # def createIndexFile(self, system, inIndex=None, outIndex=None, inputCommands=['q']):
+    #     outIndex = self._getExtraPath('indexes.ndx') if not outIndex else outIndex
+    #     outDir = (os.path.dirname(outIndex))
+    #     inIndex = f' -n {inIndex}' if inIndex else ''
+    #     command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
+    #
+    #     if inputCommands[-1] != 'q':
+    #         inputCommands.append('q')
+    #     gromacsPlugin.runGromacsPrintf(self, printfValues=inputCommands, args=command, cwd=outDir)
+    #     groups = gromacsPlugin.parseIndexFile(self, outIndex)
+    #     return groups
 
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
@@ -544,7 +550,7 @@ class GromacsMDSimulation(EMProtocol):
 
         if msjDic['restraints'].strip() not in ('', 'None'):
             rSuffix = f"{msjDic['restraints']}_stg{mdpStage}"
-            groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
+            groupNr = gromacsPlugin.translateNamesToIndexGroup(self, [msjDic['restraints']])
 
             newSuffixes = self.gromacsSystem.get().\
               defineNewRestriction(self, index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,

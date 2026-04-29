@@ -245,7 +245,7 @@ class Plugin(pwchemPlugin):
 			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
 
 	@classmethod
-	def parseIndexFile(self, indexFile):
+	def parseIndexFile(cls, protocol, indexFile):
 		groups, index = {}, 0
 		with open(indexFile) as f:
 			for line in f:
@@ -254,12 +254,26 @@ class Plugin(pwchemPlugin):
 					index += 1
 		return groups
 
-	def translateNamesToIndexGroup(self, names):
+	@classmethod
+	def translateNamesToIndexGroup(cls, protocol, names):
 		"""Translate group name(s) to their numeric index in the index file."""
-		indexFile = self.ensureIndexFile()
-		groups = self.parseIndexFile(indexFile)
+		indexFile = protocol.ensureIndexFile()
+		groups = cls.parseIndexFile(protocol, indexFile)
 		invGroups = {v: k for k, v in groups.items()}
 		return [invGroups.get(name, name) for name in names]
+
+	@classmethod
+	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=['q']):
+		outIndex = protocol._getExtraPath('indexes.ndx') if not outIndex else outIndex
+		outDir = (os.path.dirname(outIndex))
+		inIndex = f' -n {inIndex}' if inIndex else ''
+		command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
+
+		if inputCommands[-1] != 'q':
+			inputCommands.append('q')
+		cls.runGromacsPrintf(protocol, printfValues=inputCommands, args=command, cwd=outDir)
+		groups = cls.parseIndexFile(protocol, outIndex)
+		return outIndex
 
 	@classmethod
 	def checkCudaVersion(cls):
@@ -270,7 +284,6 @@ class Plugin(pwchemPlugin):
 		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
 		try:
 			# Getting CUDA version from nvcc
-			# nvcc output usually looks like: "nvcc: NVIDIA (R) Cuda compiler driver... release 12.1, V12.1.105"
 			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
 
 			lines = result.split('\n')

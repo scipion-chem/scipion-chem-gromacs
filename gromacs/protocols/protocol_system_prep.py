@@ -392,7 +392,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
           ligName = molName.split('_')[-1]
           groSystem.setLigandID(ligName)
           groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
-
+          indexFile = gromacsPlugin.createIndexFile(self, groSystem, inputCommands=['1 | 13', 'q'])
+        else:
+            indexFile = gromacsPlugin.createIndexFile(self, groSystem)
+        groSystem.setIndexFile(indexFile)
         self._defineOutputs(outputSystem=groSystem)
 
     # --------------------------- INFO functions -----------------------------------
