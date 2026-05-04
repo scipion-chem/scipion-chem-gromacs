@@ -135,10 +135,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
-
         """ Define the input parameters that will be used.
         """
-
         form.addSection(label=Message.LABEL_INPUT)
 
         form.addParam('inputFrom', params.EnumParam, default=STRUCTURE,
@@ -153,9 +151,20 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         form.addParam('inputLigand', params.StringParam, condition='inputFrom==1',
                       label='Ligand to prepare: ',
                       help='Specific ligand to prepare in the system')
+
+        group = form.addGroup('Force field')
+        self._defineFFParams(group)
+
         self._defineACPYPEparams(form, condition=f'inputFrom=={LIGAND}')
 
+        form.addSection('MD prep')
         group = form.addGroup('Boundary box')
+        self._defineBoxParams(group)
+
+        group = form.addGroup('Ions')
+        self._defineIonsParams(group)
+
+    def _defineBoxParams(self, group):
         group.addParam('boxType', params.EnumParam,
                        choices=['Cubic', 'Orthorhombic'],
                        label="Shape of the box: ", default=1,
@@ -180,8 +189,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         line.addParam('padDist', params.FloatParam, condition='sizeType == 1',
                       default=1.0, label='Buffer distance: ')
 
-        form.addSection('Force Field')
-        group = form.addGroup('Force field')
+    def _defineFFParams(self, group):
         group.addParam('mainForceField', params.EnumParam, choices=GROMACS_LIST,
                        default=GROMACS_AMBER03,
                        label='Main Force Field: ',
@@ -192,7 +200,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                        label='Water Force Field: ',
                        help='Force field applied to the waters')
 
-        group = form.addGroup('Ions')
+    def _defineIonsParams(self, group):
         group.addParam('placeIons', params.EnumParam, default=1,
                        label='Add ions: ', choices=['None', 'Neutralize', 'Add number'],
                        help='Whether to add ions to the system.'

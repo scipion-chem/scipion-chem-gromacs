@@ -306,8 +306,8 @@ class GromacsMDSimulation(EMProtocol):
         indexFile = self.gromacsSystem.get().getIndexFile()
         if os.path.exists(indexFile):
             outSystem.setIndexFile(indexFile)
-        # crearlo cuando no exista
-
+        else:
+            gromacsPlugin.createIndexFile(self, outSystem)
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
 
@@ -445,7 +445,7 @@ class GromacsMDSimulation(EMProtocol):
         """ Helper function to convert GRO to PDB while stripping water and ions """
         inpSystem = self.gromacsSystem.get()
         if inpSystem.hasLig() is not None:
-            printGroup = ['21']
+            printGroup = [f'Protein_{inpSystem.getLigandID()}']
         else:
             printGroup = ['Protein']
 
@@ -467,22 +467,6 @@ class GromacsMDSimulation(EMProtocol):
 
     def getCustomIndexFile(self):
         return self._getExtraPath('custom_indexes.ndx')
-
-    # def parseIndexFile(self, indexFile):
-    #     groups, index = {}, 0
-    #     with open(indexFile) as f:
-    #         for line in f:
-    #             if line.startswith('['):
-    #                 groups[index] = line.replace('[', '').replace(']', '').strip()
-    #                 index += 1
-    #     return groups
-    #
-    # def translateNamesToIndexGroup(self, names):
-    #     """Translate group name(s) to their numeric index in the index file."""
-    #     indexFile = self.ensureIndexFile()
-    #     groups = self.parseIndexFile(indexFile)
-    #     invGroups = {v: k for k, v in groups.items()}
-    #     return [invGroups.get(name, name) for name in names]
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -525,18 +509,6 @@ class GromacsMDSimulation(EMProtocol):
         if pName not in msjDic:
           msjDic[pName] = paramDic[pName].default
       return msjDic
-
-    # def createIndexFile(self, system, inIndex=None, outIndex=None, inputCommands=['q']):
-    #     outIndex = self._getExtraPath('indexes.ndx') if not outIndex else outIndex
-    #     outDir = (os.path.dirname(outIndex))
-    #     inIndex = f' -n {inIndex}' if inIndex else ''
-    #     command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
-    #
-    #     if inputCommands[-1] != 'q':
-    #         inputCommands.append('q')
-    #     gromacsPlugin.runGromacsPrintf(self, printfValues=inputCommands, args=command, cwd=outDir)
-    #     groups = gromacsPlugin.parseIndexFile(self, outIndex)
-    #     return groups
 
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))

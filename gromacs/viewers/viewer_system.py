@@ -63,8 +63,8 @@ class GromacsSystemPViewer(MDSystemPViewer):
             section = form.getSection('Receptor-ligand interactions')
         else:
             section = form.addSection('Receptor-ligand interactions')
-        form.addGroup('Free energy analysis')
-        form.addParam('displayGmxMmpbsa', params.LabelParam,
+        group = form.addGroup('Free energy analysis')
+        group.addParam('displayGmxMmpbsa', params.LabelParam,
                       label='Open interactive analysis: ',
                       help='Display the results of the free energy calculation unsing '
                            'gmx_MMPBSA_ana')
