@@ -68,8 +68,7 @@ CALC_GB   = 0
 CALC_PB   = 1
 ENT_NONE  = 0
 ENT_IE    = 1
-ENT_CA    = 2
-ENT_NMODE = 3
+ENT_NMODE = 2
 IGB_VALS  = [1, 2, 5, 7, 8]          # AMBER igb numbers shown in the enum
 
 scriptLigPrepName = 'rdkit_addHydrogens.py'
@@ -157,7 +156,6 @@ class GromacsMMPBSA(GromacsSystemPrep):
                      label='Entropy method: ',
                      choices=['None',
                               'Interaction Entropy (IE)',
-                              'C2 approximation',
                               'Normal Mode Analysis (nmode)'],
                      default=ENT_NONE,
                      help='Entropy correction to obtain ΔG from ΔH:\n'
@@ -300,8 +298,8 @@ class GromacsMMPBSA(GromacsSystemPrep):
                        help='Stop minimization when the maximum force < x kJ/mol/nm.\n'
                             'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emtol')
         grp.addParam('emStep', params.FloatParam, default=0.002,
-                       label='Initial step-size (nm)[emstep]: ',
-                       help='Initial step-size (nm)[emstep].\n'
+                       label='Initial step-size (nm): ',
+                       help='Initial step-size (nm).\n'
                             'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emstep')
 
     # ── Step insertion ──────────────────────────────────────────────────────
@@ -593,7 +591,7 @@ class GromacsMMPBSA(GromacsSystemPrep):
         Mode A: single outputFreeEnergy object.
         Mode B: one output per pose named outputFreeEnergy_{poseId}.
         """
-        calcModel = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
+        calcModel = 'MMGBSA' if self.calcType.get() == CALC_GB else 'MMPBSA'
 
         if self.inputFrom.get() == INPUT_GROMACS:
             outFile = self._getPath('result.dat')
@@ -627,7 +625,10 @@ class GromacsMMPBSA(GromacsSystemPrep):
                     continue
 
                 dg, _ = _parseFinalDeltaG(outFile)
-                mol.free_energy = pwobj.Float(dg)
+                if calcModel == 'MMGBSA':
+                    mol.MMGBSA_deltaG = pwobj.Float(dg)
+                elif calcModel == 'MMPBSA':
+                    mol.MMPBSA_deltaG = pwobj.Float(dg)
                 outputSet.append(mol)
             self._defineOutputs(outputSmallMolecules=outputSet)
             summaryLines.append(f'{poseId:<25} {dg:>+16.2f}')
