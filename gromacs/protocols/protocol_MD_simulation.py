@@ -30,7 +30,6 @@
 This module will perform energy minimizations for the system
 """
 import glob, uuid
-import os.path
 
 from pyworkflow.object import String
 from pyworkflow.protocol import params
@@ -444,12 +443,13 @@ class GromacsMDSimulation(EMProtocol):
     def _convertGroToPdbNoWat(self, groFile, pdbFile):
         """ Helper function to convert GRO to PDB while stripping water and ions """
         inpSystem = self.gromacsSystem.get()
-        if inpSystem.hasLig() is not None:
+        if inpSystem.hasLig():
             printGroup = [f'Protein_{inpSystem.getLigandID()}']
         else:
             printGroup = ['Protein']
 
-        params = " editconf -f {} -n {} -o {}".format(os.path.abspath(groFile), os.path.abspath(self.gromacsSystem.get().getIndexFile()), os.path.abspath(pdbFile))
+        chain = inpSystem.getChainNames()[0]
+        params = " editconf -f {} -n {} -o {} -label {}".format(os.path.abspath(groFile), os.path.abspath(self.gromacsSystem.get().getIndexFile()), os.path.abspath(pdbFile), chain)
         gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
                                        args=params, cwd=self._getPath())
 

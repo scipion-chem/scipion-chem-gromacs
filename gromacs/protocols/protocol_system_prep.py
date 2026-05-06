@@ -391,18 +391,55 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                                        self._getPath('posre.itp')
 
         chainNames = ','.join(self.getModelChains())
-
         groSystem = grobj.GromacsSystem(filename=groPath, topoFile=topoPath,
                                         restrFile=posrePath, chainNames=chainNames,
                                         ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
+
+        modelChains, lengths = self.getModelChainsAndLengths()
+        indexCommands = []
+
         if self.inputFrom.get() == LIGAND:
-          molName = self.getLigandName()
-          ligName = molName.split('_')[-1]
-          groSystem.setLigandID(ligName)
-          groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
-          indexFile = gromacsPlugin.createIndexFile(self, groSystem, inputCommands=['1 | 13', 'q'])
+            molName = self.getLigandName()
+            ligName = molName.split('_')[-1]
+            groSystem.setLigandID(ligName)
+            groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
+            indexCommands.append('1 | 13')
+
+            indexFile = gromacsPlugin.createIndexFile(self, groSystem, inputCommands=indexCommands)
         else:
             indexFile = gromacsPlugin.createIndexFile(self, groSystem)
+
+        # Parse the index file to find the last group number
+        groups = gromacsPlugin.parseIndexFile(self, indexFile)
+        lastGroupIndex = max(groups.keys())
+        indexCommands = []
+        print(modelChains, lengths)
+        if len(modelChains) > 1:
+            current_residue_pointer = 1
+
+            # 1. Create the 'ri' selections based on sequential count
+            for chainId in modelChains:
+                chain_length = lengths[chainId]
+                start = current_residue_pointer
+                end = current_residue_pointer + chain_length - 1
+
+                indexCommands.append(f'ri {start}-{end}')
+
+                # Move the pointer to the start of the next chain
+                current_residue_pointer = end + 1
+
+            # 2. Name the groups (starting from the lastGroupIndex + 1)
+            for i, chainId in enumerate(modelChains):
+                # lastGroupIndex is the number of groups BEFORE our new selections
+                indexCommands.append(f'name {lastGroupIndex + i + 1} chain{chainId}')
+
+            indexCommands.append('q')
+
+            # Run the index creation
+            indexFile = gromacsPlugin.createIndexFile(self, groSystem,
+                                                      inIndex=os.path.abspath(indexFile),
+                                                      inputCommands=indexCommands)
+
         groSystem.setIndexFile(indexFile)
         self._defineOutputs(outputSystem=groSystem)
 
@@ -570,5 +607,24 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
         structureHandler.getStructure()
-        chains, _ = structureHandler.getModelsChains()
+        chains, residues = structureHandler.getModelsChains()
+        print(chains[0].keys())
+        print(residues[0])
         return list(chains[0].keys())
+
+    def getModelChainsAndLengths(self):
+        inputStructure = self.getInputReceptorFile()
+        if not inputStructure.endswith('.pdb'):
+            inputStructure = self.convertReceptor2PDB(inputStructure)
+
+        structureHandler = AtomicStructHandler()
+        structureHandler.read(inputStructure)
+        structureHandler.getStructure()
+
+        chains, _ = structureHandler.getModelsChains()
+
+        modelChains = list(chains[0].keys())
+        # This dictionary will store the count of residues per chain
+        lengths = dict(chains[0])
+
+        return modelChains, lengths
