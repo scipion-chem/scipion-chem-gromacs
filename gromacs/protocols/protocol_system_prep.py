@@ -635,7 +635,12 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         return list(chains[0].keys())
 
     def getModelChainsAndLengths(self):
-        inputStructure = self.getInputReceptorFile()
+        if self.getEnumText('addCaps') in ['Gaps termini', 'All termini']:
+            systemBasename = self.getSystemName()
+            inputStructure = os.path.abspath(os.path.join(self._getExtraPath(), f'{systemBasename}_capped.pdb'))
+        else:
+            inputStructure = self.getInputReceptorFile()
+
         if not inputStructure.endswith('.pdb'):
             inputStructure = self.convertReceptor2PDB(inputStructure)
 
@@ -721,7 +726,6 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             "reinitialize",
             f"load {inputPdb}, protein",
             "remove hydro",
-            # "remove name OXT",
             "hide all",
             "show sticks, protein"
         ]
