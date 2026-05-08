@@ -69,7 +69,6 @@ class GromacsMDSimulation(EMProtocol):
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
-
         """ Define the input parameters that will be used.
         """
         cpus = cpu_count()//2 # don't use everything
@@ -264,9 +263,9 @@ class GromacsMDSimulation(EMProtocol):
         self.createGUISummary()
         i = 1
         for wStep in self.workFlowSteps.get().strip().split('\n'):
-            self._insertFunctionStep('simulateStageStep', wStep, i)
+            self._insertFunctionStep(self.simulateStageStep, wStep, i)
             i += 1
-        self._insertFunctionStep('createOutputStep')
+        self._insertFunctionStep(self.createOutputStep)
 
     def simulateStageStep(self, wStep, i):
       if wStep in ['', None]:
@@ -441,17 +440,73 @@ class GromacsMDSimulation(EMProtocol):
         gromacsPlugin.runGromacs(self, 'gmx editconf', args)
 
     def _convertGroToPdbNoWat(self, groFile, pdbFile):
-        """ Helper function to convert GRO to PDB while stripping water and ions """
+        """ Helper function to convert GRO to PDB while preserving chain labels """
         inpSystem = self.gromacsSystem.get()
-        if inpSystem.hasLig():
-            printGroup = [f'Protein_{inpSystem.getLigandID()}']
-        else:
-            printGroup = ['Protein']
+        modelChains = inpSystem.getChainNames()
 
-        chain = inpSystem.getChainNames()[0]
-        params = " editconf -f {} -n {} -o {} -label {}".format(os.path.abspath(groFile), os.path.abspath(self.gromacsSystem.get().getIndexFile()), os.path.abspath(pdbFile), chain)
-        gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
-                                       args=params, cwd=self._getPath())
+        if len(modelChains) == 1:
+            if inpSystem.hasLig():
+                printGroup = [f'Protein_{inpSystem.getLigandID()}']
+            else:
+                printGroup = ['Protein']
+
+            chain = inpSystem.getChainNames()[0]
+            params = " editconf -f {} -n {} -o {} -label {}".format(
+                os.path.abspath(groFile),
+                os.path.abspath(inpSystem.getIndexFile()),
+                os.path.abspath(pdbFile),
+                chain)
+            gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
+                                           args=params, cwd=self._getPath())
+        else:
+            # Multiple chains - process each separately and combine
+            allPdbs = []
+
+            # Extract each protein chain with proper chain label
+            for chainId in modelChains:
+                chainPdb = self._getTmpPath(f'chain_{chainId}.pdb')
+                allPdbs.append(chainPdb)
+
+                params = " editconf -f {} -n {} -o {} -label {}".format(
+                    os.path.abspath(groFile),
+                    os.path.abspath(inpSystem.getIndexFile()),
+                    os.path.abspath(chainPdb),
+                    chainId)
+                gromacsPlugin.runGromacsPrintf(self, printfValues=[f'chain{chainId}'],
+                                               args=params, cwd=self._getPath())
+
+            # Add ligand if present
+            if inpSystem.hasLig():
+                ligPdb = self._getTmpPath('ligand.pdb')
+                allPdbs.append(ligPdb)
+
+                ligId = inpSystem.getLigandID()
+                params = " editconf -f {} -n {} -o {} -label L".format(
+                    os.path.abspath(groFile),
+                    os.path.abspath(inpSystem.getIndexFile()),
+                    os.path.abspath(ligPdb))
+                gromacsPlugin.runGromacsPrintf(self, printfValues=[ligId],
+                                               args=params, cwd=self._getPath())
+
+            # Combine all PDBs into one file
+            with open(pdbFile, 'w') as outFile:
+                first_file = True
+
+                for pdb in allPdbs:
+                    with open(pdb, 'r') as inFile:
+                        for line in inFile:
+                            # 1. Keep the unit cell info (CRYST1) only from the first file
+                            if first_file and line.startswith('CRYST1'):
+                                outFile.write(line)
+                                first_file = False
+
+                            # 2. Only keep coordinate records
+                            # removes REMARK, TER, TITLE, MASTER, etc.
+                            if line.startswith(('ATOM', 'HETATM')):
+                                outFile.write(line)
+
+                # 3. Close the file properly
+                outFile.write('END\n')
 
     def ensureIndexFile(self):
         """Return the protocol index file, creating it first if it does not exist.
