@@ -163,28 +163,26 @@ class GromacsMMPBSA(GromacsSystemPrep):
                           '  IE    — fast, reasonably accurate for ranking \n'
                           '  C2    — fast, based on energy variance \n'
                           '  nmode — most rigorous but very slow')
-
-        grp = form.addGroup('Normal mode entropy calculation')
         grp.addParam('ieSegment', params.IntParam,
                      label='IE segment (%): ',
                      default=25, expertLevel=params.LEVEL_ADVANCED,
                      condition='entropyType == {}'.format(ENT_IE),
                      help='Percentage of frames (from the end) used to compute the '
                           'Interaction Entropy average.')
+        grp = form.addGroup('Normal mode entropy calculation', condition='entropyType == {}'.format(ENT_NMODE))
 
         nmodeFrame = grp.addLine('Frame selection:',  condition='entropyType == {}'.format(ENT_NMODE),
                             help='The trajectory from which snapshots will be chosen for nmode calculations will be the collection'
                                  ' of snapshots upon which the other calculations were performed (keep low, '
                                  'e.g. 10–50 — each frame requires a minimisation). ')
-
         nmodeFrame.addParam('nmStartFrame', params.IntParam,
                      label='Start frame',
-                     default=1,
+                     default=None,
                      help='Number of frames for normal mode entropy (keep low, '
                           'e.g. 10–50 — each frame requires a minimisation).')
         nmodeFrame.addParam('nmEndFrame', params.IntParam,
                        label='Start frame',
-                       default=10000,
+                       default=None,
                        help='Number of frames for normal mode entropy (keep low, '
                             'e.g. 10–50 — each frame requires a minimisation).')
         nmodeFrame.addParam('nmIntervalFrame', params.IntParam,
