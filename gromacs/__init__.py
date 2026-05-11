@@ -166,7 +166,6 @@ class Plugin(pwchemPlugin):
 
 	@classmethod
 	def getGMXMMPBSAEnvActivation(cls):
-		print(cls.getEnvActivationCommand(GMXMMPBSA_DIC))
 		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
 
 
@@ -271,7 +270,7 @@ class Plugin(pwchemPlugin):
 
 		if inputCommands[-1] != 'q':
 			inputCommands.append('q')
-		cls.runGromacsPrintf(protocol, printfValues=inputCommands, args=command, cwd=outDir)
+		cls.runGromacsPrintfViewer(printfValues=inputCommands, args=command, cwd=outDir)
 		groups = cls.parseIndexFile(protocol, outIndex)
 		return outIndex
 
@@ -301,3 +300,47 @@ class Plugin(pwchemPlugin):
 				f"Please install CUDA >= {CUDA_MINIMUM_VERSION_V26} or update your PATH by following the instructions at {cudaInstallURL}"))
 		except Exception as e:
 			raise Exception(redStr(f"Cannot get the CUDA version: {str(e)}\nPlease check your CUDA installation."))
+
+	@classmethod
+	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
+		indexCommands = []
+
+		if ligandName is not None:
+			indexCommands.append('1 | 13')
+			indexFile = cls.createIndexFile(protocol, groSystem, inputCommands=indexCommands)
+		else:
+			# Create basic index file with default GROMACS groups
+			indexFile = cls.createIndexFile(protocol, groSystem)
+
+		if modelChains is not None and chainLengths is not None and len(modelChains) > 1:
+			# Parse existing index file to find the last group number
+			groups = cls.parseIndexFile(protocol, indexFile)
+			lastGroupIndex = max(groups.keys())
+
+			indexCommands = []
+			residuePointer = 1
+
+			for chainId in modelChains:
+				chainLength = chainLengths[chainId]
+				start = residuePointer
+				end = residuePointer + chainLength - 1
+
+				indexCommands.append(f'ri {start}-{end}')
+
+				residuePointer = end + 1
+
+			# Name each newly created group
+			for i, chainId in enumerate(modelChains):
+				group_number = lastGroupIndex + i + 1
+				indexCommands.append(f'name {group_number} chain{chainId}')
+
+			indexCommands.append('q')
+
+			# Create updated index file with per-chain groups
+			indexFile = cls.createIndexFile(
+				protocol, groSystem,
+				inIndex=os.path.abspath(indexFile),
+				inputCommands=indexCommands
+			)
+		return indexFile
+

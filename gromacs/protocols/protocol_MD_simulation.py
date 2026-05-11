@@ -514,10 +514,7 @@ class GromacsMDSimulation(EMProtocol):
         inpSystem = self.gromacsSystem.get()
         indexFile = inpSystem.getIndexFile()
         if not os.path.exists(indexFile):
-            indexFile = self.getCustomIndexFile()
-            sysIndex = inpSystem.getIndexFile()
-            inIndex = sysIndex if sysIndex and os.path.exists(sysIndex) else None
-            gromacsPlugin.createIndexFile(self, inpSystem, inIndex=inIndex, outIndex=indexFile)
+            indexFile = gromacsPlugin.firstIndexCreation() # HACER ESTO BIEN
         return indexFile
 
     def getCustomIndexFile(self):
