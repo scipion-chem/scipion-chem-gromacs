@@ -29,7 +29,7 @@ import os
 from pyworkflow.tests import BaseTest, setupTestProject, DataSet
 from pwem.protocols import ProtImportPdb
 
-from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation
+from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation, GromacsMmpbsa
 from gromacs import Plugin as gromacsPlugin
 
 from pwchem.tests import TestExtractLigand
