@@ -69,12 +69,12 @@ CALC_PB   = 1
 ENT_NONE  = 0
 ENT_IE    = 1
 ENT_NMODE = 2
-IGB_VALS  = [1, 2, 5, 7, 8]          # AMBER igb numbers shown in the enum
+IGB_VALS  = [1, 2, 5, 7, 8]          # AMBER igb numbers
 
 scriptLigPrepName = 'rdkit_addHydrogens.py'
 
 
-class GromacsMMPBSA(GromacsSystemPrep):
+class GromacsMmpbsa(GromacsSystemPrep):
     """
     Protein–ligand MM/PBSA / MM/GBSA binding free energy via gmx_MMPBSA.
 
@@ -85,7 +85,7 @@ class GromacsMMPBSA(GromacsSystemPrep):
     Reference: Valdés-Tresanco et al., J. Chem. Theory Comput. 2021.
     https://valdes-tresanco-ms.github.io/gmx_MMPBSA/dev/
     """
-    _label = 'MM/PBGB binding free energy'
+    _label = 'MM/PBSA free energy calculation'
 
     def _defineParams(self, form):
         cpus = cpu_count() // 2  # don't use everything
@@ -108,8 +108,6 @@ class GromacsMMPBSA(GromacsSystemPrep):
                         allowsNull=True,
                         help='Set of docked molecules. The associated protein '
                              'file will be used as the receptor.')
-
-        # ── Mode A: Gromacs System ───────────────────────────────────────────
         form.addParam('gromacsSystem', params.PointerParam,
                       label='Input Gromacs System: ',
                       pointerClass='GromacsSystem', condition=f'inputFrom=={INPUT_GROMACS}',
@@ -176,12 +174,12 @@ class GromacsMMPBSA(GromacsSystemPrep):
                                  ' of snapshots upon which the other calculations were performed (keep low, '
                                  'e.g. 10–50 — each frame requires a minimisation). ')
         nmodeFrame.addParam('nmStartFrame', params.IntParam,
-                     label='Start frame',
+                     label='Start frame', allowsNull=True,
                      default=None,
                      help='Number of frames for normal mode entropy (keep low, '
                           'e.g. 10–50 — each frame requires a minimisation).')
         nmodeFrame.addParam('nmEndFrame', params.IntParam,
-                       label='Start frame',
+                       label='Start frame', allowsNull=True,
                        default=None,
                        help='Number of frames for normal mode entropy (keep low, '
                             'e.g. 10–50 — each frame requires a minimisation).')
@@ -511,8 +509,6 @@ class GromacsMMPBSA(GromacsSystemPrep):
         if self.entropyType.get() == ENT_IE:
             content = self.patchInFile(content, 'interaction_entropy', 1)
             content = self.patchInFile(content, 'ie_segment', self.ieSegment.get())
-        elif self.entropyType.get() == ENT_CA:
-            content = self.patchInFile(content, 'c2_entropy', 1)
 
         # &gb
         if self.calcType.get() == CALC_GB:

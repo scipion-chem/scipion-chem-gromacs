@@ -29,4 +29,4 @@ from .protocol_system_prep import GromacsSystemPrep
 from .protocol_MD_simulation import GromacsMDSimulation
 from .protocol_modify_trajectory import GromacsModifySystem
 from .protocol_import_system import GromacsImportSystem
-from .protocol_MMPBGB import GromacsMMPBSA
+from .protocol_MMPBGB import GromacsMmpbsa

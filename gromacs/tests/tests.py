@@ -26,11 +26,18 @@
 
 import os
 
+from pwchem.objects import MDSystem
 from pyworkflow.tests import BaseTest, setupTestProject, DataSet
 from pwem.protocols import ProtImportPdb
 
-from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation
+from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation, GromacsMmpbsa
 from gromacs import Plugin as gromacsPlugin
+
+from pwchem.tests import TestExtractLigand
+from pwchem.protocols.VirtualDrugScreening.protocol_receptor_preparation import ProtChemPrepareReceptor
+
+STRUCTURE, LIGAND = 0, 1
+chainStr = '{"model": 0, "chain": "A", "residues": 236}'
 
 workflow = '''{'simTime': 100.0, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'Protein', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'Energy min', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman'}
 {'simTime': 0.1, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': True, 'trajInterval': 0.05, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'MainChain', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman'}
@@ -42,7 +49,7 @@ summary = '''1) Minimization (steep): 100 steps, 1000.0 objective force, restrai
 
 
 
-class TestGromacsPrepareSystem(BaseTest):
+class TestGromacsPrepareSystem(TestExtractLigand):
     @classmethod
     def setUpClass(cls):
         cls.ds = DataSet.getDataSet('model_building_tutorial')
@@ -52,26 +59,51 @@ class TestGromacsPrepareSystem(BaseTest):
 
     @classmethod
     def _runImportPDB(cls):
-        cls.protImportPDB = cls.newProtocol(
+        protImportPDB = cls.newProtocol(
             ProtImportPdb,
-            inputPdbData=1,
-            pdbFile=cls.ds.getFile('PDBx_mmCIF/1ake_mut1.pdb'))
-        cls.proj.launchProtocol(cls.protImportPDB, wait=False)
+            inputPdbData=0, pdbId='1uaz')
+        cls.launchProtocol(protImportPDB)
+        cls.protImportPDB = protImportPDB
 
     @classmethod
-    def _runPrepareSystem(cls):
-        protPrepare = cls.newProtocol(
-            GromacsSystemPrep,
-            inputStructure=cls.protImportPDB.outputPdb,
-            boxType=1, sizeType=1, padDist=2.0,
-            mainForceField=0, waterForceField=2,
-            placeIons=1, cationType=7, anionType=1)
+    def _runPrepareReceptor(cls):
+        cls.protPrepareReceptor = cls.newProtocol(
+            ProtChemPrepareReceptor,
+            inputAtomStruct=cls.protImportPDB.outputPdb,
+            HETATM=True, rchains=True,
+            chain_name=chainStr)
 
-        cls.launchProtocol(protPrepare)
-        return protPrepare
+        cls.launchProtocol(cls.protPrepareReceptor)
+
+    @classmethod
+    def _runPrepareSystem(cls, protPrepare, inputFrom=STRUCTURE):
+        protPrepareS = cls.newProtocol(
+            GromacsSystemPrep, inputFrom=inputFrom)
+
+        if inputFrom == STRUCTURE:
+            protPrepareS.inputStructure.set(protPrepare)
+            protPrepareS.inputStructure.setExtended('outputStructure')
+        else:
+            protPrepareS.inputSetOfMols.set(protPrepare)
+            protPrepareS.inputSetOfMols.setExtended('outputSmallMolecules')
+            protPrepareS.inputLigand.set('SmallMolecule (g1_1uaz_RET-1_1 molecule)')
+
+        cls.launchProtocol(protPrepareS)
+        return protPrepareS
 
     def test(self):
-        protPrepare = self._runPrepareSystem()
+        self._runPrepareReceptor()
+        self._waitOutput(self.protPrepareReceptor, 'outputStructure', sleepTime=10)
+
+        protPrepare = self._runPrepareSystem(self.protPrepareReceptor)
+        self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
+        self.assertIsNotNone(getattr(protPrepare, 'outputSystem', None))
+
+    def test2(self):
+        protExtract = self._runExtractLigand(self.protImportPDB, chainStr)
+        self._waitOutput(protExtract, 'outputSmallMolecules')
+
+        protPrepare = self._runPrepareSystem(protExtract, inputFrom=LIGAND)
         self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
         self.assertIsNotNone(getattr(protPrepare, 'outputSystem', None))
 
@@ -84,12 +116,6 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
             gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
         protSim.setObjLabel('gromacs - gmx MD sim')
 
-        outIndex = protSim.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            protSim.parseIndexFile(outIndex)
-        else:
-            protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
-
         self.launchProtocol(protSim)
         return protSim
     
@@ -98,12 +124,6 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
             GromacsMDSimulation, gmxMPI=True, numberOfMpi=2, 
             gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
         protSim.setObjLabel('gromacs - gmx_mpi MD sim')
-
-        outIndex = protSim.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            protSim.parseIndexFile(outIndex)
-        else:
-            protSim.createIndexFile(protPrepare.outputSystem, inIndex=None, outIndex=protSim.getCustomIndexFile())
 
         self.launchProtocol(protSim)
         return protSim
@@ -136,3 +156,42 @@ class TestGromacsTrajMod(TestGromacsRunSimulation):
         self._waitOutput(protSim, 'outputSystem', sleepTime=10)
         protMod = self._modSimulation(protSim)
         self.assertIsNotNone(getattr(protMod, 'outputSystem', None))
+        
+
+class TestGromacsMMPBSA(TestGromacsRunSimulation, TestExtractLigand):
+    @classmethod
+    def _runInteractions(cls, protIn, inputFrom=STRUCTURE):
+        protInt = cls.newProtocol(
+          GromacsMmpbsa, inputFrom=inputFrom, nStepsMin=500, interval=1)
+
+        if inputFrom == STRUCTURE:
+            protInt.gromacsSystem.set(protIn)
+            protInt.gromacsSystem.setExtended('outputSystem')
+        else:
+            protInt.inputSetOfMols.set(protIn)
+            protInt.inputSetOfMols.setExtended('outputSmallMolecules')
+
+        cls.launchProtocol(protInt)
+        return protInt
+
+    def test(self):
+        protExtract = self._runExtractLigand(self.protImportPDB, chainStr)
+        self._waitOutput(protExtract, 'outputSmallMolecules')
+
+        protPrepare = self._runPrepareSystem(protExtract, inputFrom=LIGAND)
+        self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
+
+        protSim = self._runSimulation(protPrepare)
+        self._waitOutput(protSim, 'outputSystem', sleepTime=10)
+
+        protInt = self._runInteractions(protSim)
+        self._waitOutput(protInt, 'outputSystem', sleepTime=10)
+        self.assertIsNotNone(getattr(protInt, 'outputSystem', None))
+
+    def test2(self):
+        protExtract = self._runExtractLigand(self.protImportPDB, chainStr)
+        self._waitOutput(protExtract, 'outputSmallMolecules')
+
+        protInt = self._runInteractions(protExtract, inputFrom=LIGAND)
+        self._waitOutput(protInt, 'outputSmallMolecules', sleepTime=10)
+        self.assertIsNotNone(getattr(protInt, 'outputSmallMolecules', None))
