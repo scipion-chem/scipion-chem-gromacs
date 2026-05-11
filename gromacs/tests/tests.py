@@ -26,11 +26,10 @@
 
 import os
 
-from pwchem.objects import MDSystem
 from pyworkflow.tests import BaseTest, setupTestProject, DataSet
 from pwem.protocols import ProtImportPdb
 
-from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation, GromacsMmpbsa
+from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation
 from gromacs import Plugin as gromacsPlugin
 
 from pwchem.tests import TestExtractLigand
@@ -48,14 +47,7 @@ summary = '''1) Minimization (steep): 100 steps, 1000.0 objective force, restrai
 3) MD simulation: 0.2 ps, NPT ensemble, 300.0 K'''
 
 
-
 class TestGromacsPrepareSystem(TestExtractLigand):
-    @classmethod
-    def setUpClass(cls):
-        cls.ds = DataSet.getDataSet('model_building_tutorial')
-        setupTestProject(cls)
-        cls._runImportPDB()
-        cls._waitOutput(cls.protImportPDB, 'outputPdb', sleepTime=5)
 
     @classmethod
     def _runImportPDB(cls):
@@ -118,10 +110,10 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
 
         self.launchProtocol(protSim)
         return protSim
-    
+
     def _runSimulationMPI(self, protPrepare):
         protSim = self.newProtocol(
-            GromacsMDSimulation, gmxMPI=True, numberOfMpi=2, 
+            GromacsMDSimulation, gmxMPI=True, numberOfMpi=2,
             gromacsSystem=protPrepare.outputSystem, workFlowSteps=workflow, summarySteps=summary)
         protSim.setObjLabel('gromacs - gmx_mpi MD sim')
 
@@ -129,7 +121,10 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
         return protSim
 
     def test(self):
-        protPrepare = self._runPrepareSystem()
+        self._runPrepareReceptor()
+        self._waitOutput(self.protPrepareReceptor, 'outputStructure', sleepTime=10)
+
+        protPrepare = self._runPrepareSystem(self.protPrepareReceptor)
         self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
         protSim = self._runSimulation(protPrepare)
         self._waitOutput(protSim, 'outputSystem', sleepTime=10)
@@ -137,6 +132,8 @@ class TestGromacsRunSimulation(TestGromacsPrepareSystem):
         protSimMPI = self._runSimulationMPI(protPrepare)
         self._waitOutput(protSimMPI, 'outputSystem', sleepTime=10)
         self.assertIsNotNone(getattr(protSimMPI, 'outputSystem', None))
+
+    test2 = None
 
 
 class TestGromacsTrajMod(TestGromacsRunSimulation):
@@ -150,13 +147,17 @@ class TestGromacsTrajMod(TestGromacsRunSimulation):
         return protMod
 
     def test(self):
-        protPrepare = self._runPrepareSystem()
+        self._runPrepareReceptor()
+        self._waitOutput(self.protPrepareReceptor, 'outputStructure', sleepTime=10)
+
+        protPrepare = self._runPrepareSystem(self.protPrepareReceptor)
         self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
         protSim = self._runSimulation(protPrepare)
         self._waitOutput(protSim, 'outputSystem', sleepTime=10)
         protMod = self._modSimulation(protSim)
         self.assertIsNotNone(getattr(protMod, 'outputSystem', None))
-        
+    test2 = None
+
 
 class TestGromacsMMPBSA(TestGromacsRunSimulation, TestExtractLigand):
     @classmethod

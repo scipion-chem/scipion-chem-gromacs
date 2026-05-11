@@ -257,7 +257,7 @@ class Plugin(pwchemPlugin):
 	@classmethod
 	def translateNamesToIndexGroup(cls, protocol, names):
 		"""Translate group name(s) to their numeric index in the index file."""
-		indexFile = protocol.ensureIndexFile()
+		indexFile = cls.ensureIndexFile(protocol)
 		groups = cls.parseIndexFile(protocol, indexFile)
 		invGroups = {v: k for k, v in groups.items()}
 		return [invGroups.get(name, name) for name in names]
@@ -271,9 +271,62 @@ class Plugin(pwchemPlugin):
 
 		if inputCommands[-1] != 'q':
 			inputCommands.append('q')
-		cls.runGromacsPrintf(protocol, printfValues=inputCommands, args=command, cwd=outDir)
+		cls.runGromacsPrintfViewer(printfValues=inputCommands, args=command, cwd=outDir)
 		groups = cls.parseIndexFile(protocol, outIndex)
 		return outIndex
+
+	@classmethod
+	def ensureIndexFile(cls, protocol):
+		"""Return the protocol index file, creating it first if it does not exist.
+        """
+		inpSystem = protocol.gromacsSystem.get()
+		indexFile = inpSystem.getIndexFile()
+		if not os.path.exists(indexFile):
+			indexFile = cls.firstIndexCreation(protocol, inpSystem)
+		return indexFile
+
+	@classmethod
+	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
+		indexCommands = []
+
+		if ligandName is not None:
+			indexCommands.append('1 | 13')
+			indexFile = cls.createIndexFile(protocol, groSystem, inputCommands=indexCommands)
+		else:
+			# Create basic index file with default GROMACS groups
+			indexFile = cls.createIndexFile(protocol, groSystem)
+
+		if modelChains is not None and chainLengths is not None and len(modelChains) > 1:
+			# Parse existing index file to find the last group number
+			groups = cls.parseIndexFile(protocol, indexFile)
+			lastGroupIndex = max(groups.keys())
+
+			indexCommands = []
+			residuePointer = 1
+
+			for chainId in modelChains:
+				chainLength = chainLengths[chainId]
+				start = residuePointer
+				end = residuePointer + chainLength - 1
+
+				indexCommands.append(f'ri {start}-{end}')
+
+				residuePointer = end + 1
+
+			# Name each newly created group
+			for i, chainId in enumerate(modelChains):
+				group_number = lastGroupIndex + i + 1
+				indexCommands.append(f'name {group_number} chain{chainId}')
+
+			indexCommands.append('q')
+
+			# Create updated index file with per-chain groups
+			indexFile = cls.createIndexFile(
+				protocol, groSystem,
+				inIndex=os.path.abspath(indexFile),
+				inputCommands=indexCommands
+			)
+		return indexFile
 
 	@classmethod
 	def checkCudaVersion(cls):

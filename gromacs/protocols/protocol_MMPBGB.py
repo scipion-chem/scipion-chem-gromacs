@@ -46,7 +46,7 @@ from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import RDKIT_DIC
 
 from gromacs import Plugin as gromacsPlugin
-from gromacs.objects import GromacsSystem, FreeEnergyCalculation
+from gromacs.objects import GromacsSystem
 from gromacs.protocols.protocol_MD_simulation import GromacsMDSimulation
 
 from multiprocessing import cpu_count
