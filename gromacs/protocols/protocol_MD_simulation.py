@@ -37,6 +37,7 @@ from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
 from pwem.objects import AtomStruct
 from pwchem.utils import natural_sort
+from pwem.convert import AtomicStructHandler
 
 from gromacs.objects import *
 from gromacs.constants import *
@@ -508,15 +509,6 @@ class GromacsMDSimulation(EMProtocol):
                 # 3. Close the file properly
                 outFile.write('END\n')
 
-    def ensureIndexFile(self):
-        """Return the protocol index file, creating it first if it does not exist.
-        """
-        inpSystem = self.gromacsSystem.get()
-        indexFile = inpSystem.getIndexFile()
-        if not os.path.exists(indexFile):
-            indexFile = gromacsPlugin.firstIndexCreation() # HACER ESTO BIEN
-        return indexFile
-
     def getCustomIndexFile(self):
         return self._getExtraPath('custom_indexes.ndx')
 
@@ -570,7 +562,7 @@ class GromacsMDSimulation(EMProtocol):
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
         if os.path.exists(mdpFile): return mdpFile
 
-        indexFile = os.path.abspath(self.ensureIndexFile())
+        indexFile = os.path.abspath(gromacsPlugin.ensureIndexFile(self))
 
         if msjDic['restraints'].strip() not in ('', 'None'):
             rSuffix = f"{msjDic['restraints']}_stg{mdpStage}"

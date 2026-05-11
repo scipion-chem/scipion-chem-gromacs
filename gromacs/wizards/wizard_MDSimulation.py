@@ -75,11 +75,7 @@ class GromacsCheckIndexWizard(VariableWizard):
         inputParam, outputParam = self.getInputOutput(form)
 
         system = getattr(protocol, inputParam[0]).get()
-        customIndexFile = protocol.getCustomIndexFile()
-        if os.path.isfile(customIndexFile):
-            indexFile = customIndexFile
-        else:
-            indexFile = system.getIndexFile()
+        indexFile = gromacsPlugin.ensureIndexFile(protocol)
         groups = gromacsPlugin.parseIndexFile(protocol, indexFile)
 
         finalList = [String('-1: None')]

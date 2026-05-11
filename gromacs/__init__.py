@@ -166,6 +166,7 @@ class Plugin(pwchemPlugin):
 
 	@classmethod
 	def getGMXMMPBSAEnvActivation(cls):
+		print(cls.getEnvActivationCommand(GMXMMPBSA_DIC))
 		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
 
 
@@ -256,7 +257,7 @@ class Plugin(pwchemPlugin):
 	@classmethod
 	def translateNamesToIndexGroup(cls, protocol, names):
 		"""Translate group name(s) to their numeric index in the index file."""
-		indexFile = protocol.ensureIndexFile()
+		indexFile = cls.ensureIndexFile(protocol)
 		groups = cls.parseIndexFile(protocol, indexFile)
 		invGroups = {v: k for k, v in groups.items()}
 		return [invGroups.get(name, name) for name in names]
@@ -275,31 +276,14 @@ class Plugin(pwchemPlugin):
 		return outIndex
 
 	@classmethod
-	def checkCudaVersion(cls):
-		"""
-        ### This function checks if the current installed CUDA version (nvcc) is above the minimum required version.
-        ### If no version is provided it just checks if nvcc is installed.
+	def ensureIndexFile(cls, protocol):
+		"""Return the protocol index file, creating it first if it does not exist.
         """
-		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
-		try:
-			# Getting CUDA version from nvcc
-			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
-
-			lines = result.split('\n')
-			releaseLine = [line for line in lines if 'release' in line][0]
-			cudaVersion = releaseLine.split('release ')[1].split(',')[0]
-
-			# Checking if installed version is below minimum required
-			if CUDA_MINIMUM_VERSION_V26 and (cls.versionTuple(cudaVersion) < cls.versionTuple(CUDA_MINIMUM_VERSION_V26)):
-				raise Exception(redStr(
-					f"CUDA version ({cudaVersion}) is below {CUDA_MINIMUM_VERSION_V26}.\nPlease update your CUDA version or set your PATH to a newer version by following instructions at {cudaInstallURL}"))
-
-		except FileNotFoundError:
-			raise FileNotFoundError(redStr(
-				f"nvcc (CUDA) is not installed or not in your PATH.\n"
-				f"Please install CUDA >= {CUDA_MINIMUM_VERSION_V26} or update your PATH by following the instructions at {cudaInstallURL}"))
-		except Exception as e:
-			raise Exception(redStr(f"Cannot get the CUDA version: {str(e)}\nPlease check your CUDA installation."))
+		inpSystem = protocol.gromacsSystem.get()
+		indexFile = inpSystem.getIndexFile()
+		if not os.path.exists(indexFile):
+			indexFile = cls.firstIndexCreation(protocol, inpSystem)
+		return indexFile
 
 	@classmethod
 	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
@@ -344,3 +328,29 @@ class Plugin(pwchemPlugin):
 			)
 		return indexFile
 
+	@classmethod
+	def checkCudaVersion(cls):
+		"""
+        ### This function checks if the current installed CUDA version (nvcc) is above the minimum required version.
+        ### If no version is provided it just checks if nvcc is installed.
+        """
+		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
+		try:
+			# Getting CUDA version from nvcc
+			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
+
+			lines = result.split('\n')
+			releaseLine = [line for line in lines if 'release' in line][0]
+			cudaVersion = releaseLine.split('release ')[1].split(',')[0]
+
+			# Checking if installed version is below minimum required
+			if CUDA_MINIMUM_VERSION_V26 and (cls.versionTuple(cudaVersion) < cls.versionTuple(CUDA_MINIMUM_VERSION_V26)):
+				raise Exception(redStr(
+					f"CUDA version ({cudaVersion}) is below {CUDA_MINIMUM_VERSION_V26}.\nPlease update your CUDA version or set your PATH to a newer version by following instructions at {cudaInstallURL}"))
+
+		except FileNotFoundError:
+			raise FileNotFoundError(redStr(
+				f"nvcc (CUDA) is not installed or not in your PATH.\n"
+				f"Please install CUDA >= {CUDA_MINIMUM_VERSION_V26} or update your PATH by following the instructions at {cudaInstallURL}"))
+		except Exception as e:
+			raise Exception(redStr(f"Cannot get the CUDA version: {str(e)}\nPlease check your CUDA installation."))
