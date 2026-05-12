@@ -693,17 +693,17 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             "hide all",
             "show sticks, protein"
         ]
-
-        for gap in data['gaps']:
-            # Adds NME on the C-term and ACE on the N-term of gaps
-            pmlLines.append(self.removeOXTCommand(gap['chain'], gap['c_term']))
-            pmlLines.extend(self.addCapPmlCommand(gap['chain'], gap['c_term'], 'C', 'nme'))
-            pmlLines.extend(self.addCapPmlCommand(gap['chain'], gap['n_term'], 'N', 'ace'))
+        if 'gaps' in data and data['gaps']:
+            for gap in data['gaps']:
+                # Adds NME on the C-term and ACE on the N-term of gaps
+                pmlLines.append(self.removeOXTCommand(gap['chain'], gap['c_term']))
+                pmlLines.extend(self.addCapPmlCommand(gap['chain'], gap['c_term'], 'C', 'nme'))
+                pmlLines.extend(self.addCapPmlCommand(gap['chain'], gap['n_term'], 'N', 'ace'))
 
         if mode == 'all':
             for term in data['protein_termini']:
                 # Adds NME on the C-term and ACE on the N-term of chain termini
-                pmlLines.append(self.removeOXTCommand(gap['chain'], gap['c_term']))
+                pmlLines.append(self.removeOXTCommand(term['chain'], term['c_term']))
                 pmlLines.extend(self.addCapPmlCommand(term['chain'], term['n_term'], 'N', 'ace'))
                 pmlLines.extend(self.addCapPmlCommand(term['chain'], term['c_term'], 'C', 'nme'))
 
