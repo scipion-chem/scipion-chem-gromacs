@@ -37,7 +37,7 @@ from pwchem.utils import natural_sort
 from pwchem.constants import TCL_MD_STR
 
 from gromacs import Plugin as gromacsPlugin
-from ..objects import GromacsSystem, FreeEnergyCalculation
+from ..objects import GromacsSystem
 from ..protocols import GromacsMDSimulation, GromacsMMPBSA
 
 program = gromacsPlugin.getGromacsBin()
