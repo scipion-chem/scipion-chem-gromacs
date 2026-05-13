@@ -26,6 +26,7 @@
 
 # General imports
 import subprocess, multiprocessing
+import os
 from os.path import join
 
 # Scipion em imports
@@ -266,7 +267,7 @@ class Plugin(pwchemPlugin):
 	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=['q']):
 		outIndex = protocol._getExtraPath('indexes.ndx') if not outIndex else outIndex
 		outDir = (os.path.dirname(outIndex))
-		inIndex = f' -n {inIndex}' if inIndex else ''
+		inIndex = f' -n {os.path.abspath(inIndex)}' if inIndex else ''
 		command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
 
 		if inputCommands[-1] != 'q':
@@ -279,11 +280,25 @@ class Plugin(pwchemPlugin):
 	def ensureIndexFile(cls, protocol):
 		"""Return the protocol index file, creating it first if it does not exist.
         """
+		indexFile = cls.getCustomIndexFile(protocol)
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		indexFile = protocol._getExtraPath('indexes.ndx')
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
 		inpSystem = protocol.gromacsSystem.get()
 		indexFile = inpSystem.getIndexFile()
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
 		if not os.path.exists(indexFile):
 			indexFile = cls.firstIndexCreation(protocol, inpSystem)
-		return indexFile
+		return os.path.abspath(indexFile)
+
+	@classmethod
+	def getCustomIndexFile(cls, protocol):
+		inputSystem = protocol.gromacsSystem.get()
+		inputId = inputSystem.getObjId()
+		return protocol.getProject().getTmpPath(f'{inputId}_custom_indexes.ndx')
 
 	@classmethod
 	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):

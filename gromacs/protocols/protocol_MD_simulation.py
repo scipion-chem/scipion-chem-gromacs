@@ -30,6 +30,7 @@
 This module will perform energy minimizations for the system
 """
 import glob, uuid
+import os.path
 
 from pyworkflow.object import String
 from pyworkflow.protocol import params
@@ -226,22 +227,22 @@ class GromacsMDSimulation(EMProtocol):
 
         group = form.addGroup('Summary')
         group.addParam('insertStep', params.StringParam, default='',
-                       label='Insert relaxation step number: ',
-                       help='Insert the defined relaxation step into the workflow on the defined position.\n'
+                       label='Insert step number: ',
+                       help='Insert the defined step into the workflow on the defined position.\n'
                             'The default (when empty) is the last position')
         group.addParam('summarySteps', params.TextParam, width=100, readOnly=True,
                        label='Summary of steps',
                        help='Summary of the defined steps. \nManual modification will have no '
                             'effect, use the wizards to add / delete the steps')
         group.addParam('deleteStep', params.StringParam, default='',
-                       label='Delete relaxation step number: ',
+                       label='Delete step number: ',
                        help='Delete the step of the specified index from the workflow.')
         group.addParam('watchStep', params.StringParam, default='',
-                       label='Watch relaxation step number: ',
-                       help='''Watch the parameters step of the specified index from the workflow..\n
-                               This might be useful if you want to change some parameters of a predefined step.\n
-                               However, the parameters are not changed until you add the new step (and probably\n
-                               you may want to delete the previous unchanged step)''')
+                       label='Watch parameters of step number: ',
+                       help='Watch the parameters step of the specified index from the workflow...\n'
+                            'This might be useful if you want to change some parameters of a predefined step. '
+                            'However, the parameters are not changed until you add the new step (and probably '
+                            'you may want to delete the previous unchanged step)')
         group.addParam('workFlowSteps', params.TextParam, label='User transparent', condition='False')
 
         form.addSection(label='Input Pointers')
@@ -302,11 +303,16 @@ class GromacsMDSimulation(EMProtocol):
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
-        indexFile = self.gromacsSystem.get().getIndexFile()
-        if os.path.exists(indexFile):
-            outSystem.setIndexFile(indexFile)
+
+        # set and clean indexFiles
+        customIndex = gromacsPlugin.getCustomIndexFile(self)
+        indexFile = self._getExtraPath('indexes.ndx')
+        if os.path.exists(customIndex):
+            shutil.copy(customIndex, indexFile)
         else:
-            gromacsPlugin.createIndexFile(self, outSystem)
+            shutil.copy(self.gromacsSystem.get().getIndexFile(), indexFile)
+        self.cleanCustomIndex()
+
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
 
@@ -508,9 +514,6 @@ class GromacsMDSimulation(EMProtocol):
 
                 # 3. Close the file properly
                 outFile.write('END\n')
-
-    def getCustomIndexFile(self):
-        return self._getExtraPath('custom_indexes.ndx')
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -765,3 +768,9 @@ class GromacsMDSimulation(EMProtocol):
             if warn.split()[1] in ['all', str(stageNum)]:
                 nWarns += 1
         return nWarns
+
+    def cleanCustomIndex(self):
+        tmpPath = self.getProject().getTmpPath()
+        for file_path in glob.iglob(os.path.join(tmpPath, "*custom_indexes.ndx*")):
+            if os.path.isfile(file_path):
+                os.remove(file_path)
