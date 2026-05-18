@@ -25,13 +25,14 @@
 # **************************************************************************
 
 # General imports
+import os
 import subprocess, multiprocessing
 from os.path import join
 
 # Scipion em imports
 import pwem
 from scipion.install.funcs import InstallHelper
-from pyworkflow.utils import redStr, yellowStr
+from pyworkflow.utils import Environ, redStr, yellowStr
 
 # Plugin imports
 from .objects import *
@@ -121,7 +122,7 @@ class Plugin(pwem.Plugin):
 
 	@classmethod  # Test that
 	def getEnviron(cls):
-		pass
+		return Environ(os.environ)
 
 	@classmethod
 	def _getGromacsDownloadUrl(cls):
