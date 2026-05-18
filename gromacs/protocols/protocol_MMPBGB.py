@@ -86,6 +86,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
     https://valdes-tresanco-ms.github.io/gmx_MMPBSA/dev/
     """
     _label = 'MM/PBSA free energy calculation'
+    stepsExecutionMode = params.STEPS_PARALLEL
 
     def _defineParams(self, form):
         cpus = cpu_count() // 2  # don't use everything
@@ -264,6 +265,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
         grpMin = form.addGroup('Minimization', condition=f'inputFrom=={INPUT_MOLS}')
         self._defineMinimParams(grpMin)
 
+        form.addParallelSection(threads=4, mpi=1)
+
+
     def _defineTrajPreprocParams(self, grp):
         grp.addParam('doFit', params.BooleanParam,
                      label='Fit trajectory (rot+trans)?: ',
@@ -299,30 +303,97 @@ class GromacsMmpbsa(GromacsSystemPrep):
                             'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emstep')
 
     # ── Step insertion ──────────────────────────────────────────────────────
+    # def _insertAllSteps(self):
+    #     if self.inputFrom.get() == INPUT_MOLS:
+    #         cStep = self._insertFunctionStep(self.convertInputStep)
+    #
+    #         molNameSet = set()
+    #         for mol in self.inputSetOfMols.get():
+    #             molName = mol.getMolName()
+    #             if molName not in molNameSet:
+    #                 molFile = mol.getPoseFile()
+    #                 self._insertFunctionStep(self.parametrizeLigandStep, molFile, molName)
+    #                 molNameSet.add(molName)
+    #             poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
+    #             self._insertFunctionStep(self.prepareSystemStep, poseId)
+    #
+    #             self._insertFunctionStep(self.makePreprocessingIndexStep, poseId)
+    #             self._insertFunctionStep(self.preprocInputStep, poseId)
+    #             self._insertFunctionStep(self.writeMmpbsaInputStep, poseId)
+    #             self._insertFunctionStep(self.runMmpbsaStep, poseId)
+    #     else:
+    #         self._insertFunctionStep(self.makePreprocessingIndexStep)
+    #         self._insertFunctionStep(self.preprocInputStep)
+    #         self._insertFunctionStep(self.writeMmpbsaInputStep)
+    #         self._insertFunctionStep(self.runMmpbsaStep)
+    #     self._insertFunctionStep(self.createOutputStep)
+
     def _insertAllSteps(self):
+        mmpbsaSteps = []  # Collect all MMPBSA calculation steps
+
         if self.inputFrom.get() == INPUT_MOLS:
             cStep = self._insertFunctionStep(self.convertInputStep)
 
-            molNameSet = set()
+            # Track parametrization steps by molName to avoid redundant parametrization
+            paramSteps = {}
+
             for mol in self.inputSetOfMols.get():
                 molName = mol.getMolName()
-                if molName not in molNameSet:
-                    molFile = mol.getPoseFile()
-                    self._insertFunctionStep(self.parametrizeLigandStep, molFile, molName)
-                    molNameSet.add(molName)
-                poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
-                self._insertFunctionStep(self.prepareSystemStep, poseId)
 
-                self._insertFunctionStep(self.makePreprocessingIndexStep, poseId)
-                self._insertFunctionStep(self.preprocInputStep, poseId)
-                self._insertFunctionStep(self.writeMmpbsaInputStep, poseId)
-                self._insertFunctionStep(self.runMmpbsaStep, poseId)
-        else:
-            self._insertFunctionStep(self.makePreprocessingIndexStep)
-            self._insertFunctionStep(self.preprocInputStep)
-            self._insertFunctionStep(self.writeMmpbsaInputStep)
-            self._insertFunctionStep(self.runMmpbsaStep)
-        self._insertFunctionStep(self.createOutputStep)
+                # Parametrize each unique ligand once (can run in parallel for different ligands)
+                if molName not in paramSteps:
+                    molFile = mol.getPoseFile()
+                    paramSteps[molName] = self._insertFunctionStep(
+                        self.parametrizeLigandStep, molFile, molName,
+                        prerequisites=[cStep])
+
+                # Each pose follows its own pipeline
+                poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
+
+                # System preparation needs its ligand to be parametrized
+                sysStep = self._insertFunctionStep(
+                    self.prepareSystemStep, poseId,
+                    prerequisites=[paramSteps[molName]])
+
+                # Sequential dependencies for this specific pose
+                idxStep = self._insertFunctionStep(
+                    self.makePreprocessingIndexStep, poseId,
+                    prerequisites=[sysStep])
+
+                preprocStep = self._insertFunctionStep(
+                    self.preprocInputStep, poseId,
+                    prerequisites=[idxStep])
+
+                writeStep = self._insertFunctionStep(
+                    self.writeMmpbsaInputStep, poseId,
+                    prerequisites=[preprocStep])
+
+                # MMPBSA calculation (the compute-intensive step)
+                mmpbsaStep = self._insertFunctionStep(
+                    self.runMmpbsaStep, poseId,
+                    prerequisites=[writeStep])
+
+                mmpbsaSteps.append(mmpbsaStep)
+
+        else:  # INPUT_GROMACS mode
+            idxStep = self._insertFunctionStep(self.makePreprocessingIndexStep)
+
+            preprocStep = self._insertFunctionStep(
+                self.preprocInputStep,
+                prerequisites=[idxStep])
+
+            writeStep = self._insertFunctionStep(
+                self.writeMmpbsaInputStep,
+                prerequisites=[preprocStep])
+
+            mmpbsaStep = self._insertFunctionStep(
+                self.runMmpbsaStep,
+                prerequisites=[writeStep])
+
+            mmpbsaSteps.append(mmpbsaStep)
+
+        # Create output only after ALL MMPBSA calculations finish
+        self._insertFunctionStep(self.createOutputStep, prerequisites=mmpbsaSteps)
 
     # ── Step implementations ────────────────────────────────────────────────
     def parametrizeLigandStep(self, molFile, molName):
