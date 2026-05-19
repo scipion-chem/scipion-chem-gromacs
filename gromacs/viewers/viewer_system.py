@@ -92,6 +92,11 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                      label='Choose the analysis to display: ',
                      help='Display the chosen analysis'
                      )
+      group.addParam('chooseStageAnalysis', params.EnumParam,
+                     choices=self._getStagesWTrj(), default=0,
+                     label='Choose the stage to analyze: ',
+                     help='Choose the simulation stage to analyze'
+                     )
       group.addParam('chain_name', params.EnumParam,
                      choices=self.getChainChoices(), default=0, condition='displayAnalysis in [1, 3]',
                      label='*Chain* to display analysis on: ',
@@ -163,13 +168,13 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       outTcl = self.protocol._getExtraPath('vmdSimulation.tcl')
       sysExt = os.path.splitext(system.getSystemFile())[1][1:]
       trjExt = os.path.splitext(trjFile)[1][1:]
-      self.writeTCL(outTcl, system.getSystemFile(), sysExt, trjFile, trjExt, system.getLigandTopologyFile())
+      self.writeTCL(outTcl, system.getSystemFile(), sysExt, trjFile, trjExt)
 
       args = '-e {}'.format(outTcl)
       return [VmdViewPopen(args)]
 
     def _showAnalysis(self, paramName=None, saveFn=None):
-      stage = self.getEnumText('chooseStage')
+      stage = self.getEnumText('chooseStageAnalysis')
       if self.getEnumText('displayAnalysis') == 'RMSD':
         anFile = self.performRMSD(stage)
       elif self.getEnumText('displayAnalysis') == 'RMSF':

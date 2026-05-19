@@ -37,7 +37,7 @@ from pwem.convert import AtomicStructHandler
 
 from pwchem import Plugin as pwchemPlugin
 from pwchem.utils import runOpenBabel
-from pwchem.protocols import ProtocolLiganParametrization
+from pwchem.protocols import ProtocolLigandParametrization
 
 from gromacs import Plugin as gromacsPlugin
 import gromacs.objects as grobj
@@ -113,7 +113,7 @@ def replaceInFile(file, inStr, repStr):
   return file
 
 
-class GromacsSystemPrep(ProtocolLiganParametrization):
+class GromacsSystemPrep(ProtocolLigandParametrization):
     """
     This protocol will start a Molecular Dynamics preparation. It will create the system
     and the topology, structure, and position restriction files
@@ -121,7 +121,7 @@ class GromacsSystemPrep(ProtocolLiganParametrization):
     It is necessary to insert a cleaned PDB strucrture from Protocol Import Atomic Structure
     or other similar protocols.
     """
-    _label = 'system preparation'
+    _label = 'System preparation'
     IMPORT_FROM_FILE = 0
     IMPORT_FROM_SCIPION = 1
     IMPORT_MDP_FILE = 0
@@ -389,8 +389,9 @@ class GromacsSystemPrep(ProtocolLiganParametrization):
                                         ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
         if self.inputFrom.get() == LIGAND:
           molName = self.getLigandName()
-          groSystem.setLigandName(molName)
-          groSystem.setLigandTopologyFile(self._getPath(f'{molName}_GMX.itp'))
+          ligName = molName.split('_')[-1]
+          groSystem.setLigandID(ligName)
+          groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
 
         self._defineOutputs(outputSystem=groSystem)
 
@@ -470,10 +471,18 @@ class GromacsSystemPrep(ProtocolLiganParametrization):
         inputStructure = os.path.abspath(self.inputStructure.get().getFileName())
 
       if not inputStructure.endswith('.pdb'):
-        inputStructure = self.getInputPDBFile(inputStructure)
-        if not os.path.exists(inputStructure):
+        inputPdb = self.getInputPDBFile(inputStructure)
+        if not os.path.exists(inputPdb):
           inputStructure = self.convertReceptor2PDB(inputStructure)
       return inputStructure
+
+    def convertReceptor2PDB(self, proteinFile):
+        _, inExt = os.path.splitext(os.path.basename(proteinFile))
+        oFile = self.getInputPDBFile(proteinFile)
+        args = ' -i {} {} -opdb -O {}'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
+        runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+
+        return oFile
 
     def getInputPDBFile(self, proteinFile):
       inName, inExt = os.path.splitext(os.path.basename(proteinFile))
@@ -527,14 +536,6 @@ class GromacsSystemPrep(ProtocolLiganParametrization):
             if name == 'CU':
                 name = 'CU1'
         return name, charge
-
-    def convertReceptor2PDB(self, proteinFile):
-        _, inExt = os.path.splitext(os.path.basename(proteinFile))
-        oFile = self.getInputPDBFile(proteinFile)
-        args = ' -i{} {} -opdb -O {}'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
-        runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
-        return oFile
 
     def getDistanceArgs(self):
         if self.sizeType.get() == 1:

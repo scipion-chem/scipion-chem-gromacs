@@ -25,25 +25,27 @@
 # **************************************************************************
 
 # General imports
+import os
 import subprocess, multiprocessing
 from os.path import join
 
 # Scipion em imports
 import pwem
 from scipion.install.funcs import InstallHelper
-from pyworkflow.utils import redStr, yellowStr
+from pyworkflow.utils import Environ, redStr, yellowStr
 
 # Plugin imports
 from .objects import *
 from .constants import *
 
 _logo = "gromacs_logo.png"
+__version__ = '1.0.0'
 _references = ['Abraham2015']
 
 class Plugin(pwem.Plugin):
 	_homeVar = GROMACS_DIC['home']
 	_pathVars = [GROMACS_DIC['home']]
-	_supportedVersions = [V2020, V2021]
+	_supportedVersions = [V2020, V2021, V2026]
 	_gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
 
 	@classmethod
@@ -90,7 +92,7 @@ class Plugin(pwem.Plugin):
 			.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
-			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3', 
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_CUDA_ARCHITECTURES=native -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3',
 	       				'GROMACS_BUILT', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED', workDir=normalInnerLocation)\
@@ -120,7 +122,7 @@ class Plugin(pwem.Plugin):
 
 	@classmethod  # Test that
 	def getEnviron(cls):
-		pass
+		return Environ(os.environ)
 
 	@classmethod
 	def _getGromacsDownloadUrl(cls):
@@ -131,6 +133,7 @@ class Plugin(pwem.Plugin):
 	def checkRequirements(cls, env):
 		""" This function checks if the software requirements are being met. """
 		cls.checkCMakeVersion()
+		cls.checkCudaVersion()
 		return cls.defineProcessors(env)
 
 	@classmethod
@@ -179,9 +182,37 @@ class Plugin(pwem.Plugin):
 			cmakVersion = result.split('\n')[0].split()[-1]
 
 			# Checking if installed version is below minimum required
-			if CMAKE_MINIMUM_VERSION and (cls.versionTuple(cmakVersion) < cls.versionTuple(CMAKE_MINIMUM_VERSION)):
-				raise Exception(redStr(f"Your CMake version ({cmakVersion}) is below {CMAKE_MINIMUM_VERSION}.\nPlease update your CMake version by following the instructions at {cmakeInstallURL}"))
+			if CMAKE_MINIMUM_VERSION_V26 and (cls.versionTuple(cmakVersion) < cls.versionTuple(CMAKE_MINIMUM_VERSION_V26)):
+				raise Exception(redStr(f"Your CMake version ({cmakVersion}) is below {CMAKE_MINIMUM_VERSION_V26}.\nPlease update your CMake version by following the instructions at {cmakeInstallURL}"))
 		except FileNotFoundError:
 			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
 		except Exception:
 			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
+
+	@classmethod
+	def checkCudaVersion(cls):
+		"""
+        ### This function checks if the current installed CUDA version (nvcc) is above the minimum required version.
+        ### If no version is provided it just checks if nvcc is installed.
+        """
+		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
+		try:
+			# Getting CUDA version from nvcc
+			# nvcc output usually looks like: "nvcc: NVIDIA (R) Cuda compiler driver... release 12.1, V12.1.105"
+			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
+
+			lines = result.split('\n')
+			releaseLine = [line for line in lines if 'release' in line][0]
+			cudaVersion = releaseLine.split('release ')[1].split(',')[0]
+
+			# Checking if installed version is below minimum required
+			if CUDA_MINIMUM_VERSION_V26 and (cls.versionTuple(cudaVersion) < cls.versionTuple(CUDA_MINIMUM_VERSION_V26)):
+				raise Exception(redStr(
+					f"CUDA version ({cudaVersion}) is below {CUDA_MINIMUM_VERSION_V26}.\nPlease update your CUDA version or set your PATH to a newer version by following instructions at {cudaInstallURL}"))
+
+		except FileNotFoundError:
+			raise FileNotFoundError(redStr(
+				f"nvcc (CUDA) is not installed or not in your PATH.\n"
+				f"Please install CUDA >= {CUDA_MINIMUM_VERSION_V26} or update your PATH by following the instructions at {cudaInstallURL}"))
+		except Exception as e:
+			raise Exception(redStr(f"Cannot get the CUDA version: {str(e)}\nPlease check your CUDA installation."))

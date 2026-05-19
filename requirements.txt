@@ -1,2 +1,4 @@
 scipion-pyworkflow
 scipion-em
+scipion-app
+scipion-chem
