@@ -29,8 +29,7 @@
 """
 This module will perform energy minimizations for the system
 """
-import glob, uuid
-import os.path
+import glob, os, shutil, uuid
 
 from pyworkflow.object import String
 from pyworkflow.protocol import params

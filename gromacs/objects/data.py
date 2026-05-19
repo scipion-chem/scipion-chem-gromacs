@@ -29,7 +29,6 @@
 import os, shutil
 from subprocess import check_call
 import pyworkflow.object as pwobj
-import pwem.objects.data as data
 
 from pwchem.objects import MDSystem
 from gromacs.constants import *
@@ -48,6 +47,7 @@ class GromacsSystem(MDSystem):
         self._tprFile = pwobj.String(kwargs.get('tprFile', None))
         self._indexFile = pwobj.String(kwargs.get('indexFile', None))
         self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
+        self._topoIncludeDir = pwobj.String(kwargs.get('topoIncludeDir', None))
 
         self._freeEnergy = pwobj.Float(kwargs.get('MMPGSA', None))
         self._freeEnergyFile = pwobj.String(kwargs.get('MMPGSAFile', None))
@@ -68,6 +68,7 @@ class GromacsSystem(MDSystem):
 
     def getChainNames(self):
         return self._chainNames.get().split(',')
+
     def setChainNames(self, values):
         if isinstance(values, str):
             self._chainNames.set(values)
@@ -146,6 +147,16 @@ class GromacsSystem(MDSystem):
 
     def setOriStructFile(self, value):
         self._oriStructFile.set(value)
+
+    def getTopologyIncludeDir(self):
+        if not hasattr(self, '_topoIncludeDir'):
+            self._topoIncludeDir = pwobj.String(None)
+        return self._topoIncludeDir.get()
+
+    def setTopologyIncludeDir(self, value):
+        if not hasattr(self, '_topoIncludeDir'):
+            self._topoIncludeDir = pwobj.String(None)
+        self._topoIncludeDir.set(value)
 
     def defineNewRestriction(self, protocol, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
