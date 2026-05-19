@@ -264,9 +264,9 @@ class GromacsMDSimulation(EMProtocol):
         self.createGUISummary()
         i = 1
         for wStep in self.workFlowSteps.get().strip().split('\n'):
-            self._insertFunctionStep('simulateStageStep', wStep, i)
+            self._insertFunctionStep(self.simulateStageStep, wStep, i)
             i += 1
-        self._insertFunctionStep('createOutputStep')
+        self._insertFunctionStep(self.createOutputStep)
 
     def simulateStageStep(self, wStep, i):
       if wStep in ['', None]:
