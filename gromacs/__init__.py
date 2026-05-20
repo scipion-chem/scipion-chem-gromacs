@@ -119,6 +119,13 @@ class Plugin(pwchemPlugin):
 		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
 		                numberOfMpi=1, numberOfThreads=1)
 
+	@classmethod
+	def runGromacsPrintfViewer(cls, printfValues, args, cwd, mpi=False):
+		""" Run Gromacs command from a given protocol. """
+		printfValues = list(map(str, printfValues))
+		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
+		print('Running: ', program, args)
+		subprocess.check_call(program + args, cwd=cwd, shell=True)
 
 	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):
