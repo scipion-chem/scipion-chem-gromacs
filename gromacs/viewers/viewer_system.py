@@ -54,39 +54,11 @@ class GromacsSystemPViewer(MDSystemPViewer):
     def _defineParams(self, form):
         super()._defineParams(form)
         system = self.getMDSystem()
-        if system and system.getFreeEnergyFile():
-            self._defineFreeEnergyMDSystemParams(form)
-
-
-    def _defineFreeEnergyMDSystemParams(self, form):
-        if form.getSection('Receptor-ligand interactions'):
-            section = form.getSection('Receptor-ligand interactions')
-        else:
-            section = form.addSection('Receptor-ligand interactions')
-        group = form.addGroup('Free energy analysis')
-        group.addParam('displayGmxMmpbsa', params.LabelParam,
-                      label='Open interactive analysis: ',
-                      help='Display the results of the free energy calculation unsing '
-                           'gmx_MMPBSA_ana')
 
     def _getVisualizeDict(self):
         visualizeDict = super()._getVisualizeDict()
-        visualizeDict['displayGmxMmpbsa'] = self._showGmxMmpbsaAna
         return visualizeDict
 
-    def _showGmxMmpbsaAna(self, paramName=None):
-        import subprocess
-        activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
-        args = '-r '
-        cmd = f"{activation} && gmx_MMPBSA_ana {args}"
-
-        subprocess.Popen(
-            cmd,
-            shell=True,
-            executable='/bin/bash',
-            env=gromacsPlugin.getEnviron(),
-            cwd=os.path.dirname(self.getMDSystem().getFreeEnergyFile())
-        )
 
     def getMDSystem(self, objType=GromacsSystem):
         if type(self.protocol) == objType:
