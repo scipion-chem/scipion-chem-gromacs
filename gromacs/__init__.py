@@ -308,6 +308,7 @@ class Plugin(pwchemPlugin):
 		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
 		try:
 			# Getting CUDA version from nvcc
+			# nvcc output usually looks like: "nvcc: NVIDIA (R) Cuda compiler driver... release 12.1, V12.1.105"
 			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
 
 			lines = result.split('\n')
