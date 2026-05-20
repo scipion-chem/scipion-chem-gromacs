@@ -78,6 +78,14 @@ compressibility         = 4.5e-5                ; isothermal compressibility of 
 refcoord_scaling        = com
 nstpcouple              = {}                  ; Frequency for pressure coupling'''
 
+PRES_SETTING_SEMI =  '''pcoupl                  = {}     ; Pressure coupling 
+pcoupltype              = {}             ; uniform scaling of box vectors
+ref_p                   = {} {}                  ; reference pressure, in bar
+tau_p                   = {}                   ; time constant, in ps
+compressibility         = 4.5e-5 4.5e-5        ; isothermal compressibility of water, bar^-1
+refcoord_scaling        = com
+nstpcouple              = {}                  ; Frequency for pressure coupling'''
+
 VEL_GEN = '''gen_temp                = {}       ; temperature for Maxwell distribution
 gen_seed                = -1        ; generate a random seed'''
 

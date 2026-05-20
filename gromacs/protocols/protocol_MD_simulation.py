@@ -57,7 +57,7 @@ class GromacsMDSimulation(EMProtocol):
     _integrators = ['steep', 'cg']
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman', 'C-rescale']
-    #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
+    _coupleStyle = ['isotropic', 'semiisotropic']
     _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
     _omitParamNames = ['useGpu', 'gpuList', 'gromacsSystem', 'restrainROIs',
@@ -143,9 +143,10 @@ class GromacsMDSimulation(EMProtocol):
                       label='   Pressure constant (ps)[tau-p]:   ', expertLevel=params.LEVEL_ADVANCED)
         line.addParam('presCouple', params.IntParam, default=-1,
                       label='Coupling frequency [nstpcouple]: ', expertLevel=params.LEVEL_ADVANCED)
-        #group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
-        #               label='Pressure coupling style: ', choices=self._coupleStyle,
-        #               expertLevel=params.LEVEL_ADVANCED)
+        group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
+                      label='Pressure coupling style: ', choices=self._coupleStyle,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      help='Semiisotropic is recomemded for membrane proteins')
 
         group = form.addGroup('Trajectory', condition='ensemType!=0')
         group.addParam('saveTrj', params.BooleanParam, default=False,
@@ -605,8 +606,13 @@ class GromacsMDSimulation(EMProtocol):
             if msjDic['ensemType'] == 'NVT':
                 presStr = ''
             elif msjDic['ensemType'] == 'NPT':
-                presStr = PRES_SETTING.format(msjDic['barostat'], 'isotropic',
+                if msjDic['coupleStyle'] == 'isotropic':
+                    presStr = PRES_SETTING.format(msjDic['barostat'], msjDic['coupleStyle'],
                                               msjDic['pressure'], msjDic['presRelaxCons'],
+                                              msjDic['presCouple'])
+                else:
+                    presStr = PRES_SETTING_SEMI.format(msjDic['barostat'], msjDic['coupleStyle'],
+                                              msjDic['pressure'], msjDic['pressure'], msjDic['presRelaxCons'],
                                               msjDic['presCouple'])
 
             if self.checkIfPrevTrj(mdpStage):
