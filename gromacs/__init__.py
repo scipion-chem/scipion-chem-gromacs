@@ -25,6 +25,7 @@
 # **************************************************************************
 
 # General imports
+import os
 import subprocess, multiprocessing
 import os
 from os.path import join
