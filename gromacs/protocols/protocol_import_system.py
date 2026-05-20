@@ -53,7 +53,6 @@ class GromacsImportSystem(EMProtocol):
 
         """ Define the input parameters that will be used.
         """
-
         form.addSection(label=Message.LABEL_INPUT)
         form.addParam('inputCoords', params.FileParam, label="Input Gromacs Coordinates (gro, pdb): ", allowsNull=False,
                       help='Gromacs coordinates file (gro or pdb)')
@@ -61,14 +60,13 @@ class GromacsImportSystem(EMProtocol):
                       help='Gromacs topology file (top)')
         form.addParam('inputTopologyIncludeDir', params.PathParam,
                       label="Topology include directory: ", allowsNull=True, default='',
-                      help='Optional directory with files included inside the topology file, '
+                      help='Optional directory with forcefield files (itp) included inside the topology file '
                            'by #include.')
         form.addParam('inputTrajectory', params.FileParam, label="Input Gromacs Trajectory (trr, xtc): ",
-                      help='Gromacs trajectory file (xtc / trr)')
+                      help='Optional gromacs trajectory file (xtc / trr)')
         form.addParam('inputIndex', params.FileParam, label="Input Gromacs Index (ndx): ",
                       allowsNull=True,
-                      help='Optional Gromacs index file (ndx). It will be copied and used by downstream '
-                           'simulation protocols when creating or selecting index groups.')
+                      help='Optional Gromacs index file (ndx).')
 
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
@@ -80,9 +78,7 @@ class GromacsImportSystem(EMProtocol):
       coordsFile = self.inputCoords.get()
       localCoords = self.copyToProtocolDir(coordsFile)
       chainNames = ','.join(self.getModelChains())
-
-      if not chainNames:
-          chainNames = ','.join(self.inferChainNamesGro(localCoords))
+      outSystem.setChainNames(chainNames)
 
       systemCoords = self.convertPdbToGro(localCoords)
       outSystem.setSystemFile(systemCoords)
@@ -102,13 +98,14 @@ class GromacsImportSystem(EMProtocol):
           localTrajectory = self.copyToProtocolDir(self.inputTrajectory.get())
           outSystem.setTrajectoryFile(localTrajectory)
           outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
-      if self.inputIndex.get():
-          gromacsPlugin.createIndex
-          localIndex = self.copyToProtocolDir(self.inputIndex.get())
-          outSystem.setIndexFile(localIndex)
 
-      if chainNames:
-          outSystem.setChainNames(chainNames)
+      localIndex = self._getPath('index.ndx')
+      if self.inputIndex.get():
+          customIndexPath = self.inputIndex.get()
+          self.createMergedIndexFile(outSystem, customIndexPath, localIndex)
+      else:
+          gromacsPlugin.createIndexFile(self, outSystem, None, localIndex)
+      outSystem.setIndexFile(localIndex)
 
       self._defineOutputs(outputSystem=outSystem)
 
@@ -129,9 +126,8 @@ class GromacsImportSystem(EMProtocol):
         return chains
 
     def convertPdbToGro(self, coordsFile):
-        if os.path.splitext(coordsFile)[1].lower() not in ['.pdb', '.ent']:
+        if os.path.splitext(coordsFile)[1].lower() not in ['.pdb',]:
             return coordsFile
-
         groFile = self._getPath(os.path.splitext(os.path.basename(coordsFile))[0] + '.gro')
         if not os.path.exists(groFile):
             args = '-f {} -o {}'.format(os.path.abspath(coordsFile), os.path.abspath(groFile))
@@ -141,13 +137,35 @@ class GromacsImportSystem(EMProtocol):
     def getModelChains(self):
         inputStructure = self.inputCoords.get()
         if not inputStructure.endswith('.pdb'):
-          return self.inferChainNamesGro(inputStructure)
-
+          return 'A'
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
         structureHandler.getStructure()
         chains, _ = structureHandler.getModelsChains()
         return list(chains[0].keys())
+
+    def createMergedIndexFile(self, system, customIndexFile, outputIndexFile):
+        """
+        Create index file with standard GROMACS groups + custom groups.
+        Standard groups are generated first, then custom groups are appended.
+        """
+        tempStandardIndex = self._getTmpPath('standard_groups.ndx')
+        gromacsPlugin.createIndexFile(self, system, inIndex=None,
+            outIndex=tempStandardIndex, inputCommands=['q'] )
+
+        customGroups = self._readCustomGroups(customIndexFile)
+
+        # Append custom groups to standard index file
+        with open(tempStandardIndex, 'r') as f:
+            standardContent = f.read()
+
+        with open(outputIndexFile, 'w') as f:
+            f.write(standardContent)
+            f.write('\n' + customGroups)
+
+    def _readCustomGroups(self, customIndexFile):
+        with open(customIndexFile, 'r') as f:
+            return f.read()
 
     # --------------------------- INFO functions -----------------------------------
     def _validate(self):

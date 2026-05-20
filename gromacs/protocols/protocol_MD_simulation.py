@@ -66,7 +66,6 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      # self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -311,6 +310,7 @@ class GromacsMDSimulation(EMProtocol):
         else:
             shutil.copy(self.gromacsSystem.get().getIndexFile(), indexFile)
         self.cleanCustomIndex()
+        outSystem.setIndexFile(indexFile)
 
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
@@ -646,8 +646,8 @@ class GromacsMDSimulation(EMProtocol):
             prevTrjStr = ''
 
         localTop = os.path.join(stageDir, os.path.split(topFile)[-1])
-        if not os.path.exists(localTop):
-          os.link(topFile, localTop)
+        self.linkFile(topFile, localTop)
+        self.copyTopologyIncludeDir(stageDir)
 
         command = 'grompp -f %s -c %s -r %s -p ' \
                   '%s %s -o %s' % (os.path.abspath(mdpFile), groFile, groFile, os.path.split(topFile)[-1],
@@ -682,6 +682,25 @@ class GromacsMDSimulation(EMProtocol):
         trjFile = os.path.join(stageDir, '{}.trr'.format(stage))
         if os.path.exists(trjFile) and not saveTrj:
             os.remove(trjFile)
+
+    def linkFile(self, sourceFile, targetFile):
+        if os.path.exists(targetFile):
+            return targetFile
+        try:
+            os.link(sourceFile, targetFile)
+        except OSError:
+            shutil.copyfile(sourceFile, targetFile)
+        return targetFile
+
+    def copyTopologyIncludeDir(self, targetDir):
+        includeDir = self.gromacsSystem.get().getTopologyIncludeDir()
+        if not includeDir or not os.path.isdir(includeDir):
+            return None
+
+        targetIncludeDir = os.path.join(targetDir, os.path.basename(includeDir.rstrip(os.sep)))
+        if os.path.abspath(includeDir) != os.path.abspath(targetIncludeDir):
+            shutil.copytree(includeDir, targetIncludeDir, dirs_exist_ok=True)
+        return targetIncludeDir
 
     def getPrevFinishedStageFiles(self, stage=None, reverse=False):
         '''Return the previous .gro and topology files if number stage is provided.
