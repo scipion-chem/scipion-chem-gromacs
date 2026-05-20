@@ -433,13 +433,11 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         return ['All'] + system.getChainNames()
 
     def getIndexFile(self):
-        print(self.getMDSystem())
         indexFile = self.getMDSystem().getIndexFile()
         if indexFile and os.path.exists(indexFile):
             return os.path.abspath(indexFile)
 
     def getIndexGroupsDic(self):
-        print(self.getIndexFile())
         groups = gromacsPlugin.parseIndexFile(self.protocol, self.getIndexFile())
         return groups
 

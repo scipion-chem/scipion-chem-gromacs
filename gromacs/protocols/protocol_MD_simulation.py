@@ -312,6 +312,7 @@ class GromacsMDSimulation(EMProtocol):
         else:
             shutil.copy(self.gromacsSystem.get().getIndexFile(), indexFile)
         self.cleanCustomIndex()
+        outSystem.setIndexFile(indexFile)
 
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
