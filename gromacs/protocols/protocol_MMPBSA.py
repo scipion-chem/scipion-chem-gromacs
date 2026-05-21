@@ -90,8 +90,11 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
     def _defineParams(self, form):
         cpus = cpu_count() // 2  # don't use everything
-        form.addParallelSection(mpi=1)
-
+        parallelHelp =('Threads: number of OpenMP threads assigned for minimization to fmx mdrun\n'
+                        'MPIs: The number of message-passing processes assigned for calculating the binding free energy. '
+                        'Usefull for trajectory calculation, not for docked molecules.\n'
+                        'Total Cores Used = Scipion Threads × Max(Threads, MPIs)')
+        form.addParallelSection(threads=cpus, mpi=1, binThreads=1, binThreadsHelp=parallelHelp)
         form.addSection(label='Energy calculation')
         form.addParam('inputFrom', params.EnumParam,
                       choices=['Gromacs System (post-MD)', 'Docked Molecules'],
@@ -303,30 +306,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
                             'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emstep')
 
     # ── Step insertion ──────────────────────────────────────────────────────
-    # def _insertAllSteps(self):
-    #     if self.inputFrom.get() == INPUT_MOLS:
-    #         cStep = self._insertFunctionStep(self.convertInputStep)
-    #
-    #         molNameSet = set()
-    #         for mol in self.inputSetOfMols.get():
-    #             molName = mol.getMolName()
-    #             if molName not in molNameSet:
-    #                 molFile = mol.getPoseFile()
-    #                 self._insertFunctionStep(self.parametrizeLigandStep, molFile, molName)
-    #                 molNameSet.add(molName)
-    #             poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
-    #             self._insertFunctionStep(self.prepareSystemStep, poseId)
-    #
-    #             self._insertFunctionStep(self.makePreprocessingIndexStep, poseId)
-    #             self._insertFunctionStep(self.preprocInputStep, poseId)
-    #             self._insertFunctionStep(self.writeMmpbsaInputStep, poseId)
-    #             self._insertFunctionStep(self.runMmpbsaStep, poseId)
-    #     else:
-    #         self._insertFunctionStep(self.makePreprocessingIndexStep)
-    #         self._insertFunctionStep(self.preprocInputStep)
-    #         self._insertFunctionStep(self.writeMmpbsaInputStep)
-    #         self._insertFunctionStep(self.runMmpbsaStep)
-    #     self._insertFunctionStep(self.createOutputStep)
 
     def _insertAllSteps(self):
         mmpbsaSteps = []  # Collect all MMPBSA calculation steps
@@ -375,7 +354,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
                 mmpbsaSteps.append(mmpbsaStep)
 
-        else:  # INPUT_GROMACS mode
+        else:  # INPUT_GROMACS mode - acts like serial
             idxStep = self._insertFunctionStep(self.makePreprocessingIndexStep)
 
             preprocStep = self._insertFunctionStep(
@@ -532,7 +511,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
         annotated template, then patch the variables that the user set in the
         Scipion form via regex substitution.
         """
-        inputFile = self._getExtraPath('mmpbsa.in')
+        inputFile = self._getMmpbsaInFile(poseId)
 
         # ── 1. Build --create_input keyword list ──────────────────────────
         keywords = ['gb'] if self.calcType.get() == CALC_GB else ['pb']
@@ -541,12 +520,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
         if self.entropyType.get() == ENT_NMODE:
             keywords.append('nmode')
-        # IE entropy is controlled via a &general variable, not a separate
 
         createArgs = ' '.join(keywords)
 
-        # print(f'Generating input template: gmx_MMPBSA --create_input {createArgs}')
-        gromacsPlugin.runGMXMMPBSA(self, 'gmx_MMPBSA --create_input', createArgs, cwd=self._getExtraPath())
+        gromacsPlugin.runGMXMMPBSA(self, 'gmx_MMPBSA --create_input', createArgs, cwd=os.path.dirname(inputFile))
 
         if not os.path.exists(inputFile):
             raise FileNotFoundError(
@@ -617,7 +594,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
         Mode A: single run using the full trajectory from GromacsSystem.
         Mode B: one run per pose.
         """
-        inFile  = os.path.abspath(self._getExtraPath('mmpbsa.in'))
+        inFile  = self._getMmpbsaInFile(poseId)
         nMpi    = self.numberOfMpi.get()
 
         if self.inputFrom.get() == INPUT_GROMACS:
@@ -711,6 +688,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
             elif not sys.getTrajectoryFile():
                 errors.append('The input system must have a trajectory file (.xtc).')
         else:
+            if self.numberOfMpi.get() > 1:
+                errors.append('Only 1 MPI calculator is supported.')
             if self.inputSetOfMols.get() is None:
                 errors.append('A set of docked molecules is required.')
         return errors
@@ -831,35 +810,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
       outStr = f'{inStr}\n{molName}{emptyStr}1'
       replaceInFile(topFile, inStr, outStr)
 
-    # def addIons(self, poseId, sysName):
-    #     """Add ions to neutralize (and optionally salt) one pose system."""
-    #     poseDir = self.getPoseDir(poseId)
-    #     topFile = os.path.join(poseDir, 'topol.top')
-    #     mainFF = GROMACS_MAINFF_NAME[self.mainForceField.get()]
-    #
-    #     ionsMdp = self.writeIonsMDP(poseDir)
-    #     ionsTpr = os.path.join(poseDir, 'ions.tpr')
-    #     solvGro = os.path.join(poseDir, f'{sysName}_solv.gro')  # pre-ions
-    #
-    #     gppArgs = (f'grompp -f {ionsMdp} -c {solvGro} '
-    #                f'-p {topFile} -o {ionsTpr}')
-    #     if 'gromos' in mainFF:
-    #         gppArgs += ' -maxwarn 1'
-    #     gromacsPlugin.runGromacsPrintf(self, printfValues=['SOL'],
-    #                                    args=gppArgs, cwd=poseDir)
-    #
-    #     solvIonsGro = os.path.join(poseDir, f'{sysName}_solv_ions.gro')
-    #     genArgs = (f'genion -s {ionsTpr} -o {solvIonsGro} '
-    #                f'-p {topFile} -pname NA -nname CL')
-    #     if self.placeIons.get() == 1:
-    #         genArgs += ' -neutral'
-    #         if self.saltConc.get():
-    #             genArgs += f' -conc {self.saltConc.get()}'
-    #     elif self.placeIons.get() == 2:
-    #         genArgs += f' -np {self.cationNum.get()} -nn {self.anionNum.get()}'
-    #     gromacsPlugin.runGromacsPrintf(self, printfValues=['SOL'],
-    #                                    args=genArgs, cwd=poseDir)
-
     def writeIonsMDP(self, poseDir):
         outFile = os.path.join(poseDir, 'ions.mdp')
         with open(outFile, 'w') as f:
@@ -887,7 +837,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
                    f'-p {topFile} -o {emTpr} -maxwarn 2')
         gromacsPlugin.runGromacs(self, 'gmx', gppArgs, cwd=poseDir)
 
-        gromacsPlugin.runGromacs(self, 'gmx', 'mdrun -v -deffnm em',
+        gromacsPlugin.runGromacs(self, 'gmx', f'mdrun -v -deffnm em -nt {self.binThreads.get()}',
                                  cwd=poseDir)
 
     def getSolvatedGro(self, poseId, sysName):
@@ -916,6 +866,14 @@ class GromacsMmpbsa(GromacsSystemPrep):
         """ Helper function to convert GRO to PDB using GROMACS editconf """
         args = f'-f {groFile} -o {pdbFile}'
         gromacsPlugin.runGromacs(self, 'gmx editconf', args)
+
+    def _getMmpbsaInFile(self, poseId=None):
+        if poseId:
+            inFile = os.path.abspath(os.path.join(self.getPoseDir(poseId), 'mmpbsa.in'))
+        else:
+            inFile  = os.path.abspath(self._getExtraPath('mmpbsa.in'))
+        return inFile
+
 # ── helpers ─────────────────
 
 def _parseFinalDeltaG(outFile):

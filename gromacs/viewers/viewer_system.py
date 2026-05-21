@@ -38,7 +38,7 @@ from pwchem.constants import TCL_MD_STR
 
 from gromacs import Plugin as gromacsPlugin
 from ..objects import GromacsSystem
-from ..protocols import GromacsMDSimulation, GromacsMMPBSA
+from ..protocols import GromacsMDSimulation, GromacsMmpbsa
 
 program = gromacsPlugin.getGromacsBin()
 
