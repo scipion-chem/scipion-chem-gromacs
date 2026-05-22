@@ -299,7 +299,10 @@ class GromacsMDSimulation(EMProtocol):
         outSystem.setTopologyFile(localTopFile)
         outSystem.setLigTopologyFile(self.gromacsSystem.get().getLigTopologyFile())
         outSystem.setLigandID(self.gromacsSystem.get().getLigandID())
+        chains, lengthsDic = self.getModelChainsAndLengths()
+        lengths = list(lengthsDic.values())
         outSystem.setChainNames(self.gromacsSystem.get().getChainNames())
+        outSystem.setChainLengths(self.gromacsSystem.get().getChainLengths())
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
