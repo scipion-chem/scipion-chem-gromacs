@@ -663,11 +663,11 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                 'c_term': segments[-1]['c']
             })
 
-            for seg_curr, seg_next in zip(segments, segments[1:]):
+            for segCurr, segNext in zip(segments, segments[1:]):
                 result['gaps'].append({
                     'chain': chain.id,
-                    'c_term': seg_curr['c'],  # Needs NME
-                    'n_term': seg_next['n']  # Needs ACE
+                    'c_term': segCurr['c'],  # Needs NME
+                    'n_term': segNext['n']  # Needs ACE
                 })
 
         return result

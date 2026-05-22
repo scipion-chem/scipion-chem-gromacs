@@ -220,7 +220,7 @@ class Plugin(pwchemPlugin):
 		return [invGroups.get(name, name) for name in names]
 
 	@classmethod
-	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None):
+	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=None):
 		if inputCommands is None:
 			inputCommands = ['q']
 		outIndex = protocol._getExtraPath('indexes.ndx') if not outIndex else outIndex

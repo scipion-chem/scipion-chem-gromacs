@@ -72,7 +72,7 @@ class GromacsCheckIndexWizard(VariableWizard):
 
     def show(self, form, *params):
         protocol = form.protocol
-        inputParam, outputParam = self.getInputOutput(form)
+        _, outputParam = self.getInputOutput(form)
 
         indexFile = gromacsPlugin.ensureIndexFile(protocol)
         groups = gromacsPlugin.parseIndexFile(protocol, indexFile)
