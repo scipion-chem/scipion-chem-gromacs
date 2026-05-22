@@ -50,6 +50,7 @@ class GromacsSystem(MDSystem):
         self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
 
         self._chainNames = pwobj.String(kwargs.get('chainNames', None))
+        self._chainLengths = pwobj.String(kwargs.get('chainLengths', None))
 
         self._firstFrame = pwobj.Integer(kwargs.get('firstFrame', None))
         self._lastFrame = pwobj.Integer(kwargs.get('lastFrame', None))
@@ -71,6 +72,14 @@ class GromacsSystem(MDSystem):
             self._chainNames.set(values)
         elif type(values) in [list, tuple]:
             self._chainNames.set(','.join(values))
+
+    def getChainLengths(self):
+        return self._chainLengths.get().split(',')
+    def setChainLengths(self, values):
+        if isinstance(values, str):
+            self._chainLengths.set(values)
+        elif type(values) in [list, tuple]:
+            self._chainLengths.set(','.join(values))
 
     def getFrameIdxs(self):
         return self._firstFrame, self._lastFrame

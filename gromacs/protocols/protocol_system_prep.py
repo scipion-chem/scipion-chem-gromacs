@@ -415,8 +415,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                                        self._getPath('posre.itp')
 
         chainNames = ','.join(self.getModelChains())
+        chains, lengthsDic = self.getModelChainsAndLengths()
+        lengths = list(lengthsDic.values())
         groSystem = grobj.GromacsSystem(filename=groPath, topoFile=topoPath,
-                                        restrFile=posrePath, chainNames=chainNames,
+                                        restrFile=posrePath, chainNames=chainNames, chainLengths=lengths,
                                         ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))
 
         if self.inputFrom.get() == LIGAND:
@@ -427,8 +429,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         else:
             molName = None
 
-        chains, lengths = self.getModelChainsAndLengths()
-        indexFile = gromacsPlugin.firstIndexCreation(self, groSystem, ligandName=molName, modelChains=chains, chainLengths=lengths)
+        indexFile = gromacsPlugin.firstIndexCreation(self, groSystem, ligandName=molName, modelChains=chains, chainLengths=lengthsDic)
 
         groSystem.setIndexFile(indexFile)
         self._defineOutputs(outputSystem=groSystem)
