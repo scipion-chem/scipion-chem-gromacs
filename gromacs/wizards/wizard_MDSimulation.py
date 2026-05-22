@@ -251,11 +251,7 @@ class AddROIRestraintWizard(VariableWizard):
 
     def createROIRestraintIndex(self, system, roi, protocol):
         inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
-        # if os.path.exists(outIndex):
-        #     inIndex = outIndex
-        # else:
-        #     inIndex = os.path.abspath(system.getIndexFile())
-
+        
         #  Creating index for atoms in ROI
         atomGroups = groupConsecutiveIdxs(roi.getDecodedCAtoms())
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])

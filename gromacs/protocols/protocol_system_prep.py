@@ -648,12 +648,12 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
             for curr, nextRes in zip(residues, residues[1:]):
                 resCurr = curr.id[1]
-                res_next = nextRes.id[1]
+                resNext = nextRes.id[1]
 
                 # Check for a jump in residue numbering (a gap)
-                if res_next != resCurr + 1:
+                if resNext != resCurr + 1:
                     segments.append({'n': currentSeqStart, 'c': resCurr})
-                    currentSeqStart = res_next
+                    currentSeqStart = resNext
 
             segments.append({'n': currentSeqStart, 'c': residues[-1].id[1]})
 
