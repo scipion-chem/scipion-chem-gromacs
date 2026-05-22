@@ -50,16 +50,6 @@ class GromacsSystemPViewer(MDSystemPViewer):
     def __init__(self, **args):
       super().__init__(**args)
 
-
-    def _defineParams(self, form):
-        super()._defineParams(form)
-        system = self.getMDSystem()
-
-    def _getVisualizeDict(self):
-        visualizeDict = super()._getVisualizeDict()
-        return visualizeDict
-
-
     def getMDSystem(self, objType=GromacsSystem):
         if type(self.protocol) == objType:
             return self.protocol

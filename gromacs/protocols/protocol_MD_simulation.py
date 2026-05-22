@@ -67,7 +67,6 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      # self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -452,70 +451,63 @@ class GromacsMDSimulation(EMProtocol):
         """ Helper function to convert GRO to PDB while preserving chain labels """
         inpSystem = self.gromacsSystem.get()
         modelChains = inpSystem.getChainNames()
+        indexFile = inpSystem.getIndexFile()
 
+        # Case 1: Single chain processing
         if len(modelChains) == 1:
+            printGroup = ['Protein']
             if inpSystem.hasLig():
                 printGroup = [f'Protein_{inpSystem.getLigandID()}']
-            else:
-                printGroup = ['Protein']
 
-            chain = inpSystem.getChainNames()[0]
-            params = " editconf -f {} -n {} -o {} -label {}".format(
-                os.path.abspath(groFile),
-                os.path.abspath(inpSystem.getIndexFile()),
-                os.path.abspath(pdbFile),
-                chain)
-            gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
-                                           args=params, cwd=self._getPath())
-        else:
-            # Multiple chains - process each separately and combine
-            allPdbs = []
+            self._runEditconf(groFile, indexFile, pdbFile, modelChains[0], printGroup)
+            return
 
-            # Extract each protein chain with proper chain label
-            for chainId in modelChains:
-                chainPdb = self._getTmpPath(f'chain_{chainId}.pdb')
-                allPdbs.append(chainPdb)
+        # Case 2: Multiple chains - process each separately and combine
+        allPdbs = []
 
-                params = " editconf -f {} -n {} -o {} -label {}".format(
-                    os.path.abspath(groFile),
-                    os.path.abspath(inpSystem.getIndexFile()),
-                    os.path.abspath(chainPdb),
-                    chainId)
-                gromacsPlugin.runGromacsPrintf(self, printfValues=[f'chain{chainId}'],
-                                               args=params, cwd=self._getPath())
+        # Extract each protein chain with proper chain label
+        for chainId in modelChains:
+            chainPdb = self._getTmpPath(f'chain_{chainId}.pdb')
+            allPdbs.append(chainPdb)
+            self._runEditconf(groFile, indexFile, chainPdb, chainId, [f'chain{chainId}'])
 
-            # Add ligand if present
-            if inpSystem.hasLig():
-                ligPdb = self._getTmpPath('ligand.pdb')
-                allPdbs.append(ligPdb)
+        # Add ligand if present
+        if inpSystem.hasLig():
+            ligPdb = self._getTmpPath('ligand.pdb')
+            allPdbs.append(ligPdb)
+            self._runEditconf(groFile, indexFile, ligPdb, 'L', [inpSystem.getLigandID()])
 
-                ligId = inpSystem.getLigandID()
-                params = " editconf -f {} -n {} -o {} -label L".format(
-                    os.path.abspath(groFile),
-                    os.path.abspath(inpSystem.getIndexFile()),
-                    os.path.abspath(ligPdb))
-                gromacsPlugin.runGromacsPrintf(self, printfValues=[ligId],
-                                               args=params, cwd=self._getPath())
+        # Combine all individual PDB pieces into the final file
+        self._combinePdbFiles(allPdbs, pdbFile)
 
-            # Combine all PDBs into one file
-            with open(pdbFile, 'w') as outFile:
-                first_file = True
+    def _runEditconf(self, groFile, indexFile, outFile, label, printGroup):
+        """ Runs the Gromacs editconf command with specified label and group """
+        params = " editconf -f {} -n {} -o {} -label {}".format(
+            os.path.abspath(groFile),
+            os.path.abspath(indexFile),
+            os.path.abspath(outFile),
+            label)
+        gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
+                                       args=params, cwd=self._getPath())
 
-                for pdb in allPdbs:
-                    with open(pdb, 'r') as inFile:
-                        for line in inFile:
-                            # 1. Keep the unit cell info (CRYST1) only from the first file
-                            if first_file and line.startswith('CRYST1'):
-                                outFile.write(line)
-                                first_file = False
+    def _combinePdbFiles(self, pdbFiles, targetPdbFile):
+        """ Merges structural data lines from multiple PDB files into one """
+        with open(targetPdbFile, 'w') as outFile:
+            firstFile = True
 
-                            # 2. Only keep coordinate records
-                            # removes REMARK, TER, TITLE, MASTER, etc.
-                            if line.startswith(('ATOM', 'HETATM')):
-                                outFile.write(line)
+            for pdb in pdbFiles:
+                with open(pdb, 'r') as inFile:
+                    for line in inFile:
+                        # Keep the unit cell info (CRYST1) only from the very first file
+                        if firstFile and line.startswith('CRYST1'):
+                            outFile.write(line)
+                            firstFile = False
 
-                # 3. Close the file properly
-                outFile.write('END\n')
+                        # Only keep core coordinate records
+                        if line.startswith(('ATOM', 'HETATM')):
+                            outFile.write(line)
+
+            outFile.write('END\n')
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -778,6 +770,6 @@ class GromacsMDSimulation(EMProtocol):
 
     def cleanCustomIndex(self):
         tmpPath = self.getProject().getTmpPath()
-        for file_path in glob.iglob(os.path.join(tmpPath, "*custom_indexes.ndx*")):
-            if os.path.isfile(file_path):
-                os.remove(file_path)
+        for customInxFile in glob.iglob(os.path.join(tmpPath, "*custom_indexes.ndx*")):
+            if os.path.isfile(customInxFile):
+                os.remove(customInxFile)

@@ -220,7 +220,9 @@ class Plugin(pwchemPlugin):
 		return [invGroups.get(name, name) for name in names]
 
 	@classmethod
-	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=['q']):
+	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None):
+		if inputCommands is None:
+			inputCommands = ['q']
 		outIndex = protocol._getExtraPath('indexes.ndx') if not outIndex else outIndex
 		outDir = (os.path.dirname(outIndex))
 		inIndex = f' -n {os.path.abspath(inIndex)}' if inIndex else ''
@@ -229,7 +231,6 @@ class Plugin(pwchemPlugin):
 		if inputCommands[-1] != 'q':
 			inputCommands.append('q')
 		cls.runGromacsPrintfViewer(printfValues=inputCommands, args=command, cwd=outDir)
-		groups = cls.parseIndexFile(protocol, outIndex)
 		return outIndex
 
 	@classmethod
@@ -286,8 +287,8 @@ class Plugin(pwchemPlugin):
 
 			# Name each newly created group
 			for i, chainId in enumerate(modelChains):
-				group_number = lastGroupIndex + i + 1
-				indexCommands.append(f'name {group_number} chain{chainId}')
+				groupNumber = lastGroupIndex + i + 1
+				indexCommands.append(f'name {groupNumber} chain{chainId}')
 
 			indexCommands.append('q')
 

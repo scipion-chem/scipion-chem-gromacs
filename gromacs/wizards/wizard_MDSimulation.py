@@ -74,7 +74,6 @@ class GromacsCheckIndexWizard(VariableWizard):
         protocol = form.protocol
         inputParam, outputParam = self.getInputOutput(form)
 
-        system = getattr(protocol, inputParam[0]).get()
         indexFile = gromacsPlugin.ensureIndexFile(protocol)
         groups = gromacsPlugin.parseIndexFile(protocol, indexFile)
 
