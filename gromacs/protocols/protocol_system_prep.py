@@ -416,7 +416,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         chainNames = ','.join(self.getModelChains())
         chains, lengthsDic = self.getModelChainsAndLengths()
-        lengths = list(lengthsDic.values())
+        lengths = ','.join(str(value) for value in lengthsDic.values())
+        
         groSystem = grobj.GromacsSystem(filename=groPath, topoFile=topoPath,
                                         restrFile=posrePath, chainNames=chainNames, chainLengths=lengths,
                                         ff=self.getEnumText('mainForceField'), wff=self.getEnumText('waterForceField'))

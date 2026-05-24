@@ -74,12 +74,12 @@ class GromacsSystem(MDSystem):
             self._chainNames.set(','.join(values))
 
     def getChainLengths(self):
-        return self._chainLengths.get().split(',')
+        return [int(x) for x in self._chainLengths.get().split(',')]
     def setChainLengths(self, values):
         if isinstance(values, str):
             self._chainLengths.set(values)
         elif type(values) in [list, tuple]:
-            self._chainLengths.set(','.join(values))
+            self._chainLengths.set(','.join(map(str, values)))
 
     def getFrameIdxs(self):
         return self._firstFrame, self._lastFrame

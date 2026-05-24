@@ -155,46 +155,44 @@ class SelectResidueWizardGromacs(VariableWizard):
         return prev
 
     def parseTopoResidues(self, topFile, chains, chainLengths):
-        '''Returns the residues as {chainName: {resIdx: resType, ...}, ...}'''
         resDic = {c: {} for c in chains}
-        chainIdx = 0
-        current_chain = chains[chainIdx]
+
+        # Create the iterator and set the initial state
+        chainLimits = iter(zip(chains, chainLengths))
+        currChain, targetLen = next(chainLimits, (None, 0))
+
         inAtoms = False
 
         with open(topFile) as f:
             for line in f:
                 line = line.strip()
 
-                # Wait until we hit the [ atoms ] section
-                if not inAtoms:
-                    if line.startswith('[ atoms ]'):
-                        inAtoms = True
+                if not line:
                     continue
 
-                # Stop parsing if we hit an empty line after [ atoms ]
-                if not line:
-                    break
+                # Only parse inside [ atoms ]
+                if line.startswith('['):
+                    inAtoms = 'atoms' in line
+                    continue
 
-                # Parse residue lines
-                if line.startswith('; residue'):
+                # Parse residues
+                if inAtoms and line.startswith('; residue') and currChain:
+
+                    # 1. Switch to the next chain if the current one is full
+                    if len(resDic[currChain]) == targetLen:
+                        currChain, targetLen = next(chainLimits, (None, 0))
+
+                    # 2. Extract and assign the residue data
                     parts = line.split()
-                    resIdx = int(parts[2])
-                    resType = parts[3]
+                    if len(parts) >= 4 and currChain:
+                        resIdx = int(parts[2])
+                        resType = parts[3]
 
-                    # Assign residue to the current chain
-                    resDic[current_chain][resIdx] = resType
-
-                    # If the current chain has all its expected residues, move to the next chain
-                    if len(resDic[current_chain]) == chainLengths[chainIdx]:
-                        chainIdx += 1
-                        # Update current_chain if there are still chains left to process
-                        if chainIdx < len(chains):
-                            current_chain = chains[chainIdx]
-
+                        resDic[currChain][resIdx] = resType
         return resDic
 
     def getResidues(self, inputObj):
-        '''Returns the residues in the selected chain as [[resIdx, resType], ...., [resIdx, resType]]'''
+        """Returns all residues as {chain: {resIdx: resType}}."""
         chains = inputObj.getChainNames()
         chainLengths = inputObj.getChainLengths()
         topFile = inputObj.getTopologyFile()
@@ -313,9 +311,9 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         '''Returns the atoms grouped by residue as
         {chainName: {resIdx: [atomId1, atomId2, ...]}, ...}'''
         resDic = {c: {} for c in chains}
-        chain_limits = iter(zip(chains, chainLengths))
-        curr_chain, target_len = next(chain_limits, (None, 0))
-        curr_res = None
+        chainLimits = iter(zip(chains, chainLengths))
+        currChain, targetLen = next(chainLimits, (None, 0))
+        currRes = None
 
         with open(topFile) as f:
             for line in f:
@@ -327,23 +325,26 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
                 if not line.strip():
                     break  # End of the block
 
-                if line.startswith('; residue') and curr_chain:
-                    curr_res = int(line.split()[2])
-                    resDic[curr_chain][curr_res] = []
+                if line.startswith('; residue') and currChain:
+                    # Move to the next chain BEFORE processing this residue
+                    # if we've already reached the expected residue count for current chain
+                    if len(resDic[currChain]) == targetLen:
+                        currChain, targetLen = next(chainLimits, (None, 0))
 
-                    # Move to the next chain only when this chain reaches its expected residue count
-                    if len(resDic[curr_chain]) == target_len:
-                        curr_chain, target_len = next(chain_limits, (None, 0))
+                    # Now assign this residue to the correct chain
+                    currRes = int(line.split()[2])
+                    if currChain:  # Make sure we still have a chain to assign to
+                        resDic[currChain][currRes] = []
 
-                elif line.strip() and not line.startswith(';') and curr_chain and curr_res is not None:
-                    atom_id = int(line.split()[0])
-                    resDic[curr_chain][curr_res].append(atom_id)
+                elif line.strip() and not line.startswith(';') and currChain and currRes is not None:
+                    atomId = int(line.split()[0])
+                    resDic[currChain][currRes].append(atomId)
+
         return resDic
 
     def getResDic(self, resStr):
         resDic = {}
         for chainRes in resStr.split()[1:]:
-            print('ChainRes: ', chainRes)
             ch, res = chainRes.split('_')
             resDic[ch] = res
         return resDic
@@ -395,7 +396,6 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         resStr = getattr(protocol, inputParams[1]).get()
         system = getattr(protocol, inputParams[0]).get()
         resDic = self.getResDic(resStr)
-        print(resDic)
         self.createResiduesRestraintIndex(system, resDic, protocol)
 
 AddResidueRestraintWizard().addTarget(protocol=GromacsMDSimulation,
