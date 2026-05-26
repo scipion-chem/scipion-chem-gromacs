@@ -46,6 +46,7 @@ from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, Variabl
     WatchElementWizard
 
 from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+from gromacs.protocols.protocol_system_prep import STRUCTURE, LIGAND
 from gromacs import Plugin as gromacsPlugin
 
 SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
@@ -415,9 +416,16 @@ class SelectSSBondWIzard(VariableWizard):
 
         # Detect SS bonds by running pdb2gmx in dry-run mode
         outPath = os.path.abspath(protocol.getProject().getTmpPath('SS_info.log'))
-        print(getattr(protocol, inputParams[0]).get())
+        # inputObj = getattr(protocol, inputParams[0]).get()
 
-        inputStruct = os.path.abspath(getattr(protocol, inputParams[0]).get().getFileName())
+        # inputStruct = os.path.abspath(getattr(protocol, inputParams[0]).get().getFileName())
+        inputStruct = self.getStructFile(protocol)
+        if not inputStruct:
+            dialog.showError("Missing Input",
+                             "Please select a valid input structure first.",
+                             form.root)
+            return
+
         base, ext = os.path.splitext(os.path.basename(inputStruct))
 
         # Only convert if the input is not already a PDB
@@ -428,7 +436,6 @@ class SelectSSBondWIzard(VariableWizard):
             pdbFile = inputStruct
 
         ssBonds = self.detectSSBonds(pdbFile, outPath)
-        print(ssBonds)
 
         if not ssBonds:
             dialog.showInfo("Disulfide Bonds",
@@ -508,7 +515,24 @@ class SelectSSBondWIzard(VariableWizard):
 
         return bonds
 
+    def getStructFile(self, protocol):
+        """
+        Extracts the absolute path of the receptor depending on whether
+        the input is a SetOfSmallMolecules or an AtomStruct.
+        """
+        # Note: Ensure LIGAND is imported or accessed correctly (e.g., protocol.LIGAND)
+        if protocol.inputFrom.get() == LIGAND:
+            input_obj = protocol.inputSetOfMols.get()
+            if input_obj:
+                return os.path.abspath(input_obj.getProteinFile())
+        else:
+            input_obj = protocol.inputStructure.get()
+            if input_obj:
+                return os.path.abspath(input_obj.getFileName())
+
+        return None
+
 SelectSSBondWIzard().addTarget(protocol=GromacsSystemPrep,
                                   targets=['selectSSBonds'],
-                                  inputs=['inputStructure'],
+                                  inputs=['inputFrom'],
                                   outputs=['selectSSBonds'])
