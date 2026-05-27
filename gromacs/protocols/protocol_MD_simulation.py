@@ -212,11 +212,21 @@ class GromacsMDSimulation(EMProtocol):
 
         group.addParam('restraintCommand', params.StringParam, default='', label='Enter custom index command: ',
                        expertLevel=params.LEVEL_ADVANCED, condition='restraintOptions==2',
-                       help='To restrain movement of specific groups of atoms of custom choice. You can '
-                            'create custom groups by iteratively entering the commands in this field and submitting it '
-                            'clicking on the wizard. At any time, you can check the available groups using the '
-                            'following parameter wizard (Choose restraints group: ), which will include the created '
-                            'ones. Once the custom group is created, select it on this next wizard.')
+                       help='Define custom atom groups using raw GROMACS make_ndx syntax.\n\n'
+                            'To execute, type your command here and click this wizard button. '
+                            'The new group will be generated and can be verified/selected in the '
+                            '"Choose restraints group" wizard below.\n\n'
+                            'Syntax Cheat Sheet:\n'
+                            '  & (AND), | (OR), ! (NOT)\n'
+                            '  nr / "name"  -> Select by group number or exact name in quotes (e.g., 1 or "chainA")\n'
+                            '  a [name]     -> Select by atom name (e.g., a C*)\n'
+                            '  r [name/nr]  -> Select by residue (e.g., r 1-15 or r LYS)\n'
+                            '  chain [char] -> Select by chain identifier (e.g., chain A)\n\n'
+                            'Examples:\n'
+                            '  1 & ! a H* (Protein group without Hydrogens)\n'
+                            '  "chainA" & ! a H* (Chain A without Hydrogens)\n'
+                            '  17 & t C            (Only Carbon atom types inside chainA)\n'
+                            '  1 | 13              (Combines Protein and SOL groups)')
         
         group.addParam('restraints', params.StringParam, default='None', label='Choose restraints group: ',
                        help='Restraint movement of specific groups of atoms. You can check the existing groups of '

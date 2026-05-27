@@ -101,10 +101,22 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
 
         inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
-        inCommand = getattr(protocol, inputParam[1]).get()
-        inCommand = ' | '.join(map(str, gromacsPlugin.translateNamesToIndexGroup(protocol, inCommand.split())))
-
-        gromacsPlugin.createIndexFile(protocol, inpSystem, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        inCommand = getattr(protocol, inputParam[1]).get().strip()
+        inCommand = inCommand.replace('"', '\\"')
+        try:
+            gromacsPlugin.createIndexFile(
+                protocol,
+                inpSystem,
+                inputCommands=[inCommand],
+                inIndex=inIndex,
+                outIndex=outIndex
+            )
+        except Exception as e:
+            raise Exception(
+                f"GROMACS make_ndx failed! Please check the syntax explained in help.\n\n"
+                f"Attempted command: {inCommand}\n"
+                f"Details: {str(e)}"
+            )
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
                                targets=['restraintCommand'],
