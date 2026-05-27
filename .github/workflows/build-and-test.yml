@@ -42,6 +42,9 @@ jobs:
   
       - name: Install plugin from pull request
         working-directory: ${{ github.workspace }}
+        env:
+          CMAKE_CUDA_ARCHITECTURES: ""
+          GMX_GPU: "OFF"
         run: |
           pip cache purge
           ../scipion/scipion3 installp -p . --devel
