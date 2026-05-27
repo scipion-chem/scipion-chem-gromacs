@@ -254,7 +254,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def _defineSSBondsParams(self, group):
         group.addParam('handleSSBonds', params.EnumParam,
                       choices=SSBONDS_OPTIONS,
-                      default=0, label='Define SS bonds: ',
+                      default=1, label='Define SS bonds: ',
                       help='How to handle disulfide bonds detected by GROMACS:\n'
                            '*None*: Do not define disulfide bonds\n'
                            '*Automatic*: Define all detected disulfide bonds automatically (SG atoms within 2.0 ± 0.2 Å)\n'
