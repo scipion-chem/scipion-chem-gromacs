@@ -42,11 +42,10 @@ jobs:
 
       - name: Patch GROMACS cmake flags for CPU-only CI build
         run: |
-          grep -rn "GMX_GPU=CUDA" .
           find . -name "*.py" | xargs sed -i \
             's/-DGMX_GPU=CUDA -DCMAKE_CUDA_ARCHITECTURES=native/-DGMX_GPU=OFF/g'
-          # Sanity-check: confirm the substitution landed
-          grep -rn "GMX_GPU" . || true
+          find . -name "*.py" | xargs sed -i \
+            's/-DGMX_GPU=CUDA/-DGMX_GPU=OFF/g'
           
       - name: Install plugin from pull request
         working-directory: ${{ github.workspace }}
