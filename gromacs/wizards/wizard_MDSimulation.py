@@ -35,6 +35,8 @@ information such as name and number of residues.
 # Imports
 import json, os
 from pyworkflow.gui import ListTreeProviderString, dialog
+import pyworkflow.object as pwobj
+
 from pwem.objects import Pointer, String
 
 from pwchem.utils import groupConsecutiveIdxs
@@ -42,6 +44,7 @@ from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, Variabl
     WatchElementWizard
 
 from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+from gromacs import Plugin as gromacsPlugin
 
 SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
                                 targets=['inputLigand'],
@@ -69,15 +72,10 @@ class GromacsCheckIndexWizard(VariableWizard):
 
     def show(self, form, *params):
         protocol = form.protocol
-        inputParam, outputParam = self.getInputOutput(form)
+        _, outputParam = self.getInputOutput(form)
 
-        system = getattr(protocol, inputParam[0]).get()
-
-        outIndex = protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            groups = protocol.parseIndexFile(outIndex)
-        else:
-            groups = protocol.createIndexFile(system, inIndex=None, outIndex=outIndex)
+        indexFile = gromacsPlugin.ensureIndexFile(protocol)
+        groups = gromacsPlugin.parseIndexFile(protocol, indexFile)
 
         finalList = [String('-1: None')]
         for index, name in groups.items():
@@ -99,18 +97,14 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
     def show(self, form, *params):
         protocol = form.protocol
         inputParam, _ = self.getInputOutput(form)
+        inpSystem = getattr(protocol, inputParam[0]).get()
 
-        system = getattr(protocol, inputParam[0]).get()
-
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
         inCommand = getattr(protocol, inputParam[1]).get()
-        inCommand = ' '.join(protocol.translateNamesToIndexGroup(inCommand.split()))
+        inCommand = ' | '.join(map(str, gromacsPlugin.translateNamesToIndexGroup(protocol, inCommand.split())))
 
-        protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
-
+        gromacsPlugin.createIndexFile(protocol, inpSystem, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
                                targets=['restraintCommand'],
@@ -138,7 +132,7 @@ class SelectChainWizardGromacs(VariableWizard):
 
         finalChainList = []
         for i in chainList:
-          finalChainList.append(pwobj.String('Chain: ' + i))
+          finalChainList.append(String('Chain: ' + i))
         provider = ListTreeProviderString(finalChainList)
         dlg = dialog.ListDialog(form.root, "Model chains", provider,
                               "Select one of the chains (model, chain, "
@@ -214,7 +208,7 @@ class SelectResidueWizardGromacs(VariableWizard):
                               "Select one or several residues (residue number, "
                               "residue name)")
 
-        groups = protocol.parseIndexFile(protocol.getCustomIndexFile())
+        groups = gromacsPlugin.parseIndexFile(protocol, gromacsPlugin.ensureIndexFile(protocol))
         restraintStr = 'ResidueRestraint_{}: '.format(len(self.getPrevResidueRest(groups)))
 
         if len(dlg.values) == 1 and dlg.values[0].get() == ALL_RES:
@@ -256,19 +250,18 @@ class AddROIRestraintWizard(VariableWizard):
         return roi
 
     def createROIRestraintIndex(self, system, roi, protocol):
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
-
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
+        
         #  Creating index for atoms in ROI
         atomGroups = groupConsecutiveIdxs(roi.getDecodedCAtoms())
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        groups = gromacsPlugin.parseIndexFile(protocol, outIndex)
 
         # Renaming ROI index to ROI name
         roiIdx, roiName = list(groups.keys())[-1], roi.__str__().replace(' ', '_')
         inCommand = 'name {} {}'.format(roiIdx, roiName)
-        protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=outIndex, outIndex=outIndex)
         return roiIdx, roiName
 
     def show(self, form, *params):
@@ -347,9 +340,7 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         topFile = system.getTopologyFile()
         atomsDic = self.parseTopoAtoms(topFile, chains)
 
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
         # Mapping residues to atoms index
         atomList = []
@@ -365,12 +356,14 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
 
         atomGroups = groupConsecutiveIdxs(atomList)
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
+
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        groups = gromacsPlugin.parseIndexFile(protocol, outIndex)
 
         # Renaming group
         restIdx, restName = list(groups.keys())[-1], 'ResidueRestraint_{}'.format(len(self.getPrevResidueRest(groups)))
         inCommand = 'name {} {}'.format(restIdx, restName)
-        protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=outIndex, outIndex=outIndex)
         return restIdx, restName
 
     def show(self, form, *params):

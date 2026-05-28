@@ -29,6 +29,7 @@
 import os, shutil
 from subprocess import check_call
 import pyworkflow.object as pwobj
+import pwem.objects.data as data
 
 from pwchem.objects import MDSystem
 from gromacs.constants import *
@@ -130,7 +131,7 @@ class GromacsSystem(MDSystem):
     def setOriStructFile(self, value):
         self._oriStructFile.set(value)
 
-    def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
+    def defineNewRestriction(self, protocol, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
         from gromacs import Plugin as gromacsPlugin
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
@@ -139,7 +140,7 @@ class GromacsSystem(MDSystem):
         paramsGenrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
                           (os.path.abspath(self.getSystemFile()), nArg,
                            'posre_' + restraintSuffix.lower(), energy, energy, energy)
-        gromacsPlugin.runGromacsPrintf(printfValues=index, args=paramsGenrestr, cwd=outDir)
+        gromacsPlugin.runGromacsPrintf(protocol, printfValues=index, args=paramsGenrestr, cwd=outDir)
 
         topFile = self.getTopologyFile()
         if outDir:
@@ -165,5 +166,3 @@ class GromacsSystem(MDSystem):
                 if line.startswith('[ molecules ]'):
                     mols = True
         return ionsDic
-
-

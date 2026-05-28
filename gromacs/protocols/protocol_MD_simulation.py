@@ -30,17 +30,19 @@
 This module will perform energy minimizations for the system
 """
 import glob, uuid
+import os.path
 
 from pyworkflow.object import String
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message, runJob, createLink
 from pwem.protocols import EMProtocol
-
+from pwem.objects import AtomStruct
 from pwchem.utils import natural_sort
+from pwem.convert import AtomicStructHandler
 
 from gromacs.objects import *
 from gromacs.constants import *
-from gromacs import Plugin as gromacsPlugin
+from gromacs import Plugin as gromacsPlugin, GromacsSystem
 
 from multiprocessing import cpu_count
 
@@ -55,7 +57,7 @@ class GromacsMDSimulation(EMProtocol):
     _integrators = ['steep', 'cg']
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman', 'C-rescale']
-    #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
+    _coupleStyle = ['isotropic', 'semiisotropic']
     _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
     _omitParamNames = ['useGpu', 'gpuList', 'gromacsSystem', 'restrainROIs',
@@ -65,11 +67,9 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
-
         """ Define the input parameters that will be used.
         """
         cpus = cpu_count()//2 # don't use everything
@@ -142,9 +142,10 @@ class GromacsMDSimulation(EMProtocol):
                       label='   Pressure constant (ps)[tau-p]:   ', expertLevel=params.LEVEL_ADVANCED)
         line.addParam('presCouple', params.IntParam, default=-1,
                       label='Coupling frequency [nstpcouple]: ', expertLevel=params.LEVEL_ADVANCED)
-        #group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
-        #               label='Pressure coupling style: ', choices=self._coupleStyle,
-        #               expertLevel=params.LEVEL_ADVANCED)
+        group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
+                      label='Pressure coupling style: ', choices=self._coupleStyle,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      help='Semiisotropic is recomemded for membrane proteins')
 
         group = form.addGroup('Trajectory', condition='ensemType!=0')
         group.addParam('saveTrj', params.BooleanParam, default=False,
@@ -226,22 +227,22 @@ class GromacsMDSimulation(EMProtocol):
 
         group = form.addGroup('Summary')
         group.addParam('insertStep', params.StringParam, default='',
-                       label='Insert relaxation step number: ',
-                       help='Insert the defined relaxation step into the workflow on the defined position.\n'
+                       label='Insert step number: ',
+                       help='Insert the defined step into the workflow on the defined position.\n'
                             'The default (when empty) is the last position')
         group.addParam('summarySteps', params.TextParam, width=100, readOnly=True,
                        label='Summary of steps',
                        help='Summary of the defined steps. \nManual modification will have no '
                             'effect, use the wizards to add / delete the steps')
         group.addParam('deleteStep', params.StringParam, default='',
-                       label='Delete relaxation step number: ',
+                       label='Delete step number: ',
                        help='Delete the step of the specified index from the workflow.')
         group.addParam('watchStep', params.StringParam, default='',
-                       label='Watch relaxation step number: ',
-                       help='''Watch the parameters step of the specified index from the workflow..\n
-                               This might be useful if you want to change some parameters of a predefined step.\n
-                               However, the parameters are not changed until you add the new step (and probably\n
-                               you may want to delete the previous unchanged step)''')
+                       label='Watch parameters of step number: ',
+                       help='Watch the parameters step of the specified index from the workflow...\n'
+                            'This might be useful if you want to change some parameters of a predefined step. '
+                            'However, the parameters are not changed until you add the new step (and probably '
+                            'you may want to delete the previous unchanged step)')
         group.addParam('workFlowSteps', params.TextParam, label='User transparent', condition='False')
 
         form.addSection(label='Input Pointers')
@@ -290,6 +291,9 @@ class GromacsMDSimulation(EMProtocol):
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
+        localPdbFile = self._getPath('outputSystem.pdb')
+        self._convertGroToPdbNoWat(localGroFile, localPdbFile)
+        finalAtomStruct = AtomStruct(filename=os.path.relpath(localPdbFile))
 
         outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
@@ -299,11 +303,18 @@ class GromacsMDSimulation(EMProtocol):
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
-        indexFile = self.getCustomIndexFile()
-        if os.path.exists(indexFile):
-            outSystem.setIndexFile(indexFile)
 
-        self._defineOutputs(outputSystem=outSystem)
+        # set and clean indexFiles
+        customIndex = gromacsPlugin.getCustomIndexFile(self)
+        indexFile = self._getExtraPath('indexes.ndx')
+        if os.path.exists(customIndex):
+            shutil.copy(customIndex, indexFile)
+        else:
+            shutil.copy(self.gromacsSystem.get().getIndexFile(), indexFile)
+        self.cleanCustomIndex()
+        outSystem.setIndexFile(indexFile)
+
+        self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
 
     # --------------------------- INFO functions -----------------------------------
@@ -431,39 +442,72 @@ class GromacsMDSimulation(EMProtocol):
         ids.append(p.get().getObjId())
       return ids
 
-    def getCustomRestraintID(self):
-        return self.restraintID.get()
+    def _convertGroToPdb(self, groFile, pdbFile):
+        """ Helper function to convert GRO to PDB using GROMACS editconf """
+        args = f'-f {groFile} -o {pdbFile}'
+        gromacsPlugin.runGromacs(self, 'gmx editconf', args)
 
-    def getCustomIndexFile(self):
-        indexFile = self.gromacsSystem.get().getIndexFile()
-        if not indexFile or not os.path.exists(indexFile):
-            projDir = self.getProject().getPath()
-            indexFile = os.path.join(projDir, f'{self.getCustomRestraintID()}_custom_indexes.ndx')
-        return indexFile
+    def _convertGroToPdbNoWat(self, groFile, pdbFile):
+        """ Helper function to convert GRO to PDB while preserving chain labels """
+        inpSystem = self.gromacsSystem.get()
+        modelChains = inpSystem.getChainNames()
+        indexFile = inpSystem.getIndexFile()
 
-    def parseIndexFile(self, indexFile):
-        groups, index = {}, 0
-        with open(indexFile) as f:
-            for line in f:
-                if line.startswith('['):
-                    groups[index] = line.replace('[', '').replace(']', '').strip()
-                    index += 1
-        return groups
+        # Case 1: Single chain processing
+        if len(modelChains) == 1:
+            printGroup = ['Protein']
+            if inpSystem.hasLig():
+                printGroup = [f'Protein_{inpSystem.getLigandID()}']
 
-    def translateNamesToIndexGroup(self, names):
-        idxs = []
-        indexFile = self.getCustomIndexFile()
-        if os.path.exists(indexFile):
-            groups = self.parseIndexFile(indexFile)
-        else:
-            groups = self.createIndexFile(self.gromacsSystem.get(), inIndex=None, outIndex=indexFile)
-        invGroups = {v: k for k, v in groups.items()}
-        for name in names:
-            if name in invGroups:
-                idxs.append(invGroups[name])
-            else:
-                idxs.append(name)
-        return idxs
+            self._runEditconf(groFile, indexFile, pdbFile, modelChains[0], printGroup)
+            return
+
+        # Case 2: Multiple chains - process each separately and combine
+        allPdbs = []
+
+        # Extract each protein chain with proper chain label
+        for chainId in modelChains:
+            chainPdb = self._getTmpPath(f'chain_{chainId}.pdb')
+            allPdbs.append(chainPdb)
+            self._runEditconf(groFile, indexFile, chainPdb, chainId, [f'chain{chainId}'])
+
+        # Add ligand if present
+        if inpSystem.hasLig():
+            ligPdb = self._getTmpPath('ligand.pdb')
+            allPdbs.append(ligPdb)
+            self._runEditconf(groFile, indexFile, ligPdb, 'L', [inpSystem.getLigandID()])
+
+        # Combine all individual PDB pieces into the final file
+        self._combinePdbFiles(allPdbs, pdbFile)
+
+    def _runEditconf(self, groFile, indexFile, outFile, label, printGroup):
+        """ Runs the Gromacs editconf command with specified label and group """
+        params = " editconf -f {} -n {} -o {} -label {}".format(
+            os.path.abspath(groFile),
+            os.path.abspath(indexFile),
+            os.path.abspath(outFile),
+            label)
+        gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
+                                       args=params, cwd=self._getPath())
+
+    def _combinePdbFiles(self, pdbFiles, targetPdbFile):
+        """ Merges structural data lines from multiple PDB files into one """
+        with open(targetPdbFile, 'w') as outFile:
+            firstFile = True
+
+            for pdb in pdbFiles:
+                with open(pdb, 'r') as inFile:
+                    for line in inFile:
+                        # Keep the unit cell info (CRYST1) only from the very first file
+                        if firstFile and line.startswith('CRYST1'):
+                            outFile.write(line)
+                            firstFile = False
+
+                        # Only keep core coordinate records
+                        if line.startswith(('ATOM', 'HETATM')):
+                            outFile.write(line)
+
+            outFile.write('END\n')
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -507,18 +551,6 @@ class GromacsMDSimulation(EMProtocol):
           msjDic[pName] = paramDic[pName].default
       return msjDic
 
-    def createIndexFile(self, system, inIndex=None, outIndex=None, inputCommands=['q']):
-        outIndex = self._getTmpPath('indexes.ndx') if not outIndex else outIndex
-        outDir = os.path.dirname(outIndex)
-        inIndex = f' -n {inIndex}' if inIndex else ''
-        command = f'make_ndx -f {system.getSystemFile()}{inIndex} -o {outIndex}'
-
-        if inputCommands[-1] != 'q':
-            inputCommands.append('q')
-        gromacsPlugin.runGromacsPrintf(printfValues=inputCommands, args=command, cwd=outDir)
-        groups = self.parseIndexFile(outIndex)
-        return groups
-
     def generateMDPFile(self, msjDic, mdpStage):
         stageDir = self._getExtraPath('stage_{}'.format(mdpStage))
         if not os.path.exists(stageDir):
@@ -527,16 +559,14 @@ class GromacsMDSimulation(EMProtocol):
         mdpFile = os.path.join(stageDir, 'stage_{}.mdp'.format(mdpStage))
         if os.path.exists(mdpFile): return mdpFile
 
-        if not msjDic['restraints'].strip() in ['', 'None']:
-            rSuffix = msjDic['restraints'] + '_stg%s' % mdpStage
-            groupNr = self.translateNamesToIndexGroup([msjDic['restraints']])
+        indexFile = os.path.abspath(gromacsPlugin.ensureIndexFile(self))
 
-            indexFile = self.getCustomIndexFile()
-            if not os.path.exists(indexFile):
-                indexFile = None
+        if msjDic['restraints'].strip() not in ('', 'None'):
+            rSuffix = f"{msjDic['restraints']}_stg{mdpStage}"
+            groupNr = gromacsPlugin.translateNamesToIndexGroup(self, [msjDic['restraints']])
 
             newSuffixes = self.gromacsSystem.get().\
-              defineNewRestriction(index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
+              defineNewRestriction(self, index=groupNr, energy=msjDic['restraintForce'], restraintSuffix=rSuffix,
                                    outDir=stageDir, indexFile=indexFile)
 
             restrStr = RESTR_STR.format(rSuffix.upper())
@@ -568,8 +598,13 @@ class GromacsMDSimulation(EMProtocol):
             if msjDic['ensemType'] == 'NVT':
                 presStr = ''
             elif msjDic['ensemType'] == 'NPT':
-                presStr = PRES_SETTING.format(msjDic['barostat'], 'isotropic',
+                if msjDic['coupleStyle'] == 'isotropic':
+                    presStr = PRES_SETTING.format(msjDic['barostat'], msjDic['coupleStyle'],
                                               msjDic['pressure'], msjDic['presRelaxCons'],
+                                              msjDic['presCouple'])
+                else:
+                    presStr = PRES_SETTING_SEMI.format(msjDic['barostat'], msjDic['coupleStyle'],
+                                              msjDic['pressure'], msjDic['pressure'], msjDic['presRelaxCons'],
                                               msjDic['presCouple'])
 
             if self.checkIfPrevTrj(mdpStage):
@@ -716,12 +751,12 @@ class GromacsMDSimulation(EMProtocol):
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
             #Concatenates trajectory
             command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
-            gromacsPlugin.runGromacsPrintf(printfValues=['c'] * len(trjFiles),
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['c'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             #Fixes and center trajectory
             command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
               format(os.path.abspath(tprFile), tmpTrj, outTrj)
-            gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'System'] * len(trjFiles),
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'System'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
             return os.path.abspath(self._getPath(outTrj))
         return None
@@ -732,3 +767,9 @@ class GromacsMDSimulation(EMProtocol):
             if warn.split()[1] in ['all', str(stageNum)]:
                 nWarns += 1
         return nWarns
+
+    def cleanCustomIndex(self):
+        tmpPath = self.getProject().getTmpPath()
+        for customInxFile in glob.iglob(os.path.join(tmpPath, "*custom_indexes.ndx*")):
+            if os.path.isfile(customInxFile):
+                os.remove(customInxFile)

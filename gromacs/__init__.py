@@ -25,16 +25,18 @@
 # **************************************************************************
 
 # General imports
-import os
 import subprocess, multiprocessing
+import os
 from os.path import join
 
 # Scipion em imports
 import pwem
 from scipion.install.funcs import InstallHelper
-from pyworkflow.utils import Environ, redStr, yellowStr
+from pyworkflow.utils import redStr, yellowStr, Environ
 
 # Plugin imports
+from pwchem import Plugin as pwchemPlugin
+
 from .objects import *
 from .constants import *
 
@@ -42,7 +44,7 @@ _logo = "gromacs_logo.png"
 __version__ = '1.0.0'
 _references = ['Abraham2015']
 
-class Plugin(pwem.Plugin):
+class Plugin(pwchemPlugin):
 	_homeVar = GROMACS_DIC['home']
 	_pathVars = [GROMACS_DIC['home']]
 	_supportedVersions = [V2020, V2021, V2026]
@@ -52,7 +54,7 @@ class Plugin(pwem.Plugin):
 	def _defineVariables(cls):
 		""" Return and write a variable in the config file. """
 		cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
-	
+
 	@classmethod
 	def defineBinaries(cls, env):
 		""" This function defines all the packages that will be installed. """
@@ -61,7 +63,7 @@ class Plugin(pwem.Plugin):
 
 		# Installing packages
 		cls.addGromacs(env, modifiedProcs)
-	
+
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
 		""" This function installs Gromacs's package. """
@@ -101,14 +103,24 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt, workDir=mpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)\
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
-		
+
 	@classmethod
 	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False, **kwargs):
 		""" Run Gromacs command from a given protocol. """
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
 
 	@classmethod
-	def runGromacsPrintf(cls, printfValues, args, cwd, mpi=False):
+	def runGromacsPrintf(cls, protocol, printfValues, args, cwd, mpi=False):
+		""" Run Gromacs command with interactive printf input via Scipion's runJob. """
+		printfValues = list(map(str, printfValues))
+		gmxBin = cls.getGromacsBin(mpi=mpi)
+		fullProgram = 'printf "{}\\n" | {}'.format('\\n'.join(printfValues), gmxBin)
+
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1)
+
+	@classmethod
+	def runGromacsPrintfViewer(cls, printfValues, args, cwd, mpi=False):
 		""" Run Gromacs command from a given protocol. """
 		printfValues = list(map(str, printfValues))
 		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
@@ -120,7 +132,7 @@ class Plugin(pwem.Plugin):
 		mpiExt = '_mpi' if mpi else ''
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
 
-	@classmethod  # Test that
+	@classmethod
 	def getEnviron(cls):
 		return Environ(os.environ)
 
@@ -188,6 +200,105 @@ class Plugin(pwem.Plugin):
 			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
 		except Exception:
 			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
+
+	@classmethod
+	def parseIndexFile(cls, protocol, indexFile):
+		groups, index = {}, 0
+		with open(indexFile) as f:
+			for line in f:
+				if line.startswith('['):
+					groups[index] = line.replace('[', '').replace(']', '').strip()
+					index += 1
+		return groups
+
+	@classmethod
+	def translateNamesToIndexGroup(cls, protocol, names):
+		"""Translate group name(s) to their numeric index in the index file."""
+		indexFile = cls.ensureIndexFile(protocol)
+		groups = cls.parseIndexFile(protocol, indexFile)
+		invGroups = {v: k for k, v in groups.items()}
+		return [invGroups.get(name, name) for name in names]
+
+	@classmethod
+	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=None):
+		if inputCommands is None:
+			inputCommands = ['q']
+		outIndex = protocol._getExtraPath('indexes.ndx') if not outIndex else outIndex
+		outDir = (os.path.dirname(outIndex))
+		inIndex = f' -n {os.path.abspath(inIndex)}' if inIndex else ''
+		command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
+
+		if inputCommands[-1] != 'q':
+			inputCommands.append('q')
+		cls.runGromacsPrintfViewer(printfValues=inputCommands, args=command, cwd=outDir)
+		return outIndex
+
+	@classmethod
+	def ensureIndexFile(cls, protocol):
+		"""Return the protocol index file, creating it first if it does not exist.
+        """
+		indexFile = cls.getCustomIndexFile(protocol)
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		indexFile = protocol._getExtraPath('indexes.ndx')
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		inpSystem = protocol.gromacsSystem.get()
+		indexFile = inpSystem.getIndexFile()
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		if not os.path.exists(indexFile):
+			indexFile = cls.firstIndexCreation(protocol, inpSystem)
+		return os.path.abspath(indexFile)
+
+	@classmethod
+	def getCustomIndexFile(cls, protocol):
+		inputSystem = protocol.gromacsSystem.get()
+		inputId = inputSystem.getObjId()
+		return protocol.getProject().getTmpPath(f'{inputId}_custom_indexes.ndx')
+
+	@classmethod
+	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
+		indexCommands = []
+
+		if ligandName is not None:
+			indexCommands.append('1 | 13')
+			indexFile = cls.createIndexFile(protocol, groSystem, inputCommands=indexCommands)
+		else:
+			# Create basic index file with default GROMACS groups
+			indexFile = cls.createIndexFile(protocol, groSystem)
+
+		if modelChains is not None and chainLengths is not None and len(modelChains) > 1:
+			# Parse existing index file to find the last group number
+			groups = cls.parseIndexFile(protocol, indexFile)
+			lastGroupIndex = max(groups.keys())
+
+			indexCommands = []
+			residuePointer = 1
+
+			for chainId in modelChains:
+				chainLength = chainLengths[chainId]
+				start = residuePointer
+				end = residuePointer + chainLength - 1
+
+				indexCommands.append(f'ri {start}-{end}')
+
+				residuePointer = end + 1
+
+			# Name each newly created group
+			for i, chainId in enumerate(modelChains):
+				groupNumber = lastGroupIndex + i + 1
+				indexCommands.append(f'name {groupNumber} chain{chainId}')
+
+			indexCommands.append('q')
+
+			# Create updated index file with per-chain groups
+			indexFile = cls.createIndexFile(
+				protocol, groSystem,
+				inIndex=os.path.abspath(indexFile),
+				inputCommands=indexCommands
+			)
+		return indexFile
 
 	@classmethod
 	def checkCudaVersion(cls):

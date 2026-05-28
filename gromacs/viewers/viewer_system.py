@@ -31,6 +31,8 @@ from pwem.objects import SetOfAtomStructs, AtomStruct
 from pwem.viewers import ChimeraViewer, EmPlotter
 
 from pwchem.viewers import VmdViewPopen, MDSystemViewer, MDSystemPViewer
+import pyworkflow.viewer as pwviewer
+
 from pwchem.utils import natural_sort
 from pwchem.constants import TCL_MD_STR
 
@@ -139,7 +141,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                           '4) Angles'
                      )
       group.addParam('clustMethod', params.EnumParam,
-                     choices=['Single', 'Jarvis Patrick', 'Monte Carlo', 'Diagonalization', 'Gromos'],
+                     choices=['Linkage', 'Jarvis-Patrick', 'Monte-Carlo', 'Diagonalization', 'Gromos'],
                      default=4, label='Clustering method: ', condition='displayAnalysis in [5]',
                      help='Clustering method'
                      )
@@ -253,7 +255,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('RMSD'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('RMSD'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -271,7 +273,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       if self.aveRes.get():
         args += ' -res'
 
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('RMSF'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('RMSF'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -286,7 +288,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       args = ' gyrate -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Gyration'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('Gyration'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -305,7 +307,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                                                  outOptions[self.sasaOut.get()], oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('SASA'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('SASA'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -324,7 +326,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                                            outOptions[self.hbondOut.get()], oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('HBond'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('HBond'),
                                      args=args, cwd=oDir)
       return oPath
 
@@ -345,7 +347,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
               self.getEnumText('clustMethod').lower(), self.clustCutoff.get())
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
-      gromacsPlugin.runGromacsPrintf(printfValues=self.getIndexNDX('Clustering'),
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('Clustering'),
                                      args=args, cwd=oDir)
       return oPaths
 
@@ -363,7 +365,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
 
     def correctTrj(self, stage):
       args = ' trjconv -s {}.tpr -f {}.trr -o {}_corrected.xtc -pbc mol -center'.format(*[stage] * 3)
-      gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'System'],
+      gromacsPlugin.runGromacsPrintfViewer(printfValues=['Protein', 'System'],
                                      args=args, cwd=self.protocol._getExtraPath(stage))
       return self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
 
@@ -426,7 +428,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
             return os.path.abspath(indexFile)
 
     def getIndexGroupsDic(self):
-        groups = self.protocol.parseIndexFile(self.protocol.getCustomIndexFile())
+        groups = gromacsPlugin.parseIndexFile(self.protocol, self.getIndexFile())
         return groups
 
     def getIndexGroups(self):
