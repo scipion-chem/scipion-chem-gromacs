@@ -39,19 +39,9 @@ jobs:
         uses: actions/checkout@main
         with:
           ref: ${{ github.head_ref }}
-
-      - name: Patch GROMACS cmake flags for CPU-only CI build
-        run: |
-          find . -name "*.py" | xargs sed -i \
-            's/-DGMX_GPU=CUDA -DCMAKE_CUDA_ARCHITECTURES=native/-DGMX_GPU=OFF/g'
-          find . -name "*.py" | xargs sed -i \
-            's/-DGMX_GPU=CUDA/-DGMX_GPU=OFF/g'
           
       - name: Install plugin from pull request
         working-directory: ${{ github.workspace }}
-        env:
-          CMAKE_CUDA_ARCHITECTURES: ""
-          GMX_GPU: "OFF"
         run: |
           pip cache purge
           ../scipion/scipion3 installp -p . --devel
