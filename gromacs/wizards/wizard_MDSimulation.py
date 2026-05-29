@@ -411,14 +411,11 @@ class SelectSSBondWIzard(VariableWizard):
     _targets, _inputs, _outputs = [], {}, {}
 
     def show(self, form, *params):
-        inputParams, outputParams = self.getInputOutput(form)
+        _, outputParams = self.getInputOutput(form)
         protocol = form.protocol
 
         # Detect SS bonds by running pdb2gmx in dry-run mode
         outPath = os.path.abspath(protocol.getProject().getTmpPath('SS_info.log'))
-        # inputObj = getattr(protocol, inputParams[0]).get()
-
-        # inputStruct = os.path.abspath(getattr(protocol, inputParams[0]).get().getFileName())
         inputStruct = self.getStructFile(protocol)
         if not inputStruct:
             dialog.showError("Missing Input",
@@ -486,8 +483,8 @@ class SelectSSBondWIzard(VariableWizard):
         cysCount = sum(1 for residue in structure.get_residues()
                         if residue.get_resname() in ['CYS', 'CYX'])
         # Maximum possible bonds is = n*(n-1)/2
-        max_bonds = (cysCount * (cysCount - 1)) // 2
-        return max_bonds
+        maxBonds = (cysCount * (cysCount - 1)) // 2
+        return maxBonds
 
     def parseSSBondOutput(self, outputFile):
         """
@@ -502,11 +499,6 @@ class SelectSSBondWIzard(VariableWizard):
 
         for match in re.finditer(pattern, content):
             cys1, cys2 = match.groups()
-
-            # Extract residue numbers for distance lookup
-            res1 = int(cys1.split('-')[1])
-            res2 = int(cys2.split('-')[1])
-
             bonds.append({
                 'cys1': cys1,
                 'cys2': cys2,
@@ -522,13 +514,13 @@ class SelectSSBondWIzard(VariableWizard):
         """
         # Note: Ensure LIGAND is imported or accessed correctly (e.g., protocol.LIGAND)
         if protocol.inputFrom.get() == LIGAND:
-            input_obj = protocol.inputSetOfMols.get()
-            if input_obj:
-                return os.path.abspath(input_obj.getProteinFile())
+            inputObj = protocol.inputSetOfMols.get()
+            if inputObj:
+                return os.path.abspath(inputObj.getProteinFile())
         else:
-            input_obj = protocol.inputStructure.get()
-            if input_obj:
-                return os.path.abspath(input_obj.getFileName())
+            inputObj = protocol.inputStructure.get()
+            if inputObj:
+                return os.path.abspath(inputObj.getFileName())
 
         return None
 

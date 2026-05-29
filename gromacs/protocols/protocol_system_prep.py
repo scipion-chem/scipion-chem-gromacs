@@ -109,6 +109,7 @@ GROMACS_WATERFF_NAME[GROMACS_TIP3P], GROMACS_WATERFF_NAME[GROMACS_TIP4P],
 GROMACS_WATERFF_NAME[GROMACS_TIP5P]]
 
 STRUCTURE, LIGAND = 0, 1
+TOPOL_TOP = "topol.top"
 
 GAPS_OPTIONS = ['No', 'Gaps termini', 'All termini']
 SSBONDS_OPTIONS = ['None', 'Automatic', 'Manual']
@@ -253,7 +254,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def _defineSSBondsParams(self, group):
         group.addParam('handleSSBonds', params.EnumParam,
-                      choices=SSBONDS_OPTIONS,
+                      choices=SSBONDS_OPTIONS,  display=params.EnumParam.DISPLAY_HLIST,
                       default=1, label='Define SS bonds: ',
                       help='How to handle disulfide bonds detected by GROMACS:\n'
                            '*None*: Do not define disulfide bonds\n'
@@ -330,66 +331,54 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       with open(recFile, 'w') as f:
         f.write(f"{recDic['header']} {nRec+nLig}\n{recDic['coords']}{ligDic['coords']}{recDic['tail']}")
 
-
     def PDB2GMXStep(self):
-      inputStructure = self.getInputReceptorFile()
-      systemBasename = self.getSystemName()
+        inputStructure = self.getInputReceptorFile()
+        systemBasename = self.getSystemName()
 
-      addCapsMode = self.getEnumText('addCaps')
-      if addCapsMode in GAPS_OPTIONS[1:]:
-        mode = 'gaps' if addCapsMode ==  GAPS_OPTIONS[1] else 'all'
+        addCapsMode = self.getEnumText('addCaps')
+        if addCapsMode in GAPS_OPTIONS[1:]:
+            mode = 'gaps' if addCapsMode == GAPS_OPTIONS[1] else 'all'
+            cappedPdb = os.path.abspath(os.path.join(self._getExtraPath(), f'{systemBasename}_capped.pdb'))
+            self.runPymol(self.addCapsPml(inputStructure, cappedPdb, mode), self._getExtraPath())
+            self.fixPdbTER(cappedPdb)
+            inputStructure = cappedPdb
 
-        cappedPdb = os.path.abspath(os.path.join(self._getExtraPath(), f'{systemBasename}_capped.pdb'))
-        pmlScript = self.addCapsPml(inputStructure, cappedPdb, mode)
+        Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
+        Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
+        params = (f' pdb2gmx -f {inputStructure} -o {systemBasename}_processed.gro '
+                  f'-water {Waterff} -ff {Mainff} -merge all ')
 
-        self.runPymol(pmlScript, self._getExtraPath())
-        self.fixPdbTER(cappedPdb)
-        inputStructure = cappedPdb
+        # Handle disulfide bonds
+        ssMode = self.getEnumText('handleSSBonds')
+        printfValues = None
 
-      Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
-      Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
+        if ssMode != 'None':
+            params += ' -ss '
+            numBonds = self.countSSBonds(inputStructure, Waterff, Mainff)
 
-      params = f' pdb2gmx -f {inputStructure} -o {systemBasename}_processed.gro ' \
-               f'-water {Waterff} -ff {Mainff} -merge all '
+            if ssMode == 'Automatic':
+                printfValues = ['y'] * int(numBonds)
+                self._log.info(f"Automatically accepting {numBonds} disulfide bond(s)")
 
-      # Handle disulfide bonds
-      ssMode = self.handleSSBonds.get()
-      printfValues = []
+            elif ssMode == 'Manual':
+                selected = {int(x) for x in self.selectSSBonds.get().split(',')} if self.selectSSBonds.get() else set()
+                printfValues = ['y' if i in selected else 'n' for i in range(numBonds)]
 
-      if ssMode != 0:
-          params += ' -ss '
-          if ssMode == 1:
-              numBonds = self.countSSBonds(inputStructure, Waterff, Mainff)
-              if numBonds > 0:
-                  printfValues = ['y'] * numBonds
-                  self._log.info(f"Automatically accepting {numBonds} disulfide bond(s)")
-          elif ssMode == 2:
-              numBonds = self.countSSBonds(inputStructure, Waterff, Mainff)
-              ssIdx = self.selectSSBonds.get()
-              selected = {int(x) for x in ssIdx.split(',')} if ssIdx else set()
-              printfValues = ['y' if i in selected else 'n' for i in range(numBonds)]
+        try:
+            self._runPdb2gmx(params, printfValues=printfValues)
 
-      try:
-          if printfValues:
-              gromacsPlugin.runGromacsPrintf(self, printfValues=printfValues, args=params, cwd=self._getPath())
-          else:
-              gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
-      except:
-          self._log.warning('Conversion to gro failed, trying with -ignh flag')
-          if os.path.exists(self._getPath('topol.top')):
-              os.remove(self._getPath('topol.top'))
-          params += ' -ignh'
-          if printfValues:
-              gromacsPlugin.runGromacsPrintf(self, printfValues=printfValues, args=params, cwd=self._getPath())
-          else:
-              gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
+        except:
+            self._log.warning('Conversion to gro failed, trying with -ignh flag')
+            if os.path.exists(self._getPath(TOPOL_TOP)):
+                os.remove(self._getPath(TOPOL_TOP))
+            self._runPdb2gmx(params + ' -ignh', printfValues=printfValues)
 
-      if self.inputFrom.get() == LIGAND:
-        molName = self.getLigandName()
-        groFile, topFile = self._getPath(f'{systemBasename}_processed.gro'), self._getPath('topol.top')
-        self.addLigandTopo(topFile)
-        self.addLigandCoords(groFile, self.getLigandPath(f'{molName}_GMX.gro'))
-        shutil.copy(self.getLigandPath(f'{molName}_GMX.itp'), self._getPath(f'{molName}_GMX.itp'))
+        if self.inputFrom.get() == LIGAND:
+          molName = self.getLigandName()
+          groFile, topFile = self._getPath(f'{systemBasename}_processed.gro'), self._getPath(TOPOL_TOP)
+          self.addLigandTopo(topFile)
+          self.addLigandCoords(groFile, self.getLigandPath(f'{molName}_GMX.gro'))
+          shutil.copy(self.getLigandPath(f'{molName}_GMX.itp'), self._getPath(f'{molName}_GMX.itp'))
 
     def editConfStep(self):
         systemBasename = self.getSystemName()
@@ -455,7 +444,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         else:
             groBaseName = '%s_solv.gro' % (systemBasename)
 
-        topoPath, groPath, posrePath = self._getPath('topol.top'), self._getPath(groBaseName), \
+        topoPath, groPath, posrePath = self._getPath(TOPOL_TOP), self._getPath(groBaseName), \
                                        self._getPath('posre.itp')
 
         chainNames = ','.join(self.getModelChains())
@@ -536,6 +525,13 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                            ' are created.' )
 
         return methods
+
+    def _runPdb2gmx(self, params, printfValues=None):
+        print(printfValues)
+        if printfValues:
+            gromacsPlugin.runGromacsPrintf(self, printfValues=printfValues, args=params, cwd=self._getPath())
+        else:
+            gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def getSpecifiedMol(self):
       myMol = None
