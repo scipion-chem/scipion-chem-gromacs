@@ -514,7 +514,6 @@ class SelectSSBondWIzard(VariableWizard):
         with open(outputFile, 'r') as f:
             content = f.read()
         bonds = []
-        # Parse bond proposals
         pattern = r'Link\s+(CYS-\d+)\s+SG-\d+\s+and\s+(CYS-\d+)\s+SG-\d+\s+\(y/n\)\s*\?'
 
         for match in re.finditer(pattern, content):
@@ -532,7 +531,6 @@ class SelectSSBondWIzard(VariableWizard):
         Extracts the absolute path of the receptor depending on whether
         the input is a SetOfSmallMolecules or an AtomStruct.
         """
-        # Note: Ensure LIGAND is imported or accessed correctly (e.g., protocol.LIGAND)
         if protocol.inputFrom.get() == LIGAND:
             inputObj = protocol.inputSetOfMols.get()
             if inputObj:
