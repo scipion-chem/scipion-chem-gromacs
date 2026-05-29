@@ -101,10 +101,22 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
 
         inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
-        inCommand = getattr(protocol, inputParam[1]).get()
-        inCommand = ' | '.join(map(str, gromacsPlugin.translateNamesToIndexGroup(protocol, inCommand.split())))
-
-        gromacsPlugin.createIndexFile(protocol, inpSystem, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        inCommand = getattr(protocol, inputParam[1]).get().strip()
+        inCommand = inCommand.replace('"', '\\"')
+        try:
+            gromacsPlugin.createIndexFile(
+                protocol,
+                inpSystem,
+                inputCommands=[inCommand],
+                inIndex=inIndex,
+                outIndex=outIndex
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"GROMACS make_ndx failed! Please check the syntax explained in help.\n\n"
+                f"Attempted command: {inCommand}\n"
+                f"Details: {str(e)}"
+            ) from e
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
                                targets=['restraintCommand'],
@@ -154,36 +166,50 @@ class SelectResidueWizardGromacs(VariableWizard):
                 prev.append(val)
         return prev
 
-    def parseTopoResidues(self, topFile, chains):
-        '''Returns the residues as {chainName: {resIdx: resType, resIdx2: resType2}, ....,
-        chainName2: {}, ...}'''
-        inAtoms, prevIdx = False, None
-        resDic, chainIdx = {c: {} for c in chains}, 0
+    def parseTopoResidues(self, topFile, chains, chainLengths):
+        resDic = {c: {} for c in chains}
+
+        # Create the iterator and set the initial state
+        chainLimits = iter(zip(chains, chainLengths))
+        currChain, targetLen = next(chainLimits, (None, 0))
+
+        inAtoms = False
+
         with open(topFile) as f:
             for line in f:
-                chainStr = chains[chainIdx]
-                if inAtoms:
-                    if line.startswith('; residue'):
-                        resIdx, resType = line.split()[2:4]
-                        if not prevIdx or int(resIdx) - 1 == prevIdx:
-                            resDic[chainStr][int(resIdx)] = resType
-                        else:
-                            chainIdx += 1
-                            resDic[chains[chainIdx]][int(resIdx)] = resType
-                        prevIdx = int(resIdx)
+                line = line.strip()
 
-                if not inAtoms and line.startswith('[ atoms ]'):
-                    inAtoms = True
-                elif inAtoms and not line.strip():
-                    break
+                if not line:
+                    continue
+
+                # Only parse inside [ atoms ]
+                if line.startswith('['):
+                    inAtoms = 'atoms' in line
+                    continue
+
+                # Parse residues
+                if inAtoms and line.startswith('; residue') and currChain:
+
+                    # 1. Switch to the next chain if the current one is full
+                    if len(resDic[currChain]) == targetLen:
+                        currChain, targetLen = next(chainLimits, (None, 0))
+
+                    # 2. Extract and assign the residue data
+                    parts = line.split()
+                    if len(parts) >= 4 and currChain:
+                        resIdx = int(parts[2])
+                        resType = parts[3]
+
+                        resDic[currChain][resIdx] = resType
         return resDic
 
     def getResidues(self, inputObj):
-        '''Returns the residues in the selected chain as [[resIdx, resType], ...., [resIdx, resType]]'''
+        """Returns all residues as {chain: {resIdx: resType}}."""
         chains = inputObj.getChainNames()
+        chainLengths = inputObj.getChainLengths()
         topFile = inputObj.getTopologyFile()
 
-        resDic = self.parseTopoResidues(topFile, chains)
+        resDic = self.parseTopoResidues(topFile, chains, chainLengths)
         return resDic
 
     def show(self, form, *params):
@@ -251,7 +277,7 @@ class AddROIRestraintWizard(VariableWizard):
 
     def createROIRestraintIndex(self, system, roi, protocol):
         inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
-        
+
         #  Creating index for atoms in ROI
         atomGroups = groupConsecutiveIdxs(roi.getDecodedCAtoms())
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
@@ -293,36 +319,52 @@ AddROIRestraintWizard().addTarget(protocol=GromacsMDSimulation,
 class AddResidueRestraintWizard(SelectResidueWizardGromacs):
     _targets, _inputs, _outputs = [], {}, {}
 
-    def parseTopoAtoms(self, topFile, chains):
-        '''Returns the residues as
-        {chainName: {resIdx: atoms, resIdx2: atoms2}, chainName2: {resIdx: atoms, ...}, ...}'''
-        inAtoms, prevIdx = False, None
-        resDic, chainIdx = {c: {} for c in chains}, 0
+    def parseTopoAtoms(self, topFile, chains, chainLengths):
+        '''Returns the atoms grouped by residue as
+        {chainName: {resIdx: [atomId1, atomId2, ...]}, ...}'''
+        resDic = {c: {} for c in chains}
+
         with open(topFile) as f:
             for line in f:
-                chainStr = chains[chainIdx]
-                if inAtoms:
-                    if line.startswith('; residue'):
-                        resIdx = line.split()[2]
-                        if not prevIdx or int(resIdx) - 1 == prevIdx:
-                            resDic[chainStr][int(resIdx)] = []
-                        else:
-                            chainIdx += 1
-                            resDic[chains[chainIdx]][int(resIdx)] = []
-                        prevIdx = int(resIdx)
-                    elif line.strip() and not line.startswith(';'):
-                        resDic[chainStr][prevIdx].append(int(line.split()[0]))
-
-                if not inAtoms and line.startswith('[ atoms ]'):
-                    inAtoms = True
-                elif inAtoms and not line.strip():
+                if line.startswith('[ atoms ]'):
                     break
+
+            self.processAtomsBlock(f, chains, chainLengths, resDic)
         return resDic
+
+    def processAtomsBlock(self, fileObj, chains, chainLengths, resDic):
+        """Parses the atoms block line by line using guard clauses."""
+        chainLimits = iter(zip(chains, chainLengths))
+        currChain, targetLen = next(chainLimits, (None, 0))
+        currRes = None
+
+        for line in fileObj:
+            line = line.strip()
+
+            if not line:
+                break
+
+            if line.startswith('; residue'):
+                if not currChain:
+                    continue
+
+                if len(resDic[currChain]) == targetLen:
+                    currChain, targetLen = next(chainLimits, (None, 0))
+
+                if currChain:
+                    currRes = int(line.split()[2])
+                    resDic[currChain][currRes] = []
+                continue
+
+            if line.startswith(';') or not currChain or currRes is None:
+                continue
+
+            atomId = int(line.split()[0])
+            resDic[currChain][currRes].append(atomId)
 
     def getResDic(self, resStr):
         resDic = {}
         for chainRes in resStr.split()[1:]:
-            print('ChainRes: ', chainRes)
             ch, res = chainRes.split('_')
             resDic[ch] = res
         return resDic
@@ -337,8 +379,9 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
 
     def createResiduesRestraintIndex(self, system, resDic, protocol):
         chains = system.getChainNames()
+        chainLengths = system.getChainLengths()
         topFile = system.getTopologyFile()
-        atomsDic = self.parseTopoAtoms(topFile, chains)
+        atomsDic = self.parseTopoAtoms(topFile, chains, chainLengths)
 
         inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
