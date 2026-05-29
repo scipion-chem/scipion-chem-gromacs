@@ -72,9 +72,8 @@ class GromacsCheckIndexWizard(VariableWizard):
 
     def show(self, form, *params):
         protocol = form.protocol
-        inputParam, outputParam = self.getInputOutput(form)
+        _, outputParam = self.getInputOutput(form)
 
-        system = getattr(protocol, inputParam[0]).get()
         indexFile = gromacsPlugin.ensureIndexFile(protocol)
         groups = gromacsPlugin.parseIndexFile(protocol, indexFile)
 
@@ -100,16 +99,12 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
         inputParam, _ = self.getInputOutput(form)
         inpSystem = getattr(protocol, inputParam[0]).get()
 
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
-        else:
-            inIndex = os.path.abspath(inpSystem.getIndexFile())
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
         inCommand = getattr(protocol, inputParam[1]).get()
         inCommand = ' | '.join(map(str, gromacsPlugin.translateNamesToIndexGroup(protocol, inCommand.split())))
 
-        gromacsPlugin.createIndexFile(protocol, inpSystem, inputCommands=[inCommand], inIndex=inIndex, outIndex=inIndex)
+        gromacsPlugin.createIndexFile(protocol, inpSystem, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
                                targets=['restraintCommand'],
@@ -213,8 +208,7 @@ class SelectResidueWizardGromacs(VariableWizard):
                               "Select one or several residues (residue number, "
                               "residue name)")
 
-        inpSystem = getattr(protocol, inputParams[0]).get()
-        groups = gromacsPlugin.parseIndexFile(protocol, inpSystem.getIndexFile())
+        groups = gromacsPlugin.parseIndexFile(protocol, gromacsPlugin.ensureIndexFile(protocol))
         restraintStr = 'ResidueRestraint_{}: '.format(len(self.getPrevResidueRest(groups)))
 
         if len(dlg.values) == 1 and dlg.values[0].get() == ALL_RES:
@@ -256,22 +250,18 @@ class AddROIRestraintWizard(VariableWizard):
         return roi
 
     def createROIRestraintIndex(self, system, roi, protocol):
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
-        else:
-            inIndex = os.path.abspath(system.getIndexFile())
-
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
+        
         #  Creating index for atoms in ROI
         atomGroups = groupConsecutiveIdxs(roi.getDecodedCAtoms())
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
-        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=inIndex)
-        groups = gromacsPlugin.parseIndexFile(protocol, inIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        groups = gromacsPlugin.parseIndexFile(protocol, outIndex)
 
         # Renaming ROI index to ROI name
         roiIdx, roiName = list(groups.keys())[-1], roi.__str__().replace(' ', '_')
         inCommand = 'name {} {}'.format(roiIdx, roiName)
-        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=inIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=outIndex, outIndex=outIndex)
         return roiIdx, roiName
 
     def show(self, form, *params):
@@ -350,11 +340,7 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         topFile = system.getTopologyFile()
         atomsDic = self.parseTopoAtoms(topFile, chains)
 
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
-        else:
-            inIndex = os.path.abspath(system.getIndexFile())
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
         # Mapping residues to atoms index
         atomList = []
@@ -371,13 +357,13 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         atomGroups = groupConsecutiveIdxs(atomList)
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
 
-        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=inIndex)
-        groups = gromacsPlugin.parseIndexFile(protocol, inIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        groups = gromacsPlugin.parseIndexFile(protocol, outIndex)
 
         # Renaming group
         restIdx, restName = list(groups.keys())[-1], 'ResidueRestraint_{}'.format(len(self.getPrevResidueRest(groups)))
         inCommand = 'name {} {}'.format(restIdx, restName)
-        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=inIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=outIndex, outIndex=outIndex)
         return restIdx, restName
 
     def show(self, form, *params):

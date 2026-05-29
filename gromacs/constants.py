@@ -34,7 +34,6 @@ CUDA_MINIMUM_VERSION_V26 = '12.1'
 
 # Package dictionaries
 GROMACS_DIC = {'name': 'gromacs', 'version': V2026, 'home': 'GROMACS_HOME'}
-GMXMMPBSA_DIC = {'name': 'gmxMMPBSA', 'version': '1.6.4', 'home': 'GMXMMPBSA_HOME'}
 
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
@@ -76,6 +75,14 @@ pcoupltype              = {}             ; uniform scaling of box vectors
 ref_p                   = {}                  ; reference pressure, in bar
 tau_p                   = {}                   ; time constant, in ps
 compressibility         = 4.5e-5                ; isothermal compressibility of water, bar^-1
+refcoord_scaling        = com
+nstpcouple              = {}                  ; Frequency for pressure coupling'''
+
+PRES_SETTING_SEMI =  '''pcoupl                  = {}     ; Pressure coupling 
+pcoupltype              = {}             ; uniform scaling of box vectors
+ref_p                   = {} {}                  ; reference pressure, in bar
+tau_p                   = {}                   ; time constant, in ps
+compressibility         = 4.5e-5 4.5e-5        ; isothermal compressibility of water, bar^-1
 refcoord_scaling        = com
 nstpcouple              = {}                  ; Frequency for pressure coupling'''
 

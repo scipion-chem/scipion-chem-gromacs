@@ -98,8 +98,8 @@ class GromacsModifySystem(EMProtocol):
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        self._insertFunctionStep('modifySystem')
-        self._insertFunctionStep('createOutputStep')
+        self._insertFunctionStep(self.modifySystem)
+        self._insertFunctionStep(self.createOutputStep)
 
     def modifySystem(self):
         inputStructure = os.path.abspath(self.gromacsSystem.get().getFileName())

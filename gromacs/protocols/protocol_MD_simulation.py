@@ -30,6 +30,7 @@
 This module will perform energy minimizations for the system
 """
 import glob, uuid
+import os.path
 
 from pyworkflow.object import String
 from pyworkflow.protocol import params
@@ -56,7 +57,7 @@ class GromacsMDSimulation(EMProtocol):
     _integrators = ['steep', 'cg']
     _thermostats = ['no', 'Berendsen', 'Nose-Hoover', 'Andersen', 'Andersen-massive', 'V-rescale']
     _barostats = ['no', 'Berendsen', 'Parrinello-Rahman', 'C-rescale']
-    #_coupleStyle = ['isotropic', 'semiisotropic', 'anisotropic'] #check
+    _coupleStyle = ['isotropic', 'semiisotropic']
     _restraints = ['Structural ROI', 'Residues', 'Custom make_ndx command']
 
     _omitParamNames = ['useGpu', 'gpuList', 'gromacsSystem', 'restrainROIs',
@@ -66,7 +67,6 @@ class GromacsMDSimulation(EMProtocol):
     # -------------------------- DEFINE constants ----------------------------
     def __init__(self, **kwargs):
       EMProtocol.__init__(self, **kwargs)
-      # self.restraintID = String(str(uuid.uuid4()).replace("-", ""))
 
     # -------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -142,9 +142,10 @@ class GromacsMDSimulation(EMProtocol):
                       label='   Pressure constant (ps)[tau-p]:   ', expertLevel=params.LEVEL_ADVANCED)
         line.addParam('presCouple', params.IntParam, default=-1,
                       label='Coupling frequency [nstpcouple]: ', expertLevel=params.LEVEL_ADVANCED)
-        #group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
-        #               label='Pressure coupling style: ', choices=self._coupleStyle,
-        #               expertLevel=params.LEVEL_ADVANCED)
+        group.addParam('coupleStyle', params.EnumParam, default=0, condition='ensemType==2',
+                      label='Pressure coupling style: ', choices=self._coupleStyle,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      help='Semiisotropic is recomemded for membrane proteins')
 
         group = form.addGroup('Trajectory', condition='ensemType!=0')
         group.addParam('saveTrj', params.BooleanParam, default=False,
@@ -226,22 +227,22 @@ class GromacsMDSimulation(EMProtocol):
 
         group = form.addGroup('Summary')
         group.addParam('insertStep', params.StringParam, default='',
-                       label='Insert relaxation step number: ',
-                       help='Insert the defined relaxation step into the workflow on the defined position.\n'
+                       label='Insert step number: ',
+                       help='Insert the defined step into the workflow on the defined position.\n'
                             'The default (when empty) is the last position')
         group.addParam('summarySteps', params.TextParam, width=100, readOnly=True,
                        label='Summary of steps',
                        help='Summary of the defined steps. \nManual modification will have no '
                             'effect, use the wizards to add / delete the steps')
         group.addParam('deleteStep', params.StringParam, default='',
-                       label='Delete relaxation step number: ',
+                       label='Delete step number: ',
                        help='Delete the step of the specified index from the workflow.')
         group.addParam('watchStep', params.StringParam, default='',
-                       label='Watch relaxation step number: ',
-                       help='''Watch the parameters step of the specified index from the workflow..\n
-                               This might be useful if you want to change some parameters of a predefined step.\n
-                               However, the parameters are not changed until you add the new step (and probably\n
-                               you may want to delete the previous unchanged step)''')
+                       label='Watch parameters of step number: ',
+                       help='Watch the parameters step of the specified index from the workflow...\n'
+                            'This might be useful if you want to change some parameters of a predefined step. '
+                            'However, the parameters are not changed until you add the new step (and probably '
+                            'you may want to delete the previous unchanged step)')
         group.addParam('workFlowSteps', params.TextParam, label='User transparent', condition='False')
 
         form.addSection(label='Input Pointers')
@@ -302,11 +303,17 @@ class GromacsMDSimulation(EMProtocol):
         if outTrj:
             outSystem.setTrajectoryFile(outTrj)
             outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
-        indexFile = self.gromacsSystem.get().getIndexFile()
-        if os.path.exists(indexFile):
-            outSystem.setIndexFile(indexFile)
+
+        # set and clean indexFiles
+        customIndex = gromacsPlugin.getCustomIndexFile(self)
+        indexFile = self._getExtraPath('indexes.ndx')
+        if os.path.exists(customIndex):
+            shutil.copy(customIndex, indexFile)
         else:
-            gromacsPlugin.createIndexFile(self, outSystem)
+            shutil.copy(self.gromacsSystem.get().getIndexFile(), indexFile)
+        self.cleanCustomIndex()
+        outSystem.setIndexFile(indexFile)
+
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
 
@@ -444,73 +451,63 @@ class GromacsMDSimulation(EMProtocol):
         """ Helper function to convert GRO to PDB while preserving chain labels """
         inpSystem = self.gromacsSystem.get()
         modelChains = inpSystem.getChainNames()
+        indexFile = inpSystem.getIndexFile()
 
+        # Case 1: Single chain processing
         if len(modelChains) == 1:
+            printGroup = ['Protein']
             if inpSystem.hasLig():
                 printGroup = [f'Protein_{inpSystem.getLigandID()}']
-            else:
-                printGroup = ['Protein']
 
-            chain = inpSystem.getChainNames()[0]
-            params = " editconf -f {} -n {} -o {} -label {}".format(
-                os.path.abspath(groFile),
-                os.path.abspath(inpSystem.getIndexFile()),
-                os.path.abspath(pdbFile),
-                chain)
-            gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
-                                           args=params, cwd=self._getPath())
-        else:
-            # Multiple chains - process each separately and combine
-            allPdbs = []
+            self._runEditconf(groFile, indexFile, pdbFile, modelChains[0], printGroup)
+            return
 
-            # Extract each protein chain with proper chain label
-            for chainId in modelChains:
-                chainPdb = self._getTmpPath(f'chain_{chainId}.pdb')
-                allPdbs.append(chainPdb)
+        # Case 2: Multiple chains - process each separately and combine
+        allPdbs = []
 
-                params = " editconf -f {} -n {} -o {} -label {}".format(
-                    os.path.abspath(groFile),
-                    os.path.abspath(inpSystem.getIndexFile()),
-                    os.path.abspath(chainPdb),
-                    chainId)
-                gromacsPlugin.runGromacsPrintf(self, printfValues=[f'chain{chainId}'],
-                                               args=params, cwd=self._getPath())
+        # Extract each protein chain with proper chain label
+        for chainId in modelChains:
+            chainPdb = self._getTmpPath(f'chain_{chainId}.pdb')
+            allPdbs.append(chainPdb)
+            self._runEditconf(groFile, indexFile, chainPdb, chainId, [f'chain{chainId}'])
 
-            # Add ligand if present
-            if inpSystem.hasLig():
-                ligPdb = self._getTmpPath('ligand.pdb')
-                allPdbs.append(ligPdb)
+        # Add ligand if present
+        if inpSystem.hasLig():
+            ligPdb = self._getTmpPath('ligand.pdb')
+            allPdbs.append(ligPdb)
+            self._runEditconf(groFile, indexFile, ligPdb, 'L', [inpSystem.getLigandID()])
 
-                ligId = inpSystem.getLigandID()
-                params = " editconf -f {} -n {} -o {} -label L".format(
-                    os.path.abspath(groFile),
-                    os.path.abspath(inpSystem.getIndexFile()),
-                    os.path.abspath(ligPdb))
-                gromacsPlugin.runGromacsPrintf(self, printfValues=[ligId],
-                                               args=params, cwd=self._getPath())
+        # Combine all individual PDB pieces into the final file
+        self._combinePdbFiles(allPdbs, pdbFile)
 
-            # Combine all PDBs into one file
-            with open(pdbFile, 'w') as outFile:
-                first_file = True
+    def _runEditconf(self, groFile, indexFile, outFile, label, printGroup):
+        """ Runs the Gromacs editconf command with specified label and group """
+        params = " editconf -f {} -n {} -o {} -label {}".format(
+            os.path.abspath(groFile),
+            os.path.abspath(indexFile),
+            os.path.abspath(outFile),
+            label)
+        gromacsPlugin.runGromacsPrintf(self, printfValues=printGroup,
+                                       args=params, cwd=self._getPath())
 
-                for pdb in allPdbs:
-                    with open(pdb, 'r') as inFile:
-                        for line in inFile:
-                            # 1. Keep the unit cell info (CRYST1) only from the first file
-                            if first_file and line.startswith('CRYST1'):
-                                outFile.write(line)
-                                first_file = False
+    def _combinePdbFiles(self, pdbFiles, targetPdbFile):
+        """ Merges structural data lines from multiple PDB files into one """
+        with open(targetPdbFile, 'w') as outFile:
+            firstFile = True
 
-                            # 2. Only keep coordinate records
-                            # removes REMARK, TER, TITLE, MASTER, etc.
-                            if line.startswith(('ATOM', 'HETATM')):
-                                outFile.write(line)
+            for pdb in pdbFiles:
+                with open(pdb, 'r') as inFile:
+                    for line in inFile:
+                        # Keep the unit cell info (CRYST1) only from the very first file
+                        if firstFile and line.startswith('CRYST1'):
+                            outFile.write(line)
+                            firstFile = False
 
-                # 3. Close the file properly
-                outFile.write('END\n')
+                        # Only keep core coordinate records
+                        if line.startswith(('ATOM', 'HETATM')):
+                            outFile.write(line)
 
-    def getCustomIndexFile(self):
-        return self._getExtraPath('custom_indexes.ndx')
+            outFile.write('END\n')
 
     def countSteps(self):
         stepsStr = self.summarySteps.get() if self.summarySteps.get() is not None else ''
@@ -601,8 +598,13 @@ class GromacsMDSimulation(EMProtocol):
             if msjDic['ensemType'] == 'NVT':
                 presStr = ''
             elif msjDic['ensemType'] == 'NPT':
-                presStr = PRES_SETTING.format(msjDic['barostat'], 'isotropic',
+                if msjDic['coupleStyle'] == 'isotropic':
+                    presStr = PRES_SETTING.format(msjDic['barostat'], msjDic['coupleStyle'],
                                               msjDic['pressure'], msjDic['presRelaxCons'],
+                                              msjDic['presCouple'])
+                else:
+                    presStr = PRES_SETTING_SEMI.format(msjDic['barostat'], msjDic['coupleStyle'],
+                                              msjDic['pressure'], msjDic['pressure'], msjDic['presRelaxCons'],
                                               msjDic['presCouple'])
 
             if self.checkIfPrevTrj(mdpStage):
@@ -765,3 +767,9 @@ class GromacsMDSimulation(EMProtocol):
             if warn.split()[1] in ['all', str(stageNum)]:
                 nWarns += 1
         return nWarns
+
+    def cleanCustomIndex(self):
+        tmpPath = self.getProject().getTmpPath()
+        for customInxFile in glob.iglob(os.path.join(tmpPath, "*custom_indexes.ndx*")):
+            if os.path.isfile(customInxFile):
+                os.remove(customInxFile)

@@ -26,6 +26,7 @@
 
 # General imports
 import subprocess, multiprocessing
+import os
 from os.path import join
 
 # Scipion em imports
@@ -53,7 +54,6 @@ class Plugin(pwchemPlugin):
 	def _defineVariables(cls):
 		""" Return and write a variable in the config file. """
 		cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
-		cls._defineVar("GMXMMPBSA_ENV_ACTIVATION", 'conda activate %s' % pwchemPlugin.getEnvName(GMXMMPBSA_DIC))
 
 	@classmethod
 	def defineBinaries(cls, env):
@@ -63,7 +63,6 @@ class Plugin(pwchemPlugin):
 
 		# Installing packages
 		cls.addGromacs(env, modifiedProcs)
-		cls.addGmxMMPBSA(env)
 
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
@@ -106,28 +105,6 @@ class Plugin(pwchemPlugin):
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
 
 	@classmethod
-	def addGmxMMPBSA(cls, env, default=True):
-		""" This function installs gmx_MMPBSA in a dedicated conda environment. """
-
-		installer = InstallHelper(GMXMMPBSA_DIC['name'],
-		                          packageHome=cls.getVar(GMXMMPBSA_DIC['home']),
-		                          packageVersion=GMXMMPBSA_DIC['version'])
-
-		envName = cls.getEnvName(GMXMMPBSA_DIC)
-		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
-
-
-		pip_cmd = (f"bash -c '{activation} && "
-		           f"pip install \"pyqt6==6.7.1\" gmx_MMPBSA=={GMXMMPBSA_DIC['version']}'")
-		installer \
-			.addCommand(f'conda create -y -c conda-forge --name {envName} python=3.11.8 '
-		                'mpi4py=4.0.1 "ambertools<=23.3" numpy=1.26.4 matplotlib=3.7.3 '
-		                'scipy=1.14.1 pandas=1.5.3 seaborn=0.11.2 "gromacs<=2023.4" '
-		                'pocl git pip', 'GMXMMPBSA_ENV_CREATED') \
-			.addCommand(pip_cmd, 'GMXMMPBSA_GMX_INSTALLED') \
-			.addPackage(env, dependencies=['conda', 'pip', 'git'], default=default)
-
-	@classmethod
 	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False, **kwargs):
 		""" Run Gromacs command from a given protocol. """
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
@@ -149,26 +126,6 @@ class Plugin(pwchemPlugin):
 		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
 		print('Running: ', program, args)
 		subprocess.check_call(program + args, cwd=cwd, shell=True)
-
-	@classmethod
-	def runGMXMMPBSA(cls, protocol, program='gmx_MMPBSA', args=None, cwd=None, numberOfMpi=1):
-		""" Run gmx_MMPBSA command from a given protocol. """
-		# if program is None:
-		# 	program = cls.getGromacsBin()
-
-		activation = cls.getGMXMMPBSAEnvActivation()
-		mpiPrefix = 'mpirun -np {} '.format(numberOfMpi) if numberOfMpi > 1 else ''
-		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
-
-		print('Running: ', fullProgram, args)
-		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
-		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
-
-	@classmethod
-	def getGMXMMPBSAEnvActivation(cls):
-		print(cls.getEnvActivationCommand(GMXMMPBSA_DIC))
-		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
-
 
 	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):
@@ -263,27 +220,42 @@ class Plugin(pwchemPlugin):
 		return [invGroups.get(name, name) for name in names]
 
 	@classmethod
-	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=['q']):
+	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=None):
+		if inputCommands is None:
+			inputCommands = ['q']
 		outIndex = protocol._getExtraPath('indexes.ndx') if not outIndex else outIndex
 		outDir = (os.path.dirname(outIndex))
-		inIndex = f' -n {inIndex}' if inIndex else ''
+		inIndex = f' -n {os.path.abspath(inIndex)}' if inIndex else ''
 		command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
 
 		if inputCommands[-1] != 'q':
 			inputCommands.append('q')
 		cls.runGromacsPrintfViewer(printfValues=inputCommands, args=command, cwd=outDir)
-		groups = cls.parseIndexFile(protocol, outIndex)
 		return outIndex
 
 	@classmethod
 	def ensureIndexFile(cls, protocol):
 		"""Return the protocol index file, creating it first if it does not exist.
         """
+		indexFile = cls.getCustomIndexFile(protocol)
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		indexFile = protocol._getExtraPath('indexes.ndx')
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
 		inpSystem = protocol.gromacsSystem.get()
 		indexFile = inpSystem.getIndexFile()
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
 		if not os.path.exists(indexFile):
 			indexFile = cls.firstIndexCreation(protocol, inpSystem)
-		return indexFile
+		return os.path.abspath(indexFile)
+
+	@classmethod
+	def getCustomIndexFile(cls, protocol):
+		inputSystem = protocol.gromacsSystem.get()
+		inputId = inputSystem.getObjId()
+		return protocol.getProject().getTmpPath(f'{inputId}_custom_indexes.ndx')
 
 	@classmethod
 	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
@@ -315,8 +287,8 @@ class Plugin(pwchemPlugin):
 
 			# Name each newly created group
 			for i, chainId in enumerate(modelChains):
-				group_number = lastGroupIndex + i + 1
-				indexCommands.append(f'name {group_number} chain{chainId}')
+				groupNumber = lastGroupIndex + i + 1
+				indexCommands.append(f'name {groupNumber} chain{chainId}')
 
 			indexCommands.append('q')
 
@@ -337,6 +309,7 @@ class Plugin(pwchemPlugin):
 		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
 		try:
 			# Getting CUDA version from nvcc
+			# nvcc output usually looks like: "nvcc: NVIDIA (R) Cuda compiler driver... release 12.1, V12.1.105"
 			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
 
 			lines = result.split('\n')
