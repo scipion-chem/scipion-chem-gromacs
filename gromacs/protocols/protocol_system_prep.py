@@ -30,7 +30,6 @@
 This module will prepare the system for the simulation
 """
 import os, subprocess, shutil
-from http.server import executable
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
