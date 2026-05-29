@@ -71,7 +71,12 @@ ENT_IE    = 1
 ENT_NMODE = 2
 IGB_VALS  = [1, 2, 5, 7, 8]          # AMBER igb numbers
 
-scriptLigPrepName = 'rdkit_addHydrogens.py'
+ENTROPY_TYPE_EMPTY = "entropyType == {}"
+TOPOL_TOP = "topol.top"
+PREPROC_NDX = "preproc.ndx"
+RESULT_DAT = "result.dat"
+RESULT_CSV = "result.csv"
+SCRIPT_LIGPREP_NAME = 'rdkit_addHydrogens.py'
 
 
 class GromacsMmpbsa(GromacsSystemPrep):
@@ -168,12 +173,12 @@ class GromacsMmpbsa(GromacsSystemPrep):
         grp.addParam('ieSegment', params.IntParam,
                      label='IE segment (%): ',
                      default=25, expertLevel=params.LEVEL_ADVANCED,
-                     condition='entropyType == {}'.format(ENT_IE),
+                     condition=ENTROPY_TYPE_EMPTY.format(ENT_IE),
                      help='Percentage of frames (from the end) used to compute the '
                           'Interaction Entropy average.')
-        grp = form.addGroup('Normal mode entropy calculation', condition='entropyType == {}'.format(ENT_NMODE))
+        grp = form.addGroup('Normal mode entropy calculation', condition=ENTROPY_TYPE_EMPTY.format(ENT_NMODE))
 
-        nmodeFrame = grp.addLine('Frame selection:',  condition='entropyType == {}'.format(ENT_NMODE),
+        nmodeFrame = grp.addLine('Frame selection:',  condition=ENTROPY_TYPE_EMPTY.format(ENT_NMODE),
                             help='The trajectory from which snapshots will be chosen for nmode calculations will be the collection'
                                  ' of snapshots upon which the other calculations were performed (keep low, '
                                  'e.g. 10–50 — each frame requires a minimisation). ')
@@ -190,7 +195,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
         nmodeFrame.addParam('nmIntervalFrame', params.IntParam,
                        label='Interval',
                        default=1)
-        nmodeMin = grp.addLine('Minimization:', condition='entropyType == {}'.format(ENT_NMODE),
+        nmodeMin = grp.addLine('Minimization:', condition=ENTROPY_TYPE_EMPTY.format(ENT_NMODE),
                                  help='Maximum number of minimization cycles to use per snapshot in sander. '
                                      'and convergence criteria for minimized energy gradient.')
         nmodeMin.addParam('nmMaxCycles', params.IntParam, default=10000,
@@ -242,27 +247,12 @@ class GromacsMmpbsa(GromacsSystemPrep):
         trajPreprocGroup = form.addGroup('Trajectory preprocessing', condition=f'inputFrom=={INPUT_GROMACS}')
         self._defineTrajPreprocParams(trajPreprocGroup)
 
-        grpMol = form.addGroup('Docked Molecules Input',
-                               condition=f'inputFrom=={INPUT_MOLS}')
-
         self._defineACPYPEparams(form, condition=f'inputFrom=={INPUT_MOLS}')
 
-        # self._defineSmallMoleculePreproc(form, condition=f'inputFrom=={INPUT_MOLS}')
         grpSys = form.addGroup('System Preparation',
                                condition=f'inputFrom=={INPUT_MOLS}')
         self._defineFFParams(grpSys)
-        # grpSys.addParam('mainForceField', params.EnumParam,
-        #                 choices=GROMACS_LIST, default=GROMACS_AMBER03,
-        #                 label='Main Force Field: ',
-        #                 condition=f'inputFrom=={INPUT_MOLS}')
-        # grpSys.addParam('waterForceField', params.EnumParam,
-        #                 choices=GROMACS_WATERS_LIST, default=GROMACS_TIP3P,
-        #                 label='Water Force Field: ',
-        #                 condition=f'inputFrom=={INPUT_MOLS}')
-        # grpSys.addParam('padDist', params.FloatParam, default=1.0,
-        #                 label='Box buffer distance (nm): ',
-        #                 condition=f'inputFrom=={INPUT_MOLS}',
-        #                 help='Minimum distance from the solute to the box edge.')
+
         self._defineBoxParams(grpSys)
 
         grpMin = form.addGroup('Minimization', condition=f'inputFrom=={INPUT_MOLS}')
@@ -323,7 +313,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
                 if molName not in paramSteps:
                     molFile = mol.getPoseFile()
                     paramSteps[molName] = self._insertFunctionStep(
-                        self.parametrizeLigandStep, molFile, molName,
+                        self.parametrizeSpecificLigandStep, molFile, molName,
                         prerequisites=[cStep])
 
                 # Each pose follows its own pipeline
@@ -374,8 +364,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         # Create output only after ALL MMPBSA calculations finish
         self._insertFunctionStep(self.createOutputStep, prerequisites=mmpbsaSteps)
 
-    # ── Step implementations ────────────────────────────────────────────────
-    def parametrizeLigandStep(self, molFile, molName):
+    # ── Steps implementations ────────────────────────────────────────────────
+    def parametrizeSpecificLigandStep(self, molFile, molName):
         """Parametrize the ligand with ACPYPE/GAFF2."""
         molFile = self.addHydrogens(molFile, molName)
         kwargs = self.getParameters()
@@ -406,7 +396,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
         # Copy ITP into pose dir so the topology #include resolves at run time
         shutil.copy(ligItp, os.path.join(poseDir, f'{molName}_GMX.itp'))
 
-        # --- pdb2gmx --------------------------------------------------------
+        # pdb2gmx
         print(f'Preparing mol pose: {poseId}')
         procGro = os.path.join(poseDir, f'{sysName}_processed.gro')
         p2gArgs = (f'pdb2gmx -f {protFile} -o {procGro} '
@@ -415,17 +405,17 @@ class GromacsMmpbsa(GromacsSystemPrep):
             gromacsPlugin.runGromacs(self, 'gmx', p2gArgs, cwd=poseDir)
         except Exception:
             self.warning('pdb2gmx failed; retrying with -ignh')
-            topFile = os.path.join(poseDir, 'topol.top')
+            topFile = os.path.join(poseDir, TOPOL_TOP)
             if os.path.exists(topFile):
                 os.remove(topFile)
             gromacsPlugin.runGromacs(self, 'gmx', p2gArgs + ' -ignh',
                                      cwd=poseDir)
 
-        # --- Merge ligand into topology and coordinates ----------------------
-        self.addLigandTopo(os.path.join(poseDir, 'topol.top'), molName)
+        # merge ligand into topology and coordinates
+        self.addSpecificLigandTopo(os.path.join(poseDir, TOPOL_TOP), molName)
         self.addLigandCoords(procGro, ligGro)
 
-        # --- define periodic box -----------------------------------
+        # define periodic box
         boxType = self.getEnumText('boxType').lower() if self.boxType.get() != 1 else 'triclinic'
         newboxGro = os.path.join(poseDir, f'{sysName}_newbox.gro')
         ecArgs = (f'editconf -f {procGro} -o {newboxGro} '
@@ -433,13 +423,13 @@ class GromacsMmpbsa(GromacsSystemPrep):
         ecArgs += self.getDistanceArgs()
         gromacsPlugin.runGromacs(self, 'gmx', ecArgs, cwd=poseDir)
 
-        # --- solvate ---------------------------------------------------------
+        # solvate
         waterModel = waterFF
         if waterModel in ('spc', 'spce', 'tip3p'):
             waterModel = 'spc216'
         solvGro = os.path.join(poseDir, f'{sysName}_solv.gro')
         svArgs = (f'solvate -cp {newboxGro} -cs {waterModel}.gro '
-                  f'-o {solvGro} -p {os.path.join(poseDir, "topol.top")}')
+                  f'-o {solvGro} -p {os.path.join(poseDir, TOPOL_TOP)}')
         gromacsPlugin.runGromacs(self, 'gmx', svArgs, cwd=poseDir)
 
         self.minimizeSystem(poseId, sysName)
@@ -452,12 +442,12 @@ class GromacsMmpbsa(GromacsSystemPrep):
         if self.inputFrom.get() == INPUT_GROMACS:
             inputStruct = os.path.abspath(self.gromacsSystem.get().getFileName())
             cwd = self._getExtraPath()
-            ndxOut = os.path.abspath(self._getExtraPath('preproc.ndx'))
+            ndxOut = os.path.abspath(self._getExtraPath(PREPROC_NDX))
         else:
             poseDir = self.getPoseDir(poseId)
             inputStruct = os.path.abspath(os.path.join(poseDir, 'em.gro'))
             cwd = poseDir
-            ndxOut = os.path.abspath(os.path.join(poseDir, 'preproc.ndx'))
+            ndxOut = os.path.abspath(os.path.join(poseDir, PREPROC_NDX))
 
         args = f'make_ndx -f {inputStruct} -o {ndxOut}'
         gromacsPlugin.runGromacsPrintf(protocol=self,
@@ -473,7 +463,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             gromacsSys = self.gromacsSystem.get()
             inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
             lastTpr    = os.path.abspath(gromacsSys.getTprFile())
-            ndxFile    = os.path.abspath(self._getExtraPath('preproc.ndx'))
+            ndxFile    = os.path.abspath(self._getExtraPath(PREPROC_NDX))
             ligName    = gromacsSys.getLigandID()
             mergedGrp  = f'Protein_{ligName}'
             procTrj    = os.path.abspath(self._getPath('processTraj.xtc'))
@@ -601,10 +591,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
             gromacsSys   = self.gromacsSystem.get()
             lastTpr      = os.path.abspath(gromacsSys.getTprFile())
             comTrj       = os.path.abspath(self._getPath('processTraj.xtc'))
-            ndxFile      = os.path.abspath(self._getExtraPath('preproc.ndx'))
+            ndxFile      = os.path.abspath(self._getExtraPath(PREPROC_NDX))
             localTopFile = os.path.abspath(self._getExtraPath('topo.top'))
-            outFile      = os.path.abspath(self._getPath('result.dat'))
-            outCsv       = os.path.abspath(self._getPath('result.csv'))
+            outFile      = os.path.abspath(self._getPath(RESULT_DAT))
+            outCsv       = os.path.abspath(self._getPath(RESULT_CSV))
             cwd          = self._getExtraPath()
 
             shutil.copy(gromacsSys.getLigTopologyFile(), self._getExtraPath())
@@ -613,10 +603,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
             poseDir      = self.getPoseDir(poseId)
             lastTpr      = os.path.abspath(os.path.join(poseDir, 'em.tpr'))
             comTrj       = os.path.abspath(os.path.join(poseDir, 'em.pdb'))
-            ndxFile      = os.path.abspath(os.path.join(poseDir, 'preproc.ndx'))
-            localTopFile = os.path.abspath(os.path.join(poseDir, 'topol.top'))
-            outFile      = os.path.abspath(os.path.join(poseDir, 'result.dat'))
-            outCsv       = os.path.abspath(os.path.join(poseDir, 'result.csv'))
+            ndxFile      = os.path.abspath(os.path.join(poseDir, PREPROC_NDX))
+            localTopFile = os.path.abspath(os.path.join(poseDir, TOPOL_TOP))
+            outFile      = os.path.abspath(os.path.join(poseDir, RESULT_DAT))
+            outCsv       = os.path.abspath(os.path.join(poseDir, RESULT_CSV))
             cwd          = poseDir
 
         args = ('-O '
@@ -636,12 +626,12 @@ class GromacsMmpbsa(GromacsSystemPrep):
         calcModel = 'MMGBSA' if self.calcType.get() == CALC_GB else 'MMPBSA'
 
         if self.inputFrom.get() == INPUT_GROMACS:
-            outFile = self._getPath('result.dat')
-            outCsv  = self._getPath('result.csv')
+            outFile = self._getPath(RESULT_DAT)
+            outCsv  = self._getPath(RESULT_CSV)
             if not os.path.exists(outFile):
                 self.warning(f'MMPBSA output not found: {outFile}')
                 return
-            dg, sd = _parseFinalDeltaG(outFile)
+            dg, sd = parseFinalDeltaG(outFile)
             if dg is not None:
                 self.info(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
                 outSystem = self.gromacsSystem.get().clone()
@@ -658,15 +648,15 @@ class GromacsMmpbsa(GromacsSystemPrep):
             for mol in inMols:
                 poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
                 poseDir = self.getPoseDir(poseId)
-                outFile = os.path.join(poseDir, 'result.dat')
-                outCsv  = os.path.join(poseDir, 'result.csv')
+                outFile = os.path.join(poseDir, RESULT_DAT)
+                outCsv  = os.path.join(poseDir, RESULT_CSV)
 
                 if not os.path.exists(outFile):
                     self.warning(f'Pose {poseId}: result file not found, skipping.')
                     summaryLines.append(f'{poseId:<25}  {"N/A":>16}')
                     continue
 
-                dg, _ = _parseFinalDeltaG(outFile)
+                dg, _ = parseFinalDeltaG(outFile)
                 if calcModel == 'MMGBSA':
                     mol.MMGBSA_deltaG = pwobj.Float(dg)
                 elif calcModel == 'MMPBSA':
@@ -699,18 +689,18 @@ class GromacsMmpbsa(GromacsSystemPrep):
         calcModel = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
 
         if self.inputFrom.get() == INPUT_GROMACS:
-            outFile = self._getPath('result.dat')
+            outFile = self._getPath(RESULT_DAT)
             if os.path.exists(outFile):
-                dg, sd = _parseFinalDeltaG(outFile)
+                dg, sd = parseFinalDeltaG(outFile)
                 if dg is not None:
                     summary.append(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
         else:
             if self.inputSetOfMols.get() is not None:
                 for mol in self.inputSetOfMols.get():
                     poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
-                    outFile = os.path.join(self.getPoseDir(poseId), 'result.dat')
+                    outFile = os.path.join(self.getPoseDir(poseId), RESULT_DAT)
                     if os.path.exists(outFile):
-                        dg, _ = _parseFinalDeltaG(outFile)
+                        dg, _ = parseFinalDeltaG(outFile)
                         if dg is not None:
                             summary.append(f'Pose {poseId} ({mol.getMolName()}): '
                                            f'{dg:.2f} kcal/mol')
@@ -751,7 +741,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             sdfFiles.append(os.path.abspath(convertToSdf(self, molFile)))
 
         paramFile = self.writePrepParamsFile(sdfFiles)
-        pwchemPlugin.runScript(self, scriptLigPrepName, paramFile, env=RDKIT_DIC, cwd=self._getPath())
+        pwchemPlugin.runScript(self, SCRIPT_LIGPREP_NAME, paramFile, env=RDKIT_DIC, cwd=self._getPath())
 
     def writePrepParamsFile(self, molFiles):
         paramsFile = self.getLigParamFile()
@@ -800,7 +790,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
         os.makedirs(d, exist_ok=True)
         return d
 
-    def addLigandTopo(self, topFile, molName):
+    def addSpecificLigandTopo(self, topFile, molName):
       inStr = '\/forcefield.itp"\n'
       outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
       replaceInFile(topFile, inStr, outStr)
@@ -828,7 +818,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
     def minimizeSystem(self, poseId, sysName):
         """Steepest-descent energy minimization for one pose."""
         poseDir = self.getPoseDir(poseId)
-        topFile = os.path.join(poseDir, 'topol.top')
+        topFile = os.path.join(poseDir, TOPOL_TOP)
         inputGro = self.getSolvatedGro(poseId, sysName)
         emMdp = self.writeEMMDP(poseDir)
         emTpr = os.path.join(poseDir, 'em.tpr')
@@ -843,8 +833,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
     def getSolvatedGro(self, poseId, sysName):
         """Path of the final solvated GRO for a pose (after ions if requested)."""
         poseDir = self.getPoseDir(poseId)
-        # if self.placeIons.get() != 0:
-        #     return os.path.join(poseDir, f'{sysName}_solv_ions.gro')
         return os.path.join(poseDir, f'{sysName}_solv.gro')
 
     def writeEMMDP(self, poseDir):
@@ -876,7 +864,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
 # ── helpers ─────────────────
 
-def _parseFinalDeltaG(outFile):
+def parseFinalDeltaG(outFile):
     """
     Extracts the final ΔTOTAL value and its Standard Deviation (SD)
     from gmx_MMPBSA output files.
@@ -889,7 +877,6 @@ def _parseFinalDeltaG(outFile):
                 m = pattern.search(line)
                 if m:
                     avg = float(m.group(1))
-                    sd_prop = float(m.group(2))  # Optional, if you need it
                     sd = float(m.group(3))  # The standard SD
 
                     return avg, sd
