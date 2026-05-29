@@ -104,10 +104,22 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
 
         inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
-        inCommand = getattr(protocol, inputParam[1]).get()
-        inCommand = ' | '.join(map(str, gromacsPlugin.translateNamesToIndexGroup(protocol, inCommand.split())))
-
-        gromacsPlugin.createIndexFile(protocol, inpSystem, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        inCommand = getattr(protocol, inputParam[1]).get().strip()
+        inCommand = inCommand.replace('"', '\\"')
+        try:
+            gromacsPlugin.createIndexFile(
+                protocol,
+                inpSystem,
+                inputCommands=[inCommand],
+                inIndex=inIndex,
+                outIndex=outIndex
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"GROMACS make_ndx failed! Please check the syntax explained in help.\n\n"
+                f"Attempted command: {inCommand}\n"
+                f"Details: {str(e)}"
+            ) from e
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
                                targets=['restraintCommand'],
@@ -314,36 +326,44 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
         '''Returns the atoms grouped by residue as
         {chainName: {resIdx: [atomId1, atomId2, ...]}, ...}'''
         resDic = {c: {} for c in chains}
-        chainLimits = iter(zip(chains, chainLengths))
-        currChain, targetLen = next(chainLimits, (None, 0))
-        currRes = None
 
         with open(topFile) as f:
             for line in f:
                 if line.startswith('[ atoms ]'):
                     break
 
-            # Parse the atoms block
-            for line in f:
-                if not line.strip():
-                    break  # End of the block
-
-                if line.startswith('; residue') and currChain:
-                    # Move to the next chain BEFORE processing this residue
-                    # if we've already reached the expected residue count for current chain
-                    if len(resDic[currChain]) == targetLen:
-                        currChain, targetLen = next(chainLimits, (None, 0))
-
-                    # Now assign this residue to the correct chain
-                    currRes = int(line.split()[2])
-                    if currChain:  # Make sure we still have a chain to assign to
-                        resDic[currChain][currRes] = []
-
-                elif line.strip() and not line.startswith(';') and currChain and currRes is not None:
-                    atomId = int(line.split()[0])
-                    resDic[currChain][currRes].append(atomId)
-
+            self.processAtomsBlock(f, chains, chainLengths, resDic)
         return resDic
+
+    def processAtomsBlock(self, fileObj, chains, chainLengths, resDic):
+        """Parses the atoms block line by line using guard clauses."""
+        chainLimits = iter(zip(chains, chainLengths))
+        currChain, targetLen = next(chainLimits, (None, 0))
+        currRes = None
+
+        for line in fileObj:
+            line = line.strip()
+
+            if not line:
+                break
+
+            if line.startswith('; residue'):
+                if not currChain:
+                    continue
+
+                if len(resDic[currChain]) == targetLen:
+                    currChain, targetLen = next(chainLimits, (None, 0))
+
+                if currChain:
+                    currRes = int(line.split()[2])
+                    resDic[currChain][currRes] = []
+                continue
+
+            if line.startswith(';') or not currChain or currRes is None:
+                continue
+
+            atomId = int(line.split()[0])
+            resDic[currChain][currRes].append(atomId)
 
     def getResDic(self, resStr):
         resDic = {}

@@ -145,7 +145,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         """
         form.addSection(label=Message.LABEL_INPUT)
 
-        form.addParam('inputFrom', params.EnumParam, default=STRUCTURE,
+        form.addParam('inputFrom', params.EnumParam, default=STRUCTURE, display=params.EnumParam.DISPLAY_HLIST,
                       label='Input from: ', choices=['AtomStruct', 'SetOfSmallMolecules'],
                       help='Type of input you want to use')
         form.addParam('inputStructure', params.PointerParam, pointerClass='AtomStruct',
