@@ -59,11 +59,12 @@ class GromacsSystemPViewer(MDSystemPViewer):
             self._defineFreeEnergyMDSystemParams(form)
 
     def _defineFreeEnergyMDSystemParams(self, form):
-        if form.getSection('Receptor-ligand interactions'):
-            section = form.getSection('Receptor-ligand interactions')
+        sectionLabel = 'Receptor-ligand interactions'
+        if form.getSection(sectionLabel):
+            section = form.getSection(sectionLabel)
         else:
-            section = form.addSection('Receptor-ligand interactions')
-        group = form.addGroup('Free energy analysis')
+            section = form.addSection(sectionLabel)
+        group = section.addGroup('Free energy analysis')
         group.addParam('displayGmxMmpbsa', params.LabelParam,
                        label='Open interactive analysis: ',
                        help='Display the results of the free energy calculation unsing '
