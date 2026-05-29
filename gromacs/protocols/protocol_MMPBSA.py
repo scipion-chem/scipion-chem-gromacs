@@ -367,7 +367,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
     # ── Steps implementations ────────────────────────────────────────────────
     def parametrizeSpecificLigandStep(self, molFile, molName):
         """Parametrize the ligand with ACPYPE/GAFF2."""
-        molFile = self.addHydrogens(molFile, molName)
+        molFile = self.addSpecificlLigandHydrogens(molFile, molName)
         kwargs = self.getParameters()
 
         args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
@@ -609,8 +609,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             outCsv       = os.path.abspath(os.path.join(poseDir, RESULT_CSV))
             cwd          = poseDir
 
-        args = ('-O '
-                '-i {inp} -cs {cs} -ct {ct} -ci {ci} -cg 1 13 '
+        args = ('-O -i {inp} -cs {cs} -ct {ct} -ci {ci} -cg 1 13 '
                 '-cp {cp} -o {out} -eo {eo} -nogui').format(
             inp=inFile, cs=lastTpr, ct=comTrj,
             ci=ndxFile, cp=localTopFile, out=outFile, eo=outCsv,
@@ -620,51 +619,37 @@ class GromacsMmpbsa(GromacsSystemPrep):
     def createOutputStep(self):
         """
         Parse results and define Scipion outputs.
-        Mode A: single outputFreeEnergy object.
-        Mode B: one output per pose named outputFreeEnergy_{poseId}.
+        Mode A: single outputSystem  (INPUT_GROMACS).
+        Mode B: one annotated molecule per pose (SetOfSmallMolecules input).
         """
         calcModel = 'MMGBSA' if self.calcType.get() == CALC_GB else 'MMPBSA'
 
         if self.inputFrom.get() == INPUT_GROMACS:
             outFile = self._getPath(RESULT_DAT)
-            outCsv  = self._getPath(RESULT_CSV)
             if not os.path.exists(outFile):
                 self.warning(f'MMPBSA output not found: {outFile}')
                 return
             dg, sd = parseFinalDeltaG(outFile)
-            if dg is not None:
-                self.info(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
-                outSystem = self.gromacsSystem.get().clone()
-                outSystem.setFreeEnergy(dg), outSystem.setFreeEnergyFile(outFile)
-                self._defineOutputs(outputSystem=outSystem)
-            else:
+            if dg is None:
                 self.warning(f'Could not parse ΔG from {outFile}')
+                return
+            self.info(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
+            outSystem = self.gromacsSystem.get().clone()
+            outSystem.setFreeEnergy(dg)
+            outSystem.setFreeEnergyFile(outFile)
+            self._defineOutputs(outputSystem=outSystem)
 
         else:
             inMols = self.inputSetOfMols.get()
-            summaryLines = [f'{"Pose":<25} {"ΔG (kcal/mol)":>16}']
-            summaryLines.append('-' * 52)
+            summaryLines = [f'{"Pose":<25} {"ΔG (kcal/mol)":>16}', '-' * 52]
             outputSet = inMols.createCopy(self._getPath(), copyInfo=True)
+
             for mol in inMols:
-                poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
-                poseDir = self.getPoseDir(poseId)
-                outFile = os.path.join(poseDir, RESULT_DAT)
-                outCsv  = os.path.join(poseDir, RESULT_CSV)
+                annotated = self._processPoseMol(mol, calcModel, summaryLines)
+                if annotated is not None:
+                    outputSet.append(annotated)
 
-                if not os.path.exists(outFile):
-                    self.warning(f'Pose {poseId}: result file not found, skipping.')
-                    summaryLines.append(f'{poseId:<25}  {"N/A":>16}')
-                    continue
-
-                dg, _ = parseFinalDeltaG(outFile)
-                if calcModel == 'MMGBSA':
-                    mol.MMGBSA_deltaG = pwobj.Float(dg)
-                elif calcModel == 'MMPBSA':
-                    mol.MMPBSA_deltaG = pwobj.Float(dg)
-                outputSet.append(mol)
             self._defineOutputs(outputSmallMolecules=outputSet)
-            summaryLines.append(f'{poseId:<25} {dg:>+16.2f}')
-
             self.info('\n'.join(summaryLines))
 
 
@@ -685,26 +670,46 @@ class GromacsMmpbsa(GromacsSystemPrep):
         return errors
 
     def _summary(self):
-        summary = []
+        """Return a summary list of the final Delta G calculations."""
         calcModel = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
+        summary = []
 
         if self.inputFrom.get() == INPUT_GROMACS:
-            outFile = self._getPath(RESULT_DAT)
-            if os.path.exists(outFile):
-                dg, sd = parseFinalDeltaG(outFile)
-                if dg is not None:
-                    summary.append(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
-        else:
-            if self.inputSetOfMols.get() is not None:
-                for mol in self.inputSetOfMols.get():
-                    poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
-                    outFile = os.path.join(self.getPoseDir(poseId), RESULT_DAT)
-                    if os.path.exists(outFile):
-                        dg, _ = parseFinalDeltaG(outFile)
-                        if dg is not None:
-                            summary.append(f'Pose {poseId} ({mol.getMolName()}): '
-                                           f'{dg:.2f} kcal/mol')
+            summary.extend(self._getGromacsSummary(calcModel))
+        elif self.inputSetOfMols.get() is not None:
+            summary.extend(self._getMolsSummary())
+
         return summary or ['Protocol has not finished yet.']
+
+    def _getGromacsSummary(self, calcModel):
+        """Helper to parse and format the summary for a GROMACS input."""
+        outFile = self._getPath(RESULT_DAT)
+
+        if not os.path.exists(outFile):
+            return []
+
+        dg, sd = parseFinalDeltaG(outFile)
+        if dg is not None:
+            return [f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol']
+
+        return []
+
+    def _getMolsSummary(self):
+        """Helper to parse and format the summary for a set of molecules."""
+        summary = []
+
+        for mol in self.inputSetOfMols.get():
+            poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
+            outFile = os.path.join(self.getPoseDir(poseId), RESULT_DAT)
+
+            if not os.path.exists(outFile):
+                continue
+
+            dg, _ = parseFinalDeltaG(outFile)
+            if dg is not None:
+                summary.append(f'Pose {poseId} ({mol.getMolName()}): {dg:.2f} kcal/mol')
+
+        return summary
 
     def _methods(self):
         return [
@@ -717,6 +722,28 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
     # ── Utils ─────────────────────────────────────────────────────
 
+    def _processPoseMol(self, mol, calcModel, summaryLines):
+        """
+        Process a single docked pose: parse its MMPBSA/MMGBSA result and
+        annotate the molecule object.  Returns the (possibly annotated) mol
+        """
+        poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
+        outFile = os.path.join(self.getPoseDir(poseId), RESULT_DAT)
+
+        if not os.path.exists(outFile):
+            self.warning(f'Pose {poseId}: result file not found, skipping.')
+            summaryLines.append(f'{poseId:<25}  {"N/A":>16}')
+            return None
+
+        dg, _ = parseFinalDeltaG(outFile)
+        if calcModel == 'MMGBSA':
+            mol.MMGBSA_deltaG = pwobj.Float(dg)
+        else:
+            mol.MMPBSA_deltaG = pwobj.Float(dg)
+
+        summaryLines.append(f'{poseId:<25} {dg:>+16.2f}')
+        return mol
+
     def patchInFile(self, text, key, value):
         """
         Replace the value of `key` in any namelist line, preserving
@@ -728,11 +755,11 @@ class GromacsMmpbsa(GromacsSystemPrep):
             r'^(\s*' + re.escape(key) + r'\s*=\s*)([^,#/\n]+?)(\s*(?:[,#].*)?$)',
             re.MULTILINE
         )
-        new_text, n = pattern.subn(r'\g<1>' + str(value) + r'\g<3>', text)
+        newText, n = pattern.subn(r'\g<1>' + str(value) + r'\g<3>', text)
         if n == 0:
             self.warning(f'Variable "{key}" not found in template; '
                          f'it will be appended manually.')
-        return new_text
+        return newText
 
     def convertInputStep(self):
         sdfFiles = []
@@ -764,9 +791,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         os.mkdir(lDir)
       return lDir
 
-    def addHydrogens(self, inpFile, molName):
+    def addSpecificlLigandHydrogens(self, inpFile, molName):
       sysbaseName = os.path.basename(inpFile).split('.')[0]
-      ligName = molName.split('_')[-1]
 
       tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
       inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
