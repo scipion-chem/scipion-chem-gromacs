@@ -49,7 +49,114 @@ from multiprocessing import cpu_count
 class GromacsMDSimulation(EMProtocol):
     """
     This protocol will perform energy minimization on the system previosly prepared by the protocol "system prepartion".
-    This step is necessary to energy minize the system in order to avoid unwanted conformations.
+
+    AI Generated:
+
+        GromacsMDSimulation
+
+        Overview
+        --------
+        This protocol performs molecular dynamics (MD) simulations using GROMACS
+        within the Scipion-Chem framework.
+
+        It supports energy minimization, NVT, and NPT simulations, allowing flexible
+        configuration of thermodynamic conditions, restraints, and simulation stages.
+
+        The protocol enables multi-step workflows, where each stage can be customized
+        and executed sequentially, producing trajectories and system states for
+        downstream analysis.
+
+        Inputs
+        ------
+        gromacsSystem:
+            A previously prepared GROMACS system containing:
+            - Coordinates (GRO/PDB)
+            - Topology (TOP)
+            - Optional trajectory and index files
+
+        prevTrj:
+            Whether to concatenate the previous trajectory from the input system
+
+        cptTime:
+            Time interval (minutes) for writing checkpoint files
+
+        gmxMPI:
+            Whether to use MPI execution for GROMACS
+
+        Workflow
+        --------
+        1. Workflow definition
+           - Reads user-defined simulation stages from workflow steps
+           - Each stage is represented as a parameter dictionary
+           - Supports sequential multi-stage simulations
+
+        2. Stage preparation
+           - Generates MDP configuration files for each stage
+           - Configures:
+             - Integrator (steep, cg, md)
+             - Temperature and thermostat
+             - Pressure and barostat (for NPT)
+             - Time step and simulation length
+             - Output frequency and trajectory saving
+
+        3. Restraints handling
+           - Supports:
+             - Structural ROI restraints
+             - Residue-based restraints
+             - Custom index groups (make_ndx)
+           - Generates index files and applies force constants
+
+        4. Preprocessing (GROMPP)
+           - Converts MDP + structure + topology into TPR files
+           - Handles warnings and allows controlled tolerance
+
+        5. Simulation execution (MDRUN)
+           - Runs MD simulation using CPU or GPU
+           - Supports MPI parallelization
+           - Generates:
+             - Trajectory files (.trr/.xtc)
+             - Checkpoints (.cpt)
+             - Updated structures (.gro)
+
+        6. Trajectory management
+           - Concatenates trajectories across stages
+           - Optionally merges with previous system trajectory
+           - Applies centering and periodic boundary corrections
+
+        7. Output generation
+           - Copies final structure and topology
+           - Builds final GromacsSystem object
+           - Attaches trajectory and index files if available
+
+        Output
+        ------
+        outputSystem:
+            GromacsSystem containing:
+            - Final coordinates (GRO)
+            - Topology (TOP)
+            - Simulation parameters (TPR)
+            - Optional trajectory (XTC)
+            - Index and restraint definitions
+
+        Summary
+        -------
+        This protocol provides a complete framework for molecular dynamics simulations,
+        enabling:
+        - multi-stage simulation workflows (minimization, equilibration, production)
+        - flexible thermodynamic control (NVT/NPT)
+        - GPU and MPI acceleration
+        - trajectory generation and concatenation
+        - application of structural and custom restraints
+        - reproducible and modular simulation pipelines
+
+        Notes
+        -----
+        - Supports energy minimization and MD simulations in a unified workflow
+        - Compatible with GPU acceleration and MPI execution
+        - Requires a properly prepared GROMACS system as input
+        - Large trajectories may require significant storage
+        - Includes validation and warnings for simulation stability and parameter consistency
+
     """
     _label = 'Run MD simulation'
     _ensemTypes = ['Energy min', 'NVT',  'NPT']
