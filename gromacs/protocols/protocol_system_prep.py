@@ -526,7 +526,6 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         return methods
 
     def _runPdb2gmx(self, params, printfValues=None):
-        print(printfValues)
         if printfValues:
             gromacsPlugin.runGromacsPrintf(self, printfValues=printfValues, args=params, cwd=self._getPath())
         else:
