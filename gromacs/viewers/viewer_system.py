@@ -38,6 +38,8 @@ from pwchem.constants import TCL_MD_STR
 
 from gromacs import Plugin as gromacsPlugin
 from ..objects import GromacsSystem
+from ..protocols import GromacsMDSimulation, GromacsMmpbsa
+from ..objects import GromacsSystem
 from ..protocols import GromacsMDSimulation
 
 program = gromacsPlugin.getGromacsBin()
@@ -49,6 +51,38 @@ class GromacsSystemPViewer(MDSystemPViewer):
 
     def __init__(self, **args):
       super().__init__(**args)
+
+    def _defineParams(self, form):
+        super()._defineParams(form)
+        system = self.getMDSystem()
+        if system and system.getFreeEnergyFile():
+            self._defineFreeEnergyMDSystemParams(form)
+
+    def _defineFreeEnergyMDSystemParams(self, form):
+        sectionLabel = 'Receptor-ligand interactions'
+        if form.getSection(sectionLabel):
+            section = form.getSection(sectionLabel)
+        else:
+            section = form.addSection(sectionLabel)
+        group = section.addGroup('Free energy analysis')
+        group.addParam('displayGmxMmpbsa', params.LabelParam,
+                       label='Open interactive analysis: ',
+                       help='Display the results of the free energy calculation unsing '
+                            'gmx_MMPBSA_ana')
+
+    def _getVisualizeDict(self):
+        visualizeDict = super()._getVisualizeDict()
+        visualizeDict['displayGmxMmpbsa'] = self._showGmxMmpbsaAna
+        return visualizeDict
+
+    def _showGmxMmpbsaAna(self, paramName=None):
+        import subprocess
+        activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
+        args = '-r '
+        cmd = f"{activation} && gmx_MMPBSA_ana {args}"
+
+        subprocess.Popen(cmd, shell=True, executable='/bin/bash',
+            env=gromacsPlugin.getEnviron(), cwd=os.path.dirname(self.getMDSystem().getFreeEnergyFile()))
 
     def getMDSystem(self, objType=GromacsSystem):
         if type(self.protocol) == objType:

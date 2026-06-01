@@ -128,6 +128,23 @@ class Plugin(pwchemPlugin):
 		subprocess.check_call(program + args, cwd=cwd, shell=True)
 
 	@classmethod
+	def runGMXMMPBSA(cls, protocol, program='gmx_MMPBSA', args=None, cwd=None, numberOfMpi=1):
+		""" Run gmx_MMPBSA command from a given protocol. """
+
+		activation = cls.getGMXMMPBSAEnvActivation()
+		mpiPrefix = 'mpirun -np {} '.format(numberOfMpi) if numberOfMpi > 1 else ''
+		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
+
+		print('Running: ', fullProgram, args)
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
+
+	@classmethod
+	def getGMXMMPBSAEnvActivation(cls):
+		print(cls.getEnvActivationCommand(GMXMMPBSA_DIC))
+		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
+	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):
 		mpiExt = '_mpi' if mpi else ''
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
