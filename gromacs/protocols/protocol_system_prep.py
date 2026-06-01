@@ -108,8 +108,10 @@ GROMACS_WATERFF_NAME[GROMACS_TIP3P], GROMACS_WATERFF_NAME[GROMACS_TIP4P],
 GROMACS_WATERFF_NAME[GROMACS_TIP5P]]
 
 STRUCTURE, LIGAND = 0, 1
+TOPOL_TOP = "topol.top"
 
 GAPS_OPTIONS = ['No', 'Gaps termini', 'All termini']
+SSBONDS_OPTIONS = ['None', 'Automatic', 'Manual']
 
 def replaceInFile(file, inStr, repStr):
   inStr, repStr = inStr.replace('\n', '\\n'), repStr.replace('\n', '\\n')
@@ -176,6 +178,9 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         group = form.addGroup('Ions')
         self._defineIonsParams(group)
+
+        group = form.addGroup('SS bonds')
+        self._defineSSBondsParams(group)
 
     def _defineBoxParams(self, group):
         group.addParam('boxType', params.EnumParam,
@@ -246,6 +251,20 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                        label='Salt concentration (M): ',
                        help='Salt concentration')
 
+    def _defineSSBondsParams(self, group):
+        group.addParam('handleSSBonds', params.EnumParam,
+                      choices=SSBONDS_OPTIONS,  display=params.EnumParam.DISPLAY_HLIST,
+                      default=1, label='Define SS bonds: ',
+                      help='How to handle disulfide bonds detected by GROMACS:\n'
+                           '*None*: Do not define disulfide bonds\n'
+                           '*Automatic*: Define all detected disulfide bonds automatically (SG atoms within 2.0 ± 0.2 Å)\n'
+                           '*Manual*: Select which detected bonds to form')
+
+        group.addParam('selectSSBonds', params.StringParam,
+                      condition='handleSSBonds==2',
+                      label='Selected SS bonds:',
+                      help='Comma-separated list of SS bond indices to form (set via wizard)')
+
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
@@ -311,41 +330,54 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       with open(recFile, 'w') as f:
         f.write(f"{recDic['header']} {nRec+nLig}\n{recDic['coords']}{ligDic['coords']}{recDic['tail']}")
 
-
     def PDB2GMXStep(self):
-      inputStructure = self.getInputReceptorFile()
-      systemBasename = self.getSystemName()
+        inputStructure = self.getInputReceptorFile()
+        systemBasename = self.getSystemName()
 
-      addCapsMode = self.getEnumText('addCaps')
-      if addCapsMode in GAPS_OPTIONS[1:]:
-        mode = 'gaps' if addCapsMode ==  GAPS_OPTIONS[1] else 'all'
+        addCapsMode = self.getEnumText('addCaps')
+        if addCapsMode in GAPS_OPTIONS[1:]:
+            mode = 'gaps' if addCapsMode == GAPS_OPTIONS[1] else 'all'
+            cappedPdb = os.path.abspath(os.path.join(self._getExtraPath(), f'{systemBasename}_capped.pdb'))
+            self.runPymol(self.addCapsPml(inputStructure, cappedPdb, mode), self._getExtraPath())
+            self.fixPdbTER(cappedPdb)
+            inputStructure = cappedPdb
 
-        cappedPdb = os.path.abspath(os.path.join(self._getExtraPath(), f'{systemBasename}_capped.pdb'))
-        pmlScript = self.addCapsPml(inputStructure, cappedPdb, mode)
+        Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
+        Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
+        params = (f' pdb2gmx -f {inputStructure} -o {systemBasename}_processed.gro '
+                  f'-water {Waterff} -ff {Mainff} -merge all ')
 
-        self.runPymol(pmlScript, self._getExtraPath())
-        self.fixPdbTER(cappedPdb)
-        inputStructure = cappedPdb
+        # Handle disulfide bonds
+        ssMode = self.getEnumText('handleSSBonds')
+        printfValues = None
 
-      Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
-      Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
-      params = f' pdb2gmx -f {inputStructure} -o {systemBasename}_processed.gro ' \
-               f'-water {Waterff} -ff {Mainff} -merge all '
-      # todo: managing several chains (restrictions, topologies...) instead of merging them
-      try:
-          gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
-      except:
-          print('Conversion to gro failed, trying to convert it ignoring the current hydrogens')
-          os.remove(self._getPath('topol.top'))
-          params += ' -ignh'
-          gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
+        if ssMode != 'None':
+            params += ' -ss '
+            numBonds = self.countSSBonds(inputStructure, Waterff, Mainff)
 
-      if self.inputFrom.get() == LIGAND:
-        molName = self.getLigandName()
-        groFile, topFile = self._getPath(f'{systemBasename}_processed.gro'), self._getPath('topol.top')
-        self.addLigandTopo(topFile)
-        self.addLigandCoords(groFile, self.getLigandPath(f'{molName}_GMX.gro'))
-        shutil.copy(self.getLigandPath(f'{molName}_GMX.itp'), self._getPath(f'{molName}_GMX.itp'))
+            if ssMode == 'Automatic':
+                printfValues = ['y'] * int(numBonds)
+                self._log.info(f"Automatically accepting {numBonds} disulfide bond(s)")
+
+            elif ssMode == 'Manual':
+                selected = {int(x) for x in self.selectSSBonds.get().split(',')} if self.selectSSBonds.get() else set()
+                printfValues = ['y' if i in selected else 'n' for i in range(numBonds)]
+
+        try:
+            self._runPdb2gmx(params, printfValues=printfValues)
+
+        except:
+            self._log.warning('Conversion to gro failed, trying with -ignh flag')
+            if os.path.exists(self._getPath(TOPOL_TOP)):
+                os.remove(self._getPath(TOPOL_TOP))
+            self._runPdb2gmx(params + ' -ignh', printfValues=printfValues)
+
+        if self.inputFrom.get() == LIGAND:
+          molName = self.getLigandName()
+          groFile, topFile = self._getPath(f'{systemBasename}_processed.gro'), self._getPath(TOPOL_TOP)
+          self.addLigandTopo(topFile)
+          self.addLigandCoords(groFile, self.getLigandPath(f'{molName}_GMX.gro'))
+          shutil.copy(self.getLigandPath(f'{molName}_GMX.itp'), self._getPath(f'{molName}_GMX.itp'))
 
     def editConfStep(self):
         systemBasename = self.getSystemName()
@@ -411,7 +443,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         else:
             groBaseName = '%s_solv.gro' % (systemBasename)
 
-        topoPath, groPath, posrePath = self._getPath('topol.top'), self._getPath(groBaseName), \
+        topoPath, groPath, posrePath = self._getPath(TOPOL_TOP), self._getPath(groBaseName), \
                                        self._getPath('posre.itp')
 
         chainNames = ','.join(self.getModelChains())
@@ -492,6 +524,12 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                            ' are created.' )
 
         return methods
+
+    def _runPdb2gmx(self, params, printfValues=None):
+        if printfValues:
+            gromacsPlugin.runGromacsPrintf(self, printfValues=printfValues, args=params, cwd=self._getPath())
+        else:
+            gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def getSpecifiedMol(self):
       myMol = None
@@ -749,3 +787,31 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         with open(pdbPath, 'w') as f:
             f.writelines(fixedLines)
+
+    def countSSBonds(self, inputStructure, waterff='spc', mainff='amber03'):
+        """
+        Run pdb2gmx with -ss to count how many SS bonds GROMACS detects.
+        Returns the count without forming any bonds.
+        """
+        maxBonds = self.maximumSSbonds(inputStructure)
+        outputFile = os.path.abspath(self._getTmpPath('pdb2gmx_output.log'))
+        params = f'pdb2gmx -f {inputStructure} -o test.gro -water {waterff} -ff {mainff} -merge all -ss -ignh' \
+               f' > {outputFile} 2>&1'
+
+        printfValues =['n'] * maxBonds
+        gromacsPlugin.runGromacsPrintf(self, printfValues, params, cwd=self._getTmpPath())
+
+        # Count "Link CYS..." lines
+        with open(outputFile, 'r') as f:
+            output = f.read()
+        count = output.count('(y/n) ?')
+        return count
+
+    def maximumSSbonds(self, inputStructure):
+        parser = PDB.PDBParser(QUIET=True)
+        structure = parser.get_structure("protein", inputStructure)
+        cysCount = sum(1 for residue in structure.get_residues()
+                        if residue.get_resname() in ['CYS', 'CYX'])
+        # Maximum possible bonds is = n*(n-1)/2
+        maxBonds = (cysCount * (cysCount - 1)) // 2
+        return maxBonds

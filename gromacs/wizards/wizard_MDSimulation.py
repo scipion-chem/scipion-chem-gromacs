@@ -33,17 +33,20 @@ information such as name and number of residues.
 """
 
 # Imports
-import json, os
+import json, os, re
+from Bio import PDB
 from pyworkflow.gui import ListTreeProviderString, dialog
 import pyworkflow.object as pwobj
 
 from pwem.objects import Pointer, String
 
 from pwchem.utils import groupConsecutiveIdxs
+from pwchem.utils import pdbFromASFile
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
     WatchElementWizard
 
 from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+from gromacs.protocols.protocol_system_prep import STRUCTURE, LIGAND
 from gromacs import Plugin as gromacsPlugin
 
 SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
@@ -422,3 +425,124 @@ AddResidueRestraintWizard().addTarget(protocol=GromacsMDSimulation,
                                   targets=['restraintResidueInfo'],
                                   inputs=['gromacsSystem', 'restrainResidue'],
                                   outputs=[])
+
+
+class SelectSSBondWIzard(VariableWizard):
+    _targets, _inputs, _outputs = [], {}, {}
+
+    def show(self, form, *params):
+        _, outputParams = self.getInputOutput(form)
+        protocol = form.protocol
+
+        # Detect SS bonds by running pdb2gmx in dry-run mode
+        outPath = os.path.abspath(protocol.getProject().getTmpPath('SS_info.log'))
+        inputStruct = self.getStructFile(protocol)
+        if not inputStruct:
+            dialog.showError("Missing Input",
+                             "Please select a valid input structure first.",
+                             form.root)
+            return
+
+        base, ext = os.path.splitext(os.path.basename(inputStruct))
+
+        # Only convert if the input is not already a PDB
+        if ext.lower() != '.pdb':
+            tmpPdbPath = os.path.abspath(protocol.getProject().getTmpPath(f'{base}_temp.pdb'))
+            pdbFile = pdbFromASFile(inputStruct, tmpPdbPath)
+        else:
+            pdbFile = inputStruct
+
+        ssBonds = self.detectSSBonds(pdbFile, outPath)
+
+        if not ssBonds:
+            dialog.showInfo("Disulfide Bonds",
+                            "No potential disulfide bonds detected in structure.",
+                            form.root)
+            return
+
+        # 1. Wrap the bond labels into pyworkflow String objects
+        bondStringList = [String(bond['label']) for bond in ssBonds]
+
+        # 2. Create the provider and the ListDialog
+        provider = ListTreeProviderString(bondStringList)
+        dlg = dialog.ListDialog(form.root, "Select Disulfide Bonds", provider,
+                                "Select which disulfide bonds to form\n(Ctrl+Click or Shift+Click for multiple):")
+
+        # 3. Process the selections if the user clicked OK and made a choice
+        if dlg.values:
+            selectedIndices = []
+            selectedLabels = [val.get() for val in dlg.values]
+
+            # Map the selected labels back to their original 0-based indices
+            for i, bond in enumerate(ssBonds):
+                if bond['label'] in selectedLabels:
+                    selectedIndices.append(str(i))
+
+            if selectedIndices:
+                form.setVar(outputParams[0], ','.join(selectedIndices))
+
+    def detectSSBonds(self, inputStructure, outputFile, waterff='spc', mainff='amber03'):
+        """
+        Run pdb2gmx with -ss to count how many SS bonds GROMACS detects.
+        Parse the output to extract the bond proposals.
+        """
+        maxBonds = self.maximumSSbonds(inputStructure)
+        params = f'pdb2gmx -f {inputStructure} -o test.gro -water {waterff} -ff {mainff} -merge all -ss -ignh' \
+               f' > {outputFile} 2>&1'
+
+        printfValues =['n'] * maxBonds
+        gromacsPlugin.runGromacsPrintfViewer(printfValues, params, cwd=os.path.dirname(outputFile))
+
+        # Parse the output to extract SS bond proposals
+        bonds = self.parseSSBondOutput(outputFile)
+        return bonds
+
+    def maximumSSbonds(self, inputStructure):
+        parser = PDB.PDBParser(QUIET=True)
+        structure = parser.get_structure("protein", inputStructure)
+        cysCount = sum(1 for residue in structure.get_residues()
+                        if residue.get_resname() in ['CYS', 'CYX'])
+        # Maximum possible bonds is = n*(n-1)/2
+        maxBonds = (cysCount * (cysCount - 1)) // 2
+        return maxBonds
+
+    def parseSSBondOutput(self, outputFile):
+        """
+        Parse GROMACS output to extract SS bond proposals.
+        Returns list of dicts: [{'cys1': 'CYS-3', 'cys2': 'CYS-40', 'label': 'CYS-3 and CYS-40']
+        """
+        with open(outputFile, 'r') as f:
+            content = f.read()
+        bonds = []
+        pattern = r'Link\s+(CYS-\d+)\s+SG-\d+\s+and\s+(CYS-\d+)\s+SG-\d+\s+\(y/n\)\s*\?'
+
+        for match in re.finditer(pattern, content):
+            cys1, cys2 = match.groups()
+            bonds.append({
+                'cys1': cys1,
+                'cys2': cys2,
+                'label': f"{cys1} and {cys2}"
+            })
+
+        return bonds
+
+    def getStructFile(self, protocol):
+        """
+        Extracts the absolute path of the receptor depending on whether
+        the input is a SetOfSmallMolecules or an AtomStruct.
+        """
+        if protocol.inputFrom.get() == LIGAND:
+            inputObj = protocol.inputSetOfMols.get()
+            if inputObj:
+                return os.path.abspath(inputObj.getProteinFile())
+        else:
+            inputObj = protocol.inputStructure.get()
+            if inputObj:
+                return os.path.abspath(inputObj.getFileName())
+
+        return None
+
+SelectSSBondWIzard().addTarget(protocol=GromacsSystemPrep,
+                                  targets=['selectSSBonds'],
+                                  inputs=['inputFrom'],
+                                  outputs=['selectSSBonds'])
