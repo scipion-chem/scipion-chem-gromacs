@@ -117,14 +117,14 @@ class Plugin(pwchemPlugin):
 		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
 
 
-		pip_cmd = (f"bash -c '{activation} && "
+		pipCmd = (f"bash -c '{activation} && "
 		           f"pip install \"pyqt6==6.7.1\" gmx_MMPBSA=={GMXMMPBSA_DIC['version']}'")
 		installer \
 			.addCommand(f'conda create -y -c conda-forge --name {envName} python=3.11.8 '
 		                'mpi4py=4.0.1 "ambertools<=23.3" numpy=1.26.4 matplotlib=3.7.3 '
 		                'scipy=1.14.1 pandas=1.5.3 seaborn=0.11.2 "gromacs<=2023.4" '
 		                'pocl git pip', 'GMXMMPBSA_ENV_CREATED') \
-			.addCommand(pip_cmd, 'GMXMMPBSA_GMX_INSTALLED') \
+			.addCommand(pipCmd, 'GMXMMPBSA_GMX_INSTALLED') \
 			.addPackage(env, dependencies=['conda', 'pip', 'git'], default=default)
 
 	@classmethod
