@@ -49,8 +49,8 @@ class GromacsSystem(MDSystem):
         self._indexFile = pwobj.String(kwargs.get('indexFile', None))
         self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
 
-        self._freeEnergy = pwobj.Float(kwargs.get('MMPGSA', None))
-        self._freeEnergyFile = pwobj.String(kwargs.get('MMPGSAFile', None))
+        self._freeEnergy = pwobj.Float(kwargs.get('freeEnergy', None))
+        self._freeEnergyFile = pwobj.String(kwargs.get('freeEnergyFile', None))
 
         self._chainNames = pwobj.String(kwargs.get('chainNames', None))
         self._chainLengths = pwobj.String(kwargs.get('chainLengths', None))
