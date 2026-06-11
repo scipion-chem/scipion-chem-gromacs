@@ -299,9 +299,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
       replaceInFile(topFile, inStr, outStr)
 
-      emptyStr = ' ' * (20-len(molName))
       inStr = '; Compound        #mols\nProtein_chain_A     1'
-      outStr = f'{inStr}\n{molName}{emptyStr}1'
+      outStr = f'{inStr}\n{molName} 1'
       replaceInFile(topFile, inStr, outStr)
 
     def parseGROFile(self, groFile):
@@ -457,6 +456,11 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         if self.inputFrom.get() == LIGAND:
             molName = self.getLigandName()
             ligName = molName.split('_')[-1]
+
+            # use LIG when molName has not PDB res name style
+            if any(char.isdigit() for char in ligName) or len(ligName) < 3:
+                ligName = 'LIG'
+
             groSystem.setLigandID(ligName)
             groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
         else:

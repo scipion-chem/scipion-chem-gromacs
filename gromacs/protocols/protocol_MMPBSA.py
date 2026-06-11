@@ -821,9 +821,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
       outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
       replaceInFile(topFile, inStr, outStr)
 
-      emptyStr = ' ' * (20-len(molName))
       inStr = '; Compound        #mols\nProtein_chain_A     1'
-      outStr = f'{inStr}\n{molName}{emptyStr}1'
+      outStr = f'{inStr}\n{molName} 1'
       replaceInFile(topFile, inStr, outStr)
 
     def writeIonsMDP(self, poseDir):
