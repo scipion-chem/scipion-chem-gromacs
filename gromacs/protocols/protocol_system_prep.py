@@ -458,7 +458,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             ligName = molName.split('_')[-1]
 
             # use LIG when molName has not PDB res name style
-            if any(char.isdigit() for char in ligName) or len(ligName) < 3:
+            if ligName.isdigit() or len(ligName) != 3:
                 ligName = 'LIG'
 
             groSystem.setLigandID(ligName)
