@@ -31,14 +31,12 @@ from pwem.objects import SetOfAtomStructs, AtomStruct
 from pwem.viewers import ChimeraViewer, EmPlotter
 
 from pwchem.viewers import VmdViewPopen, MDSystemViewer, MDSystemPViewer
-import pyworkflow.viewer as pwviewer
 
 from pwchem.utils import natural_sort
-from pwchem.constants import TCL_MD_STR
+from pwchem import Plugin as pwchemPlugin
+from pwchem.constants import OPENBABEL_DIC
 
 from gromacs import Plugin as gromacsPlugin
-from ..objects import GromacsSystem
-from ..protocols import GromacsMDSimulation, GromacsMmpbsa
 from ..objects import GromacsSystem
 from ..protocols import GromacsMDSimulation
 
@@ -78,11 +76,12 @@ class GromacsSystemPViewer(MDSystemPViewer):
     def _showGmxMmpbsaAna(self, paramName=None):
         import subprocess
         activation = gromacsPlugin.getGMXMMPBSAEnvActivation()
+        pymolBinDir = pwchemPlugin.getEnvPath(OPENBABEL_DIC, 'bin')
         args = '-r '
-        cmd = f"{activation} && gmx_MMPBSA_ana {args}"
+        cmd = f"{activation} && export PATH={pymolBinDir}:$PATH && gmx_MMPBSA_ana {args}"
 
         subprocess.Popen(cmd, shell=True, executable='/bin/bash',
-            env=gromacsPlugin.getEnviron(), cwd=os.path.dirname(self.getMDSystem().getFreeEnergyFile()))
+                         env=gromacsPlugin.getEnviron(), cwd=os.path.dirname(self.getMDSystem().getFreeEnergyFile()))
 
     def getMDSystem(self, objType=GromacsSystem):
         if type(self.protocol) == objType:

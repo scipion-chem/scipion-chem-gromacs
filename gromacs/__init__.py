@@ -163,6 +163,11 @@ class Plugin(pwchemPlugin):
 		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
 
 	@classmethod
+	def getGMXMMPBSAEnvActivation(cls):
+		""" Return the shell command to activate the gmx_MMPBSA conda environment. """
+		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
+	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):
 		mpiExt = '_mpi' if mpi else ''
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
