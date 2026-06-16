@@ -72,8 +72,6 @@ ENT_NMODE = 2
 IGB_VALS  = [1, 2, 5, 7, 8]          # AMBER igb numbers
 
 ENTROPY_TYPE_EMPTY = "entropyType == {}"
-# Residue names that denote (crystallographic) water in PDB files. Stripped from
-# the receptor before pdb2gmx so the protein and ligand stay contiguous.
 WATER_RESNAMES = {'HOH', 'WAT', 'SOL', 'H2O', 'TIP', 'TIP2', 'TIP3', 'TIP4',
                   'TIP5', 'T3P', 'T4P', 'SPC', 'SPCE'}
 TOPOL_TOP = "topol.top"
@@ -401,23 +399,14 @@ class GromacsMmpbsa(GromacsSystemPrep):
             return
 
         poseDir = self.getPoseDir(poseId)
-        # molName = re.sub(r'_\d+$', '', poseId)
         protFile = self.getInputReceptorFile()
         sysName = os.path.splitext(os.path.basename(protFile))[0]
         mainFF = GROMACS_MAINFF_NAME[self.mainForceField.get()]
         waterFF = GROMACS_WATERFF_NAME[self.waterForceField.get()]
 
-        # Strip crystallographic waters from the receptor before pdb2gmx.
-        # gmx_MMPBSA requires the protein and the ligand to form a contiguous
-        # atom block (no solvent molecules between them in the topology); the
-        # ligand coordinates are appended after the receptor, so any crystal
-        # water left in the receptor would sit between protein and ligand. When
-        # gmx_MMPBSA strips that solvent it renumbers the ligand atoms and the
-        # complex index stops matching the topology ("atom N not found").
+        # Strip crystallographic waters so protein and ligand stay contiguous.
         cleanProt = os.path.join(poseDir, f'{sysName}_clean.pdb')
-        nWat = self._stripReceptorWaters(protFile, cleanProt)
-        if nWat:
-            self.info(f'Removed {nWat} crystallographic water atom(s) from the receptor.')
+        self._stripReceptorWaters(protFile, cleanProt)
         protFile = cleanProt
 
         # ACPYPE outputs
@@ -484,17 +473,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
             ndxOut = os.path.abspath(os.path.join(poseDir, PREPROC_NDX))
 
         args = f'make_ndx -f {inputStruct} -o {ndxOut}'
-        if self.inputFrom.get() == INPUT_GROMACS:
-            # Post-MD system: group 13 is the ligand; merge Protein+ligand into
-            # the Protein_<lig> group used to strip the trajectory.
-            printfValues = ['1 | 13', 'q']
-        else:
-            # Docked molecules: crystallographic waters/ions shift the default
-            # group numbering, so we must NOT rely on the magic number 13 (which
-            # here is the 'SOL' group). make_ndx auto-creates the 'Protein' and
-            # 'LIG' groups; their real indices are resolved by name in
-            # runMmpbsaStep, so the complex passed to gmx_MMPBSA excludes solvent.
-            printfValues = ['q']
+        # Mode B resolves the Protein/LIG groups by name in runMmpbsaStep, so no
+        # merge is needed; Mode A still merges group 13 (the ligand) with Protein.
+        printfValues = ['1 | 13', 'q'] if self.inputFrom.get() == INPUT_GROMACS else ['q']
         gromacsPlugin.runGromacsPrintf(protocol=self,
                                        printfValues=printfValues,
                                        args=args, cwd=cwd, mpi=False)
@@ -666,11 +647,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             outCsv       = os.path.abspath(os.path.join(poseDir, RESULT_CSV))
             cwd          = poseDir
 
-        # Complex groups for gmx_MMPBSA: receptor group then ligand group.
-        # gmx_MMPBSA builds the complex from these two groups only, which is how
-        # solvent/ions are excluded. The numbering must match this system's
-        # index file, so resolve it by name instead of hard-coding (the default
-        # numbers shift when crystallographic waters/ions are present).
+        # gmx_MMPBSA complex groups: receptor then ligand.
         if self.inputFrom.get() == INPUT_GROMACS:
             cgGroups = '1 13'
         else:
@@ -903,17 +880,11 @@ class GromacsMmpbsa(GromacsSystemPrep):
       outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
       replaceInFile(topFile, inStr, outStr)
 
-      # Add the ligand to the [ molecules ] section. We cannot match a fixed
-      # protein line (it is "Protein_chain_<id>" where <id> is the chain letter
-      # of the input PDB, e.g. _A, _C, ...) and the receptor may also contain
-      # crystallographic waters. addLigandCoords appends the ligand coordinates
-      # at the end of the (pre-solvation) system, so the ligand entry must
-      # likewise be the last molecule before solvate adds the bulk water.
       self._appendLigandToMolecules(topFile, molName)
 
     @staticmethod
     def _appendLigandToMolecules(topFile, molName):
-      """Append '<molName> 1' at the end of the [ molecules ] section of a .top."""
+      """Append the ligand at the end of the [ molecules ] section."""
       with open(topFile) as f:
         lines = f.readlines()
 
@@ -926,16 +897,13 @@ class GromacsMmpbsa(GromacsSystemPrep):
       if molIdx is None:
         raise ValueError(f'No [ molecules ] section found in {topFile}')
 
-      # Insert after the last non-empty line of the molecules block (which, at
-      # this point, holds only the protein and any crystallographic waters).
       insertIdx = len(lines)
       while insertIdx > molIdx + 1 and not lines[insertIdx - 1].strip():
         insertIdx -= 1
 
-      newLine = f'{molName} 1\n'
       if not lines[insertIdx - 1].endswith('\n'):
         lines[insertIdx - 1] += '\n'
-      lines.insert(insertIdx, newLine)
+      lines.insert(insertIdx, f'{molName} 1\n')
 
       with open(topFile, 'w') as f:
         f.writelines(lines)
@@ -997,29 +965,17 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
     @staticmethod
     def _stripReceptorWaters(inFile, outFile):
-        """Write a copy of a PDB receptor with all water residues removed.
-
-        Waters may be written as ATOM (not HETATM) records, so we filter by
-        residue name (cols 18-20) rather than relying on the record type or
-        BioPython's hetero flag. Returns the number of atoms removed."""
-        nRemoved = 0
+        """Write a copy of the receptor PDB with water residues removed."""
         with open(inFile) as fin, open(outFile, 'w') as fout:
             for line in fin:
                 if (line.startswith(('ATOM', 'HETATM'))
                         and line[17:20].strip() in WATER_RESNAMES):
-                    nRemoved += 1
                     continue
                 fout.write(line)
-        return nRemoved
 
     @staticmethod
     def _getNdxGroupIdx(ndxFile, groupName):
-        """Return the 0-based GROMACS index-group number of a named group.
-
-        GROMACS numbers index groups by their order of appearance in the .ndx
-        file, starting at 0, and gmx_MMPBSA's -cg expects exactly those numbers.
-        Resolving by name avoids relying on a fixed numbering that breaks when
-        crystallographic waters/ions add extra groups."""
+        """Return the 0-based index of a named group in a GROMACS .ndx file."""
         idx = 0
         with open(ndxFile) as fh:
             for line in fh:

@@ -631,7 +631,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def getModelChains(self):
         inputStructure = self.getInputReceptorFile()
         if not inputStructure.endswith('.pdb'):
-          inputStructure = self.convertReceptor2PDB(inputStructure)
+            inputPdb = self.getInputPDBFile(inputStructure)
+            inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
 
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
@@ -647,7 +648,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             inputStructure = self.getInputReceptorFile()
 
         if not inputStructure.endswith('.pdb'):
-            inputStructure = self.convertReceptor2PDB(inputStructure)
+            inputPdb = self.getInputPDBFile(inputStructure)
+            inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
 
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
