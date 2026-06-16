@@ -22,12 +22,12 @@
 
 """
 This protocol performs MM/PBSA (or MM/GBSA) binding free energy calculations
-using gmx_MMPBSA for protein–ligand complexes from GROMACS MD simulations.
+using gmx_MMPBSA for protein-ligand complexes from GROMACS MD simulations.
 
 Pipeline:
   1. Build a merged Protein+Ligand GROMACS index (make_ndx).
-  2. Preprocess trajectory: fix PBC → fit → strip solvent/ions (trjconv × 3).
-  3. Build a clean index for the stripped complex (make_ndx on com_ref.gro). ### COMPROBAR SI ES NECESARIO
+  2. Preprocess trajectory: fix PBC -> fit -> strip solvent/ions (trjconv x3).
+  3. Build a clean index for the stripped complex (make_ndx on com_ref.gro).
   4. Write the gmx_MMPBSA input file (mmpbsa.in).
   5. Run gmx_MMPBSA.
   6. Parse results and define Scipion outputs.
@@ -60,7 +60,7 @@ from gromacs.protocols.protocol_system_prep import (
 )
 
 
-# ─── Constants ────────────────────────────────────────────────────────────────
+# --- Constants ---------------------------------------------------------------
 INPUT_GROMACS = 0
 INPUT_MOLS    = 1
 
@@ -81,13 +81,13 @@ SCRIPT_LIGPREP_NAME = 'rdkit_addHydrogens.py'
 
 class GromacsMmpbsa(GromacsSystemPrep):
     """
-    Protein–ligand MM/PBSA / MM/GBSA binding free energy via gmx_MMPBSA.
+    Protein-ligand MM/PBSA / MM/GBSA binding free energy via gmx_MMPBSA.
 
     Mode A (Gromacs System): requires a finished MD trajectory.
     Mode B (Docked Molecules): parametrizes the ligand, builds and solvates
     the complex, minimizes it, and runs a single-frame MMPBSA calculation.
 
-    Reference: Valdés-Tresanco et al., J. Chem. Theory Comput. 2021.
+    Reference: Valdes-Tresanco et al., J. Chem. Theory Comput. 2021.
     https://valdes-tresanco-ms.github.io/gmx_MMPBSA/dev/
     """
     _label = 'MM/PBSA free energy calculation'
@@ -95,10 +95,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
     def _defineParams(self, form):
         cpus = cpu_count() // 2  # don't use everything
-        parallelHelp =('Threads: number of OpenMP threads assigned for minimization to fmx mdrun\n'
+        parallelHelp = ('Threads: number of OpenMP threads assigned for minimization to gmx mdrun\n'
                         'MPIs: The number of message-passing processes assigned for calculating the binding free energy. '
-                        'Usefull for trajectory calculation, not for docked molecules.\n'
-                        'Total Cores Used = Scipion Threads × Max(Threads, MPIs)')
+                        'Useful for trajectory calculation, not for docked molecules.\n'
+                        'Total Cores Used = Scipion Threads x Max(Threads, MPIs)')
         form.addParallelSection(threads=cpus, mpi=1, binThreads=1, binThreadsHelp=parallelHelp)
         form.addSection(label='Energy calculation')
         form.addParam('inputFrom', params.EnumParam,
@@ -124,7 +124,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
                            'Must have a trajectory (.xtc), a TPR structure '
                            'file, a topology (.top) and a ligand (mol2).')
 
-        # ── Free Energy calculation ──
+        # -- Free Energy calculation --
         grp = form.addGroup('Calculation')
         grp.addParam('calcType', params.EnumParam,
                      label='Solvation model: ',
@@ -132,13 +132,13 @@ class GromacsMmpbsa(GromacsSystemPrep):
                      default=CALC_GB,
                      display=params.EnumParam.DISPLAY_COMBO,
                      help='Implicit solvation model:\n'
-                          '  MM/GBSA — Generalized Born (faster, less accurate)\n'
-                          '  MM/PBSA — Poisson-Boltzmann (slower, more accurate)')
+                          '  MM/GBSA - Generalized Born (faster, less accurate)\n'
+                          '  MM/PBSA - Poisson-Boltzmann (slower, more accurate)')
 
         grp.addParam('igb', params.EnumParam,
                      label='GB model (igb): ',
-                     choices=['1 — HCT', '2 — OBC-I', '5 — OBC-II',
-                              '7 — GBn', '8 — GBn2'],
+                     choices=['1 - HCT', '2 - OBC-I', '5 - OBC-II',
+                              '7 - GBn', '8 - GBn2'],
                      default=2,   # OBC-II is recommended for proteins
                      condition='calcType == {}'.format(CALC_GB),
                      help='AMBER Generalized Born model. OBC-II (igb=5) is a '
@@ -157,7 +157,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
                           'Ions are removed from the trajectory but their '
                           'effect is modelled implicitly here.')
 
-        # ── Entropy ──
+        # -- Entropy --
         grp = form.addGroup('Entropy Correction')
         grp.addParam('entropyType', params.EnumParam,
                      label='Entropy method: ',
@@ -165,11 +165,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
                               'Interaction Entropy (IE)',
                               'Normal Mode Analysis (nmode)'],
                      default=ENT_NONE,
-                     help='Entropy correction to obtain ΔG from ΔH:\n'
-                          '  None  — skip entropy (gives ΔH; fine for ranking)\n'
-                          '  IE    — fast, reasonably accurate for ranking \n'
-                          '  C2    — fast, based on energy variance \n'
-                          '  nmode — most rigorous but very slow')
+                     help='Entropy correction to obtain dG from dH:\n'
+                          '  None  - skip entropy (gives dH; fine for ranking)\n'
+                          '  IE    - fast, reasonably accurate for ranking\n'
+                          '  nmode - most rigorous but very slow')
         grp.addParam('ieSegment', params.IntParam,
                      label='IE segment (%): ',
                      default=25, expertLevel=params.LEVEL_ADVANCED,
@@ -181,34 +180,34 @@ class GromacsMmpbsa(GromacsSystemPrep):
         nmodeFrame = grp.addLine('Frame selection:',  condition=ENTROPY_TYPE_EMPTY.format(ENT_NMODE),
                             help='The trajectory from which snapshots will be chosen for nmode calculations will be the collection'
                                  ' of snapshots upon which the other calculations were performed (keep low, '
-                                 'e.g. 10–50 — each frame requires a minimisation). ')
+                                 'e.g. 10-50 - each frame requires a minimisation). ')
         nmodeFrame.addParam('nmStartFrame', params.IntParam,
                      label='Start frame', allowsNull=True,
                      default=None,
                      help='Number of frames for normal mode entropy (keep low, '
-                          'e.g. 10–50 — each frame requires a minimisation).')
+                          'e.g. 10-50 - each frame requires a minimisation).')
         nmodeFrame.addParam('nmEndFrame', params.IntParam,
-                       label='Start frame', allowsNull=True,
+                       label='End frame', allowsNull=True,
                        default=None,
                        help='Number of frames for normal mode entropy (keep low, '
-                            'e.g. 10–50 — each frame requires a minimisation).')
+                            'e.g. 10-50 - each frame requires a minimisation).')
         nmodeFrame.addParam('nmIntervalFrame', params.IntParam,
                        label='Interval',
                        default=1)
         nmodeMin = grp.addLine('Minimization:', condition=ENTROPY_TYPE_EMPTY.format(ENT_NMODE),
-                                 help='Maximum number of minimization cycles to use per snapshot in sander. '
+                                 help='Maximum number of minimization cycles to use per snapshot in sander, '
                                      'and convergence criteria for minimized energy gradient.')
         nmodeMin.addParam('nmMaxCycles', params.IntParam, default=10000,
                        label='Max cycles')
         nmodeMin.addParam('minConvergence', params.FloatParam, default=0.001,
                           label='Convergence')
 
-        # ── Decomposition ──
+        # -- Decomposition --
         grp = form.addGroup('Per-Residue Decomposition')
         grp.addParam('doDecomp', params.BooleanParam,
                      label='Run decomposition analysis?: ',
                      default=False,
-                     help='Decompose ΔG per residue to identify key binding '
+                     help='Decompose dG per residue to identify key binding '
                           'residues. Written to FINAL_DECOMP_MMPBSA.dat.')
 
         grp.addParam('decompResidues', params.StringParam,
@@ -216,9 +215,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
                      condition='doDecomp',
                      help='Which residues to include in the decomp output.\n'
                           'Examples:\n'
-                          '  "within 6"   — all residues within 6 Å of the ligand (recommended)\n'
-                          '  "1-10, 25"   — explicit residue range / list\n'
-                          '  "all"        — every residue')
+                          '  "within 6"   - all residues within 6 A of the ligand (recommended)\n'
+                          '  "1-10, 25"   - explicit residue range / list\n'
+                          '  "all"        - every residue')
 
         grp.addParam('decompScheme', params.EnumParam,
                      label='Decomposition scheme: ',
@@ -258,9 +257,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
         grpMin = form.addGroup('Minimization', condition=f'inputFrom=={INPUT_MOLS}')
         self._defineMinimParams(grpMin)
 
-        form.addParallelSection(threads=4, mpi=1)
-
-
     def _defineTrajPreprocParams(self, grp):
         grp.addParam('doFit', params.BooleanParam,
                      label='Fit trajectory (rot+trans)?: ',
@@ -295,7 +291,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
                        help='Initial step-size (nm).\n'
                             'https://manual.gromacs.org/documentation/2018/user-guide/mdp-options.html#mdp-emstep')
 
-    # ── Step insertion ──────────────────────────────────────────────────────
+    # -- Step insertion --------------------------------------------------------
 
     def _insertAllSteps(self):
         mmpbsaSteps = []  # Collect all MMPBSA calculation steps
@@ -321,25 +317,25 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
                 # System preparation needs its ligand to be parametrized
                 sysStep = self._insertFunctionStep(
-                    self.prepareSystemStep, poseId,
+                    self.prepareSystemStep, poseId, molName,
                     prerequisites=[paramSteps[molName]])
 
                 # Sequential dependencies for this specific pose
                 idxStep = self._insertFunctionStep(
-                    self.makePreprocessingIndexStep, poseId,
+                    self.makePreprocessingIndexStep, poseId, molName,
                     prerequisites=[sysStep])
 
                 preprocStep = self._insertFunctionStep(
-                    self.preprocInputStep, poseId,
+                    self.preprocInputStep, poseId, molName,
                     prerequisites=[idxStep])
 
                 writeStep = self._insertFunctionStep(
-                    self.writeMmpbsaInputStep, poseId,
+                    self.writeMmpbsaInputStep, poseId, molName,
                     prerequisites=[preprocStep])
 
                 # MMPBSA calculation (the compute-intensive step)
                 mmpbsaStep = self._insertFunctionStep(
-                    self.runMmpbsaStep, poseId,
+                    self.runMmpbsaStep, poseId, molName,
                     prerequisites=[writeStep])
 
                 mmpbsaSteps.append(mmpbsaStep)
@@ -364,28 +360,47 @@ class GromacsMmpbsa(GromacsSystemPrep):
         # Create output only after ALL MMPBSA calculations finish
         self._insertFunctionStep(self.createOutputStep, prerequisites=mmpbsaSteps)
 
-    # ── Steps implementations ────────────────────────────────────────────────
+    # -- Steps implementations -------------------------------------------------
     def parametrizeSpecificLigandStep(self, molFile, molName):
-        """Parametrize the ligand with ACPYPE/GAFF2."""
-        molFile = self.addSpecificlLigandHydrogens(molFile, molName)
-        kwargs = self.getParameters()
+        """Parametrize the ligand with ACPYPE/GAFF2.
 
-        args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
-               f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
-        if 'netCharge' in kwargs:
-            args += f' -n {kwargs["netCharge"]}'
-        pwchemPlugin.runACPYPE(self, args=args, cwd=self.getLigandFileDir())
+        On failure (e.g. Antechamber/sqm cannot handle the structure), the
+        ligand is flagged as failed instead of raising, so the run continues
+        and only its poses are skipped downstream."""
+        try:
+            molFile = self.addSpecificlLigandHydrogens(molFile, molName)
+            kwargs = self.getParameters()
 
+            args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
+                   f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
+            if 'netCharge' in kwargs:
+                args += f' -n {kwargs["netCharge"]}'
+            pwchemPlugin.runACPYPE(self, args=args, cwd=self.getLigandFileDir())
+        except Exception as e:
+            self.warning(f'Parametrization raised for {molName}: {e}')
 
-    def prepareSystemStep(self, poseId):
+        # ACPYPE truly succeeded only if the GMX topology was written
+        ligItp = os.path.join(self.getLigParamDir(molName), f'{molName}_GMX.itp')
+        if not os.path.exists(ligItp):
+            self.warning(f'Skipping ligand {molName}: ACPYPE produced no topology '
+                         f'({ligItp} missing). Its poses will be skipped.')
+            self._markLigandFailed(molName)
+
+    def prepareSystemStep(self, poseId, molName=None):
         """
         For one pose: pdb2gmx on receptor, merge ligand topology and
         coordinates, editconf (periodic box), solvate.
         All outputs go into the pose-specific directory.
         """
+        if self._ligandFailed(molName):
+            self.info(f'Skipping prepareSystemStep for {poseId}: ligand not parametrized.')
+            return
+
         poseDir = self.getPoseDir(poseId)
-        molName = re.sub(r'_\d+$', '', poseId)
+        # molName = re.sub(r'_\d+$', '', poseId)
         protFile = self.getInputReceptorFile()
+        if not protFile.endswith('.pdb'):
+            protFile = self.convertReceptorToPdb(protFile)
         sysName = os.path.splitext(os.path.basename(protFile))[0]
         mainFF = GROMACS_MAINFF_NAME[self.mainForceField.get()]
         waterFF = GROMACS_WATERFF_NAME[self.waterForceField.get()]
@@ -434,11 +449,15 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
         self.minimizeSystem(poseId, sysName)
 
-    def makePreprocessingIndexStep(self, poseId=None):
+    def makePreprocessingIndexStep(self, poseId=None, molName=None):
         """
         Build the initial GROMACS index on the full (solvated) system.
         Creates group 21 Protein_LIG
         """
+        if self._ligandFailed(molName):
+            self.info(f'Skipping makePreprocessingIndexStep for {poseId}: ligand not parametrized.')
+            return
+
         if self.inputFrom.get() == INPUT_GROMACS:
             inputStruct = os.path.abspath(self.gromacsSystem.get().getFileName())
             cwd = self._getExtraPath()
@@ -454,11 +473,15 @@ class GromacsMmpbsa(GromacsSystemPrep):
                                        printfValues=['1 | 13', 'q'],
                                        args=args, cwd=cwd, mpi=False)
 
-    def preprocInputStep(self, poseId=None):
+    def preprocInputStep(self, poseId=None, molName=None):
         """
         Mode A: PBC fix + optional rot+trans fit, copy result as processTraj.xtc.
         Mode B: convert the single em.gro to a pdb
         """
+        if self._ligandFailed(molName):
+            self.info(f'Skipping preprocInputStep for {poseId}: ligand not parametrized.')
+            return
+
         if self.inputFrom.get() == INPUT_GROMACS:
             gromacsSys = self.gromacsSystem.get()
             inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
@@ -495,15 +518,19 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
             self.convertGroToPdb(emGro, emPdb)
 
-    def writeMmpbsaInputStep(self, poseId=None):
+    def writeMmpbsaInputStep(self, poseId=None, molName=None):
         """
         Generate mmpbsa.in using gmx_MMPBSA --create_input to get a fully
         annotated template, then patch the variables that the user set in the
         Scipion form via regex substitution.
         """
+        if self._ligandFailed(molName):
+            self.info(f'Skipping writeMmpbsaInputStep for {poseId}: ligand not parametrized.')
+            return
+
         inputFile = self._getMmpbsaInFile(poseId)
 
-        # ── 1. Build --create_input keyword list ──────────────────────────
+        # -- 1. Build --create_input keyword list --
         keywords = ['gb'] if self.calcType.get() == CALC_GB else ['pb']
         if self.doDecomp.get():
             keywords.append('decomp')
@@ -523,8 +550,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         with open(inputFile) as fh:
             content = fh.read()
 
-        # ── 5. Patch variables ─────────────────────────────────
-        # &general — always applied
+        # -- 2. Patch variables --
+        # &general - always applied
             # Frame selection
         if self.inputFrom.get() == INPUT_MOLS:
             content = self.patchInFile(content, 'startframe', 1)
@@ -572,18 +599,22 @@ class GromacsMmpbsa(GromacsSystemPrep):
             content = self.patchInFile(content, 'maxcyc', self.nmMaxCycles.get())
             content = self.patchInFile(content, 'drms', self.minConvergence.get())
 
-        # ── 5. Write patched file ─────────────────────────────────────────
+        # -- 3. Write patched file --
         with open(inputFile, 'w') as fh:
             fh.write(content)
 
         self.info(f'mmpbsa.in ready: {inputFile}')
 
-    def runMmpbsaStep(self, poseId=None):
+    def runMmpbsaStep(self, poseId=None, molName=None):
         """
         Execute gmx_MMPBSA.
         Mode A: single run using the full trajectory from GromacsSystem.
         Mode B: one run per pose.
         """
+        if self._ligandFailed(molName):
+            self.info(f'Skipping runMmpbsaStep for {poseId}: ligand not parametrized.')
+            return
+
         inFile  = self._getMmpbsaInFile(poseId)
         nMpi    = self.numberOfMpi.get()
 
@@ -631,9 +662,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
                 return
             dg, sd = parseFinalDeltaG(outFile)
             if dg is None:
-                self.warning(f'Could not parse ΔG from {outFile}')
+                self.warning(f'Could not parse dG from {outFile}')
                 return
-            self.info(f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol')
+            self.info(f'{calcModel} dG_binding = {dg:.2f} +/- {sd:.2f} kcal/mol')
             outSystem = self.gromacsSystem.get().clone()
             outSystem.setFreeEnergy(dg)
             outSystem.setFreeEnergyFile(outFile)
@@ -641,19 +672,26 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
         else:
             inMols = self.inputSetOfMols.get()
-            summaryLines = [f'{"Pose":<25} {"ΔG (kcal/mol)":>16}', '-' * 52]
+            summaryLines = [f'{"Pose":<25} {"dG (kcal/mol)":>16}', '-' * 52]
             outputSet = inMols.createCopy(self._getPath(), copyInfo=True)
 
+            nOk = 0
             for mol in inMols:
                 annotated = self._processPoseMol(mol, calcModel, summaryLines)
                 if annotated is not None:
                     outputSet.append(annotated)
+                    nOk += 1
+
+            if nOk == 0:
+                self.warning('No ligand produced an MMPBSA result. The output set '
+                             'is empty (check failed_*.flag markers and the logs '
+                             'for parametrization failures).')
 
             self._defineOutputs(outputSmallMolecules=outputSet)
             self.info('\n'.join(summaryLines))
 
 
-    # ── Validation / info ───────────────────────────────────────────────────
+    # -- Validation / info -----------------------------------------------------
     def _validate(self):
         errors = []
         if self.inputFrom.get() == INPUT_GROMACS:
@@ -690,7 +728,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
         dg, sd = parseFinalDeltaG(outFile)
         if dg is not None:
-            return [f'{calcModel} ΔG_binding = {dg:.2f} ± {sd:.2f} kcal/mol']
+            return [f'{calcModel} dG_binding = {dg:.2f} +/- {sd:.2f} kcal/mol']
 
         return []
 
@@ -714,18 +752,19 @@ class GromacsMmpbsa(GromacsSystemPrep):
     def _methods(self):
         return [
             '{} Binding free energies were calculated with gmx_MMPBSA '
-            '(Valdés-Tresanco et al., J. Chem. Theory Comput. 2021, 17, '
+            '(Valdes-Tresanco et al., J. Chem. Theory Comput. 2021, 17, '
             '6281-6291) using the single-trajectory protocol (ST). '
             .format(
                 'GBSA' if self.calcType.get() == CALC_GB else 'PBSA')
         ]
 
-    # ── Utils ─────────────────────────────────────────────────────
+    # -- Utils -----------------------------------------------------------------
 
     def _processPoseMol(self, mol, calcModel, summaryLines):
         """
         Process a single docked pose: parse its MMPBSA/MMGBSA result and
         annotate the molecule object.  Returns the (possibly annotated) mol
+        or None if no result is available.
         """
         poseId = os.path.splitext(os.path.basename(mol.getPoseFile()))[0]
         outFile = os.path.join(self.getPoseDir(poseId), RESULT_DAT)
@@ -736,6 +775,11 @@ class GromacsMmpbsa(GromacsSystemPrep):
             return None
 
         dg, _ = parseFinalDeltaG(outFile)
+        if dg is None:
+            self.warning(f'Pose {poseId}: could not parse dG, skipping.')
+            summaryLines.append(f'{poseId:<25}  {"N/A":>16}')
+            return None
+
         if calcModel == 'MMGBSA':
             mol.MMGBSA_deltaG = pwobj.Float(dg)
         else:
@@ -887,14 +931,32 @@ class GromacsMmpbsa(GromacsSystemPrep):
             inFile  = os.path.abspath(self._getExtraPath('mmpbsa.in'))
         return inFile
 
-# ── helpers ─────────────────
+    # -- Failed-ligand bookkeeping ---------------------------------------------
+    def _failedFlagPath(self, molName):
+        """Marker file signalling that a ligand could not be parametrized.
+        One file per ligand -> safe to write from parallel step threads."""
+        return os.path.abspath(self._getExtraPath(f'.failed_{molName}.flag'))
+
+    def _markLigandFailed(self, molName):
+        with open(self._failedFlagPath(molName), 'w') as fh:
+            fh.write('parametrization failed\n')
+
+    def _ligandFailed(self, molName):
+        """True if this ligand failed parametrization. molName None (INPUT_GROMACS) -> never failed."""
+        if molName is None:
+            return False
+        return os.path.exists(self._failedFlagPath(molName))
+
+# -- helpers ------------------------------------------------------------------
 
 def parseFinalDeltaG(outFile):
     """
-    Extracts the final ΔTOTAL value and its Standard Deviation (SD)
-    from gmx_MMPBSA output files.
+    Extracts the final dTOTAL value and its Standard Deviation (SD)
+    from gmx_MMPBSA output files. Matches both 'DELTA TOTAL' and '?TOTAL'.
     """
-    pattern = re.compile(r'(?:Δ|DELTA)\s*TOTAL\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)', re.IGNORECASE)
+    pattern = re.compile(
+        r'(?:\u0394|DELTA)\s*TOTAL\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)',
+        re.IGNORECASE)
 
     try:
         with open(outFile, 'r', encoding='utf-8') as fh:
@@ -903,7 +965,6 @@ def parseFinalDeltaG(outFile):
                 if m:
                     avg = float(m.group(1))
                     sd = float(m.group(3))  # The standard SD
-
                     return avg, sd
     except Exception as e:
         print(f"Error reading file: {e}")

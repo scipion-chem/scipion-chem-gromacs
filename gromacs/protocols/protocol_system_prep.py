@@ -556,15 +556,13 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       if not inputStructure.endswith('.pdb'):
         inputPdb = self.getInputPDBFile(inputStructure)
         if not os.path.exists(inputPdb):
-          inputStructure = self.convertReceptor2PDB(inputStructure)
+          inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
       return inputStructure
 
-    def convertReceptor2PDB(self, proteinFile):
+    def convertReceptor2PDB(self, proteinFile, oFile):
         _, inExt = os.path.splitext(os.path.basename(proteinFile))
-        oFile = self.getInputPDBFile(proteinFile)
-        args = ' -i {} {} -opdb -O {}'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
+        args = ' -i {} {} -opdb -O {} -d'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
         runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
         return oFile
 
     def getInputPDBFile(self, proteinFile):
