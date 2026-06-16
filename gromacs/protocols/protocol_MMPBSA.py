@@ -399,8 +399,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
         poseDir = self.getPoseDir(poseId)
         # molName = re.sub(r'_\d+$', '', poseId)
         protFile = self.getInputReceptorFile()
-        if not protFile.endswith('.pdb'):
-            protFile = self.convertReceptorToPdb(protFile)
         sysName = os.path.splitext(os.path.basename(protFile))[0]
         mainFF = GROMACS_MAINFF_NAME[self.mainForceField.get()]
         waterFF = GROMACS_WATERFF_NAME[self.waterForceField.get()]
