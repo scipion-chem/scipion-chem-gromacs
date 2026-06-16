@@ -979,9 +979,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
         idx = 0
         with open(ndxFile) as fh:
             for line in fh:
-                m = re.match(r'\s*\[\s*(.+?)\s*\]', line)
-                if m:
-                    if m.group(1) == groupName:
+                line = line.strip()
+                if line.startswith('[') and line.endswith(']'):
+                    if line[1:-1].strip() == groupName:
                         return idx
                     idx += 1
         raise ValueError(f'Group "{groupName}" not found in index file {ndxFile}')
