@@ -24,7 +24,7 @@
 # *
 # **************************************************************************
 
-import os
+import os, logging, tempfile
 
 from pyworkflow.tests import BaseTest, setupTestProject, DataSet
 from pwem.protocols import ProtImportPdb
@@ -196,3 +196,60 @@ class TestGromacsMMPBSA(TestGromacsRunSimulation, TestExtractLigand):
         protInt = self._runInteractions(protExtract, inputFrom=LIGAND)
         self._waitOutput(protInt, 'outputSmallMolecules', sleepTime=10)
         self.assertIsNotNone(getattr(protInt, 'outputSmallMolecules', None))
+
+
+class TestGromacsRenumberResidues(BaseTest):
+    """Unit test for the continuous residue renumbering performed during system preparation.
+    It does not require the GROMACS binaries, only Biopython, since it exercises
+    GromacsSystemPrep.renumberResiduesPDB directly."""
+
+    @staticmethod
+    def _writeTwoChainPDB(path):
+        """Two chains (A, B) that BOTH restart their residue numbering at 1, reproducing the situation
+        where merging the chains yields a .gro with repeated residue numbers."""
+        def atom(serial, name, resname, chain, resseq, x, y, z, elem):
+            return (f"ATOM  {serial:>5} {name:<4} {resname:>3} {chain}{resseq:>4}    "
+                    f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {elem:>2}\n")
+
+        lines, serial = [], 1
+        for chain in ('A', 'B'):
+            for resseq, resname in [(1, 'PRO'), (2, 'GLN'), (3, 'ILE')]:
+                for name, elem in [('N', 'N'), ('CA', 'C'), ('C', 'C'), ('O', 'O')]:
+                    lines.append(atom(serial, name, resname, chain, resseq,
+                                       serial * 0.1, serial * 0.1, serial * 0.1, elem))
+                    serial += 1
+            lines.append("TER\n")
+        lines.append("END\n")
+        with open(path, 'w') as f:
+            f.writelines(lines)
+
+    @staticmethod
+    def _chainResNums(pdb):
+        from Bio import PDB
+        structure = PDB.PDBParser(QUIET=True).get_structure('x', pdb)
+        return {ch.id: [r.id[1] for r in ch] for ch in list(structure)[0]}
+
+    def test(self):
+        from gromacs.protocols.protocol_system_prep import GromacsSystemPrep
+
+        inPdb = os.path.join(tempfile.mkdtemp(), 'two_chain_dup.pdb')
+        outPdb = inPdb.replace('_dup.pdb', '_renum.pdb')
+        self._writeTwoChainPDB(inPdb)
+
+        # before: both chains numbered 1-3 (duplicates across chains)
+        before = self._chainResNums(inPdb)
+        self.assertEqual(before['A'], [1, 2, 3])
+        self.assertEqual(before['B'], [1, 2, 3])
+
+        # run the real method with a minimal object (it only needs self._log)
+        class _Fake:
+            _log = logging.getLogger('test')
+        GromacsSystemPrep.renumberResiduesPDB(_Fake(), inPdb, outPdb)
+
+        after = self._chainResNums(outPdb)
+        allNums = [n for nums in after.values() for n in nums]
+        # no duplicates, continuous from the original start, chains preserved
+        self.assertEqual(len(allNums), len(set(allNums)), 'Duplicate residue numbers remain')
+        self.assertEqual(allNums, list(range(1, len(allNums) + 1)))
+        self.assertEqual(after['A'], [1, 2, 3])
+        self.assertEqual(after['B'], [4, 5, 6])

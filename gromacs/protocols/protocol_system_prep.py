@@ -170,6 +170,17 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                             'preserving the real N- and C-termini uncapped. '
                             '\n*All termini*: Add caps to both gaps and real protein termini.')
 
+        form.addParam('renumberRes', params.BooleanParam, default=True,
+                      label='Renumber residues continuously: ',
+                      help='Renumber the residues of the input structure continuously across all chains before '
+                           'running "gmx pdb2gmx -merge all". \nWhen a structure has several chains that share the '
+                           'same residue numbering (e.g. two chains both numbered 1-99), merging them into a single '
+                           'GROMACS molecule produces a .gro file with repeated residue numbers, which breaks the '
+                           'downstream output analysis (RMSF, per-residue selections, residue restraints...). '
+                           '\nWith this option each chain continues the numbering of the previous one (chain A: 1-99, '
+                           'chain B: 100-198...), so the resulting .gro has unique residue numbers. The original '
+                           'numbering of the first residue is preserved.')
+
         self._defineACPYPEparams(form, condition=f'inputFrom=={LIGAND}')
 
         form.addSection('MD prep')
@@ -340,6 +351,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             self.runPymol(self.addCapsPml(inputStructure, cappedPdb, mode), self._getExtraPath())
             self.fixPdbTER(cappedPdb)
             inputStructure = cappedPdb
+
+        if self.renumberRes.get():
+            renumberedPdb = os.path.abspath(self._getExtraPath(f'{systemBasename}_renumbered.pdb'))
+            inputStructure = self.renumberResiduesPDB(inputStructure, renumberedPdb)
 
         Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
         Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
@@ -791,6 +806,44 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         with open(pdbPath, 'w') as f:
             f.writelines(fixedLines)
+
+    def renumberResiduesPDB(self, inPdb, outPdb):
+        """Renumber the residues of a PDB continuously across all chains so that, after merging the chains
+        with "gmx pdb2gmx -merge all", the resulting .gro does not contain repeated residue numbers.
+
+        Each chain continues the numbering of the previous one (e.g. chain A: 1-99, chain B: 100-198), and
+        insertion codes are cleared. The numbering of the very first residue is preserved as the starting point.
+        """
+        parser = PDB.PDBParser(QUIET=True)
+        structure = parser.get_structure('protein', inPdb)
+        # Renumber only the first model (the one pdb2gmx will read)
+        model = list(structure)[0]
+
+        residues = list(model.get_residues())
+        if not residues:
+            self._log.warning('No residues found while renumbering, keeping the original structure')
+            return inPdb
+
+        # Preserve the starting number of the first residue (e.g. 1)
+        startNum = residues[0].id[1]
+
+        # First pass: move every residue to a temporary, collision-free numbering. Renumbering in place can
+        # clash with residues that still keep their original number within the same chain (e.g. shifting
+        # chain B residue 1 -> 100 when residue 100 does not exist is safe, but smaller shifts are not).
+        for i, res in enumerate(residues):
+            res.id = (res.id[0], 100000 + i, ' ')
+
+        # Second pass: assign the final continuous numbering across all chains
+        num = startNum
+        for res in residues:
+            res.id = (res.id[0], num, ' ')
+            num += 1
+
+        io = PDB.PDBIO()
+        io.set_structure(structure)
+        io.save(outPdb)
+        self._log.info(f'Residues renumbered continuously ({startNum}-{num - 1}) into {outPdb}')
+        return outPdb
 
     def countSSBonds(self, inputStructure, waterff='spc', mainff='amber03'):
         """
