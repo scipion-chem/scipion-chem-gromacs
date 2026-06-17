@@ -822,6 +822,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         # Renumber only the first model (the one pdb2gmx will read)
         model = list(structure)[0]
         residues = list(model.get_residues())
+        startNum = residues[0].id[1]
         # Two loops are required so we first park every residue at a temporary number
         # (100000 + i), guaranteed free and far above any real residue number, and then assign the final.
         for i, res in enumerate(residues):
