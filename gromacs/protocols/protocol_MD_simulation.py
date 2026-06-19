@@ -305,7 +305,7 @@ class GromacsMDSimulation(EMProtocol):
         self._convertGroToPdbNoWat(localGroFile, localPdbFile)
         finalAtomStruct = AtomStruct(filename=os.path.relpath(localPdbFile))
 
-        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
+        outSystem = GromacsSystem(filename=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setLigTopologyFile(self.gromacsSystem.get().getLigTopologyFile())
         outSystem.setLigandID(self.gromacsSystem.get().getLigandID())
@@ -324,6 +324,14 @@ class GromacsMDSimulation(EMProtocol):
             shutil.copy(self.gromacsSystem.get().getIndexFile(), indexFile)
         self.cleanCustomIndex()
         outSystem.setIndexFile(indexFile)
+
+        # Export the last energy-minimization structure (no water) so it can be used as
+        # RMSD/RMSF reference in the viewer
+        minGroFile = self.getLastMinimizationGro()
+        if minGroFile:
+            minimizedPdb = self._getPath('minimizedSystem.pdb')
+            self._convertGroToPdbNoWat(minGroFile, minimizedPdb)
+            outSystem.setMinimizedFile(minimizedPdb)
 
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
@@ -784,3 +792,18 @@ class GromacsMDSimulation(EMProtocol):
         for customInxFile in glob.iglob(os.path.join(tmpPath, "*custom_indexes.ndx*")):
             if os.path.isfile(customInxFile):
                 os.remove(customInxFile)
+
+    def getLastMinimizationGro(self):
+        """Return the .gro produced by the last energy-minimization stage, or None if the
+        workflow contains no 'Energy min' stage."""
+        lastEM = None
+        for i, wStep in enumerate(self.workFlowSteps.get().strip().split('\n'), start=1):
+            if wStep.strip() and eval(wStep).get('ensemType') == 'Energy min':
+                lastEM = i
+        if lastEM is None:
+            return None
+        stageDir = self._getExtraPath('stage_{}'.format(lastEM))
+        for file in os.listdir(stageDir):
+            if file.endswith('.gro'):
+                return os.path.abspath(os.path.join(stageDir, file))
+        return None
