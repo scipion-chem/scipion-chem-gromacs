@@ -325,8 +325,7 @@ class GromacsMDSimulation(EMProtocol):
         self.cleanCustomIndex()
         outSystem.setIndexFile(indexFile)
 
-        # Export the last energy-minimization structure (no water) so it can be used as
-        # RMSD/RMSF reference in the viewer
+        # Export the last energy-minimization structure (no water)
         minGroFile = self.getLastMinimizationGro()
         if minGroFile:
             minimizedPdb = self._getPath('minimizedSystem.pdb')
