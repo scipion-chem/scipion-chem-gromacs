@@ -756,21 +756,6 @@ class GromacsMDSimulation(EMProtocol):
         trjFiles.reverse()
         return trjFiles
 
-    def concatTrjFiles(self, outTrj, tprFile):
-        trjFiles = self.getTrjFiles()
-        if len(trjFiles) > 0:
-            tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
-            #Concatenates trajectory
-            command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
-            gromacsPlugin.runGromacsPrintf(self, printfValues=['c'] * len(trjFiles),
-                                           args=command, cwd=self._getPath())
-            #Fixes and center trajectory
-            command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
-              format(os.path.abspath(tprFile), tmpTrj, outTrj)
-            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'System'] * len(trjFiles),
-                                           args=command, cwd=self._getPath())
-            return os.path.abspath(self._getPath(outTrj))
-        return None
 
     def concatTrjFiles(self, outTrj, tprFile):
         trjFiles = self.getTrjFiles()
