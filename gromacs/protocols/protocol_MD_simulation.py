@@ -772,6 +772,43 @@ class GromacsMDSimulation(EMProtocol):
             return os.path.abspath(self._getPath(outTrj))
         return None
 
+    def concatTrjFiles(self, outTrj, tprFile):
+        trjFiles = self.getTrjFiles()
+        if len(trjFiles) > 0:
+            sTpr = os.path.abspath(tprFile)
+            tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
+
+            inpSystem = self.gromacsSystem.get()
+            if inpSystem.hasLig():
+                centerGroup = 'Protein_{}'.format(inpSystem.getLigandID())
+            else:
+                centerGroup = 'Protein'
+
+            # Concatenate raw stage trajectories
+            command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['c'] * len(trjFiles),
+                                           args=command, cwd=self._getPath())
+
+            # Make molecules whole
+            wholeTrj = os.path.abspath(self._getTmpPath('whole.xtc'))
+            command = 'trjconv -s {} -f {} -pbc whole -o {}'.format(sTpr, tmpTrj, wholeTrj)
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
+                                           args=command, cwd=self._getPath())
+
+            # Remove jumps across the boundary
+            nojumpTrj = os.path.abspath(self._getTmpPath('nojump.xtc'))
+            command = 'trjconv -s {} -f {} -pbc nojump -o {}'.format(sTpr, wholeTrj, nojumpTrj)
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
+                                           args=command, cwd=self._getPath())
+
+            # Center on protein (or complex), compact box
+            command = 'trjconv -s {} -f {} -center -pbc mol -ur compact -o {}'.format(sTpr, nojumpTrj, outTrj)
+            gromacsPlugin.runGromacsPrintf(self, printfValues=[centerGroup, 'System'],
+                                           args=command, cwd=self._getPath())
+
+            return os.path.abspath(self._getPath(outTrj))
+        return None
+
     def countWarns(self, stageNum):
         nWarns = 0
         for warn in self._warnings():
