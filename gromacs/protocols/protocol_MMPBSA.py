@@ -722,6 +722,16 @@ class GromacsMmpbsa(GromacsSystemPrep):
                 errors.append('A set of docked molecules is required.')
         return errors
 
+    def _warnings(self):
+        ws = []
+        if self.inputFrom.get() == INPUT_MOLS and self.inputSetOfMols.get() is not None:
+            nPoses = len(self.inputSetOfMols.get())
+            if nPoses > 100:
+                ws.append(f'You are running {nPoses} poses. This calculation may take a long time. '
+                          'Calculation running time heavily depends on the minimization parameters '
+                          'and the number of molecules, because each pose needs to be minimized.')
+        return ws
+
     def _summary(self):
         """Return a summary list of the final Delta G calculations."""
         calcModel = 'MM/GBSA' if self.calcType.get() == CALC_GB else 'MM/PBSA'
