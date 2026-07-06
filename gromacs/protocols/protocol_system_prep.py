@@ -802,7 +802,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         """Return True if two or more chains share at least one residue number (e.g. two chains both
         numbered 1-99). """
         parser = PDB.PDBParser(QUIET=True)
-        model = list(parser.get_structure('protein', inPdb))[0]
+        model = next(iter(parser.get_structure('protein', inPdb)))
 
         seen = set()
         for chain in model:
@@ -820,7 +820,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         parser = PDB.PDBParser(QUIET=True)
         structure = parser.get_structure('protein', inPdb)
         # Renumber only the first model (the one pdb2gmx will read)
-        model = list(structure)[0]
+        model = next(iter(structure))
         residues = list(model.get_residues())
         startNum = residues[0].id[1]
         # Two loops are required so we first park every residue at a temporary number
