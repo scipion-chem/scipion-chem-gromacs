@@ -104,14 +104,18 @@ class GromacsModifySystem(EMProtocol):
     def modifySystem(self):
         inputStructure = os.path.abspath(self.gromacsSystem.get().getFileName())
         inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
+        system = self.gromacsSystem.get()
+        hasLig = system.hasLig()
+        indexFile = os.path.abspath(system.getIndexFile())
+        cleanGroup = 'Protein_{}'.format(system.getLigandID()) if hasLig else 'Protein'
+
+        outputGroup = cleanGroup if self.cleaning.get() else 'System'
+        fitGroup = 'Protein'
 
         if self.cleaning:
-            params = " make_ndx -f {} -o clean.ndx".format(os.path.abspath(inputStructure))
-            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'q'],
-                                           args=params, cwd=self._getPath())
-
-            params = " editconf -f {} -n clean.ndx -o {}".format(inputStructure, self.getCleanStructureFile())
-            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'q'],
+            params = " editconf -f {} -n {} -o {}".format(
+                inputStructure, indexFile, self.getCleanStructureFile())
+            gromacsPlugin.runGromacsPrintf(self, printfValues=[cleanGroup],
                                            args=params, cwd=self._getPath())
         else:
             shutil.copy(inputStructure, self.getCleanStructureFile())
@@ -119,12 +123,10 @@ class GromacsModifySystem(EMProtocol):
         if inputTrajectory:
             inputTrajectory = os.path.abspath(inputTrajectory)
             auxTrj = os.path.abspath(self._getExtraPath('cleanTrajectory.xtc'))
-            convArgs = " trjconv -f {} -s {} -o {}". \
-                format(inputTrajectory, inputStructure, auxTrj)
-            
-            extraArgs = ''
-            if self.cleaning:
-                extraArgs += ' -n clean.ndx'
+            convArgs = " trjconv -f {} -s {} -o {}".format(inputTrajectory, inputStructure, auxTrj)
+
+            # Always pass the system index so named groups (Protein_<LIG>) resolve
+            extraArgs = ' -n {}'.format(indexFile)
             if self.doFit:
                 extraArgs += ' -fit {}'.format(self.getEnumText('fitting'))
             if self.doDrop:
@@ -139,29 +141,23 @@ class GromacsModifySystem(EMProtocol):
             if self.doSubsample:
                 extraArgs += ' -skip {}'.format(self.subsampleF.get())
 
-            if extraArgs:
-                convArgs += extraArgs
-                gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'Protein'],
-                                               args=convArgs, cwd=self._getPath())
-            else:
-                auxTrj = inputTrajectory
+            convArgs += extraArgs
+            printfVals = [fitGroup, outputGroup] if self.doFit else [outputGroup]
+            gromacsPlugin.runGromacsPrintf(self, printfValues=printfVals,
+                                           args=convArgs, cwd=self._getPath())
 
             if self.doFiltering:
                 filterArgs = 'filter -f {}'.format(auxTrj)
                 if self.filter.get() == 0:
                     filterArgs += ' -nf {}'.format(self.filterF.get())
-
                 filterArgs += self.getFilteringArgs(self.getCleanTrajectoryFile(), self.getCleanStructureFile())
-
                 if '-fit' in filterArgs:
-                    gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein'],
+                    gromacsPlugin.runGromacsPrintf(self, printfValues=[outputGroup],
                                                    args=filterArgs, cwd=self._getPath())
                 else:
                     gromacsPlugin.runGromacs(self, args=filterArgs, cwd=self._getPath())
             else:
                 shutil.copy(auxTrj, self.getCleanTrajectoryFile())
-
-
 
     def createOutputStep(self):
       outSystem = GromacsSystem()
