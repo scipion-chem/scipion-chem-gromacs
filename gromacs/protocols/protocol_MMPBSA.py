@@ -494,8 +494,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
             lastTpr    = os.path.abspath(gromacsSys.getTprFile())
             ndxFile    = os.path.abspath(self._getExtraPath(PREPROC_NDX))
-            ligName    = gromacsSys.getLigandID()
-            mergedGrp  = f'Protein_{ligName}'
+            mergedGrp  = gromacsSys.getComplexGroup()
             procTrj    = os.path.abspath(self._getPath('processTraj.xtc'))
 
             noPBC = os.path.abspath(self._getExtraPath('noPBC.xtc'))

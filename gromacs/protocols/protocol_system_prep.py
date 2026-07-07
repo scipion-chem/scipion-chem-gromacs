@@ -455,11 +455,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         if self.inputFrom.get() == LIGAND:
             molName = self.getLigandName()
-            ligName = molName.split('_')[-1]
-
-            # use LIG when molName has not PDB res name style
-            if ligName.isdigit() or len(ligName) != 3:
-                ligName = 'LIG'
+            ligName = self.getLigandResName(molName)
 
             groSystem.setLigandID(ligName)
             groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
@@ -592,6 +588,28 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def getLigandPath(self, path=''):
       molName = self.getLigandName()
       return self._getExtraPath(f"{molName}.acpype", path)
+
+    def getLigandResName(self, molName):
+      '''Return the residue name of the parametrized ligand exactly as it is
+      written in the ACPYPE-generated ligand .gro..'''
+      ligGro = self.getLigandPath(f'{molName}_GMX.gro')
+      try:
+          with open(ligGro) as f:
+              lines = f.readlines()
+          # gro format: line0 title, line1 nAtoms, atom lines, last line box.
+          for line in lines[2:-1]:
+              resName = line[5:10].strip()
+              if resName:
+                  return resName
+      except (OSError, IndexError):
+          pass
+
+      # Fallback heuristic: use the last '_'-separated token if it looks like a
+      # PDB residue name, otherwise the generic 'LIG'.
+      ligName = molName.split('_')[-1]
+      if ligName.isdigit() or len(ligName) != 3:
+          ligName = 'LIG'
+      return ligName
 
     def buildIonsMDP(self):
         outFile = self._getPath('ions.mdp')

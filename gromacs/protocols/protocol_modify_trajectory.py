@@ -105,9 +105,8 @@ class GromacsModifySystem(EMProtocol):
         inputStructure = os.path.abspath(self.gromacsSystem.get().getFileName())
         inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
         system = self.gromacsSystem.get()
-        hasLig = system.hasLig()
         indexFile = os.path.abspath(system.getIndexFile())
-        cleanGroup = 'Protein_{}'.format(system.getLigandID()) if hasLig else 'Protein'
+        cleanGroup = system.getComplexGroup()
 
         outputGroup = cleanGroup if self.cleaning.get() else 'System'
         fitGroup = 'Protein'

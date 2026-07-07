@@ -466,9 +466,7 @@ class GromacsMDSimulation(EMProtocol):
 
         # Case 1: Single chain processing
         if len(modelChains) == 1:
-            printGroup = ['Protein']
-            if inpSystem.hasLig():
-                printGroup = [f'Protein_{inpSystem.getLigandID()}']
+            printGroup = [inpSystem.getComplexGroup()]
 
             self._runEditconf(groFile, indexFile, pdbFile, modelChains[0], printGroup)
             return
@@ -764,10 +762,12 @@ class GromacsMDSimulation(EMProtocol):
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
 
             inpSystem = self.gromacsSystem.get()
-            if inpSystem.hasLig():
-                centerGroup = 'Protein_{}'.format(inpSystem.getLigandID())
-            else:
-                centerGroup = 'Protein'
+            centerGroup = inpSystem.getComplexGroup()
+
+            indexArg = ''
+            indexFile = inpSystem.getIndexFile()
+            if indexFile and os.path.exists(indexFile):
+                indexArg = ' -n {}'.format(os.path.abspath(indexFile))
 
             # Concatenate raw stage trajectories
             command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
@@ -776,18 +776,19 @@ class GromacsMDSimulation(EMProtocol):
 
             # Make molecules whole
             wholeTrj = os.path.abspath(self._getTmpPath('whole.xtc'))
-            command = 'trjconv -s {} -f {} -pbc whole -o {}'.format(sTpr, tmpTrj, wholeTrj)
+            command = 'trjconv -s {} -f {}{} -pbc whole -o {}'.format(sTpr, tmpTrj, indexArg, wholeTrj)
             gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
                                            args=command, cwd=self._getPath())
 
             # Remove jumps across the boundary
             nojumpTrj = os.path.abspath(self._getTmpPath('nojump.xtc'))
-            command = 'trjconv -s {} -f {} -pbc nojump -o {}'.format(sTpr, wholeTrj, nojumpTrj)
+            command = 'trjconv -s {} -f {}{} -pbc nojump -o {}'.format(sTpr, wholeTrj, indexArg, nojumpTrj)
             gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
                                            args=command, cwd=self._getPath())
 
             # Center on protein (or complex), compact box
-            command = 'trjconv -s {} -f {} -center -pbc mol -ur compact -o {}'.format(sTpr, nojumpTrj, outTrj)
+            command = 'trjconv -s {} -f {}{} -center -pbc mol -ur compact -o {}'.format(
+                sTpr, nojumpTrj, indexArg, outTrj)
             gromacsPlugin.runGromacsPrintf(self, printfValues=[centerGroup, 'System'],
                                            args=command, cwd=self._getPath())
 
