@@ -682,7 +682,7 @@ class GromacsMDSimulation(EMProtocol):
         stage = os.path.split(stageDir)[-1]
         if getattr(self, params.USE_GPU):
             gpuList = getattr(self, params.GPU_LIST).get().replace(' ', '')
-            gpuStr = f' -nb gpu -gpu_id {gpuList}'
+            gpuStr = f' -nb gpu -gpu_id 0'
         else:
             gpuStr = ' -nb cpu'
 
