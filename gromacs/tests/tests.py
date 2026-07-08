@@ -26,11 +26,10 @@
 
 import os
 
-from pwchem.objects import MDSystem
 from pyworkflow.tests import BaseTest, setupTestProject, DataSet
 from pwem.protocols import ProtImportPdb
 
-from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation
+from gromacs.protocols import GromacsSystemPrep, GromacsModifySystem, GromacsMDSimulation, GromacsMmpbsa
 from gromacs import Plugin as gromacsPlugin
 
 from pwchem.tests import TestExtractLigand
@@ -157,5 +156,43 @@ class TestGromacsTrajMod(TestGromacsRunSimulation):
         self._waitOutput(protSim, 'outputSystem', sleepTime=10)
         protMod = self._modSimulation(protSim)
         self.assertIsNotNone(getattr(protMod, 'outputSystem', None))
-
     test2 = None
+
+
+class TestGromacsMMPBSA(TestGromacsRunSimulation, TestExtractLigand):
+    @classmethod
+    def _runInteractions(cls, protIn, inputFrom=STRUCTURE):
+        protInt = cls.newProtocol(
+          GromacsMmpbsa, inputFrom=inputFrom, nStepsMin=500, interval=1)
+
+        if inputFrom == STRUCTURE:
+            protInt.gromacsSystem.set(protIn)
+            protInt.gromacsSystem.setExtended('outputSystem')
+        else:
+            protInt.inputSetOfMols.set(protIn)
+            protInt.inputSetOfMols.setExtended('outputSmallMolecules')
+
+        cls.launchProtocol(protInt)
+        return protInt
+
+    def test(self):
+        protExtract = self._runExtractLigand(self.protImportPDB, chainStr)
+        self._waitOutput(protExtract, 'outputSmallMolecules')
+
+        protPrepare = self._runPrepareSystem(protExtract, inputFrom=LIGAND)
+        self._waitOutput(protPrepare, 'outputSystem', sleepTime=10)
+
+        protSim = self._runSimulation(protPrepare)
+        self._waitOutput(protSim, 'outputSystem', sleepTime=10)
+
+        protInt = self._runInteractions(protSim)
+        self._waitOutput(protInt, 'outputSystem', sleepTime=10)
+        self.assertIsNotNone(getattr(protInt, 'outputSystem', None))
+
+    def test2(self):
+        protExtract = self._runExtractLigand(self.protImportPDB, chainStr)
+        self._waitOutput(protExtract, 'outputSmallMolecules')
+
+        protInt = self._runInteractions(protExtract, inputFrom=LIGAND)
+        self._waitOutput(protInt, 'outputSmallMolecules', sleepTime=10)
+        self.assertIsNotNone(getattr(protInt, 'outputSmallMolecules', None))

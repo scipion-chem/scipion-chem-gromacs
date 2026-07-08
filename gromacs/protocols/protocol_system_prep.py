@@ -299,9 +299,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
       replaceInFile(topFile, inStr, outStr)
 
-      emptyStr = ' ' * (20-len(molName))
       inStr = '; Compound        #mols\nProtein_chain_A     1'
-      outStr = f'{inStr}\n{molName}{emptyStr}1'
+      outStr = f'{inStr}\n{molName} 1'
       replaceInFile(topFile, inStr, outStr)
 
     def parseGROFile(self, groFile):
@@ -457,6 +456,11 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         if self.inputFrom.get() == LIGAND:
             molName = self.getLigandName()
             ligName = molName.split('_')[-1]
+
+            # use LIG when molName has not PDB res name style
+            if ligName.isdigit() or len(ligName) != 3:
+                ligName = 'LIG'
+
             groSystem.setLigandID(ligName)
             groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
         else:
@@ -552,15 +556,13 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       if not inputStructure.endswith('.pdb'):
         inputPdb = self.getInputPDBFile(inputStructure)
         if not os.path.exists(inputPdb):
-          inputStructure = self.convertReceptor2PDB(inputStructure)
+          inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
       return inputStructure
 
-    def convertReceptor2PDB(self, proteinFile):
+    def convertReceptor2PDB(self, proteinFile, oFile):
         _, inExt = os.path.splitext(os.path.basename(proteinFile))
-        oFile = self.getInputPDBFile(proteinFile)
-        args = ' -i {} {} -opdb -O {}'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
+        args = ' -i {} {} -opdb -O {} -d'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
         runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
         return oFile
 
     def getInputPDBFile(self, proteinFile):
@@ -629,7 +631,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def getModelChains(self):
         inputStructure = self.getInputReceptorFile()
         if not inputStructure.endswith('.pdb'):
-          inputStructure = self.convertReceptor2PDB(inputStructure)
+            inputPdb = self.getInputPDBFile(inputStructure)
+            inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
 
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
@@ -645,7 +648,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             inputStructure = self.getInputReceptorFile()
 
         if not inputStructure.endswith('.pdb'):
-            inputStructure = self.convertReceptor2PDB(inputStructure)
+            inputPdb = self.getInputPDBFile(inputStructure)
+            inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
 
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
