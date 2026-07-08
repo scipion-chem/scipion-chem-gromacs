@@ -102,21 +102,26 @@ class GromacsSystem(MDSystem):
         command = 'check -f {}'.format(os.path.abspath(self.getTrajectoryFile()))
         gromacsPlugin.runGromacs(protocol, 'gmx', command, cwd=outDir)
 
-        isCheck, isFirst = True, True
+        firstTime, dt, nFrames = None, None, None
+        isCheck = True
         with open(infoFile) as f:
-          for line in f:
-              if isCheck:
-                  if 'gmx check -f' in line:
-                      isCheck = False
-              else:
-                  if isFirst and line.startswith('Reading frame'):
-                      isFirst = False
-                      firstFrame, firstTime = int(line.split()[2]), float(line.split()[4])
-                  elif not isFirst and line.startswith('Reading frame'):
-                      lastFrame, lastTime = int(line.split()[2]), float(line.split()[4])
+            for line in f:
+                if isCheck:
+                    if 'gmx check -f' in line:
+                        isCheck = False
+                    continue
+                if firstTime is None and line.startswith('Reading frame'):
+                    firstTime = float(line.split()[4])
+                elif line.strip().startswith('Coords'):
+                    sline = line.split()
+                    nFrames = int(sline[1])
+                    if len(sline) > 2:
+                        dt = float(sline[2])
 
-        self.setTimes([firstTime, lastTime])
-        self.setFrameIdxs([firstFrame, lastFrame])
+        if None not in (firstTime, dt, nFrames) and nFrames > 0:
+            lastTime = firstTime + (nFrames - 1) * dt
+            self.setTimes([firstTime, lastTime])
+            self.setFrameIdxs([0, nFrames - 1])
 
     def getRestraintsFile(self):
         return self._restrFile.get()
