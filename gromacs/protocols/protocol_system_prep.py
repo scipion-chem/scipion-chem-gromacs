@@ -280,7 +280,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def parametrizeLigandStep(self):
       mol = self.getSpecifiedMol()
       molFile = os.path.abspath(mol.getPoseFile())
-      molFile = self.addHydrogens(molFile)
+      molResName = self.getLigandResName()
+      molFile = self.addHydrogens(molFile, molResName)
 
       kwargs = self.getParameters()
       kwargs['molName'] = mol.getMolName()
@@ -455,13 +456,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         if self.inputFrom.get() == LIGAND:
             molName = self.getLigandName()
-            ligName = molName.split('_')[-1]
-
-            # use LIG when molName has not PDB res name style
-            if ligName.isdigit() or len(ligName) != 3:
-                ligName = 'LIG'
-
-            groSystem.setLigandID(ligName)
+            groSystem.setLigandID(self.getLigandResName())
             groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
         else:
             molName = None
@@ -572,19 +567,40 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def getSystemName(self):
       return os.path.basename(self.getInputReceptorFile().split(".")[0])
 
-    def addHydrogens(self, inpFile):
-      sysbaseName = os.path.basename(inpFile).split('.')[0]
-      tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
-      inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
+    def addHydrogens(self, inpFile, resName='LIG'):
+        sysbaseName = os.path.basename(inpFile).split('.')[0]
+        tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
+        inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
 
-      args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+        args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
+        runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+        args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
+        runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
 
-      args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+        self._forceMol2ResName(inpMol2File, resName)
+        return inpMol2File
 
-      replaceInFile(inpMol2File, 'UNL1', 'LIG')
-      return inpMol2File
+    def _forceMol2ResName(self, mol2File, resName):
+        """Rewrite the subst_name column of every atom to resName, so ACPYPE's
+        .gro/.itp (and thus the final system .gro) all carry this residue name."""
+        with open(mol2File) as f:
+            lines = f.readlines()
+        out, inAtoms = [], False
+        for line in lines:
+            if line.startswith('@<TRIPOS>ATOM'):
+                inAtoms = True;
+                out.append(line);
+                continue
+            if inAtoms and line.startswith('@<TRIPOS>'):
+                inAtoms = False
+            if inAtoms:
+                parts = line.split()
+                if len(parts) >= 8:
+                    parts[7] = resName
+                    line = ' '.join(parts) + '\n'
+            out.append(line)
+        with open(mol2File, 'w') as f:
+            f.writelines(out)
 
     def getLigandName(self):
       return self.getSpecifiedMol().getMolName()
@@ -592,6 +608,59 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def getLigandPath(self, path=''):
       molName = self.getLigandName()
       return self._getExtraPath(f"{molName}.acpype", path)
+
+    def getLigandResName(self):
+        """Resolve the ligand residue name from its origin pose file.
+        Accepts a PDB-style name (1-3 alphanumeric chars, not generic); otherwise 'LIG'."""
+        mol = self.getSpecifiedMol()
+        if mol is None:
+            return 'LIG'
+        name = self._readResNameFromFile(mol.getPoseFile())
+        return name if self._isPdbStyleResName(name) else 'LIG'
+
+    def _isPdbStyleResName(self, name):
+        generic = {'UNL', 'UNK', 'MOL', 'LIG'}
+        return bool(name) and 1 <= len(name) <= 3 and name.isalnum() \
+            and not name.isdigit() and name.upper() not in generic
+
+    def _readResNameFromFile(self, coordFile):
+        """Extract a residue name from a pdb/ent/cif/mol2 file. Returns None for sdf or others
+        or when nothing usable is found."""
+        if not coordFile or not os.path.exists(coordFile):
+            return None
+        ext = os.path.splitext(coordFile)[1].lower()
+        if ext in ('.pdb', '.ent', '.pdbqt'):
+            with open(coordFile) as f:
+                for line in f:
+                    if line.startswith(('HETATM', 'ATOM')):
+                        n = line[17:20].strip()
+                        if n:
+                            return n.upper()
+
+        elif ext in ('.cif', '.mmcif'):
+            from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+            d = MMCIF2Dict(coordFile)
+            for key in ('_atom_site.auth_comp_id', '_atom_site.label_comp_id'):
+                if key in d:
+                    vals = d[key]
+                    comp = vals[0] if isinstance(vals, list) else vals
+                    if comp and comp not in ('.', '?'):
+                        return comp.upper()
+
+        elif ext == '.mol2':
+            with open(coordFile) as f:
+                inAtoms = False
+                for line in f:
+                    if line.startswith('@<TRIPOS>ATOM'):
+                        inAtoms = True;
+                        continue
+                    if inAtoms and line.startswith('@<TRIPOS>'):
+                        break
+                    if inAtoms:
+                        parts = line.split()
+                        if len(parts) >= 8:
+                            return parts[7].rstrip('0123456789').upper()  # RET1 -> RET
+        return None
 
     def buildIonsMDP(self):
         outFile = self._getPath('ions.mdp')

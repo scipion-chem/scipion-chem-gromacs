@@ -456,7 +456,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
     def makePreprocessingIndexStep(self, poseId=None, molName=None):
         """
         Build the initial GROMACS index on the full (solvated) system.
-        Creates group 21 Protein_LIG
         """
         if self._ligandFailed(molName):
             self.info(f'Skipping makePreprocessingIndexStep for {poseId}: ligand not parametrized.')
@@ -473,9 +472,14 @@ class GromacsMmpbsa(GromacsSystemPrep):
             ndxOut = os.path.abspath(os.path.join(poseDir, PREPROC_NDX))
 
         args = f'make_ndx -f {inputStruct} -o {ndxOut}'
-        # Mode B resolves the Protein/LIG groups by name in runMmpbsaStep, so no
-        # merge is needed; Mode A still merges group 13 (the ligand) with Protein.
-        printfValues = ['1 | 13', 'q'] if self.inputFrom.get() == INPUT_GROMACS else ['q']
+
+        if self.inputFrom.get() == INPUT_GROMACS:
+            # Reference the ligand by residue name so the selection is robust
+            ligName = self.gromacsSystem.get().getLigandID()
+            printfValues = [f'1 | 13', 'q']
+        else:
+            printfValues = ['q']
+
         gromacsPlugin.runGromacsPrintf(protocol=self,
                                        printfValues=printfValues,
                                        args=args, cwd=cwd, mpi=False)
@@ -495,7 +499,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             lastTpr    = os.path.abspath(gromacsSys.getTprFile())
             ndxFile    = os.path.abspath(self._getExtraPath(PREPROC_NDX))
             ligName    = gromacsSys.getLigandID()
-            mergedGrp  = f'Protein_{ligName}'
+            mergedGrp  = self._getMergedGroupName(ndxFile, ligName)
             procTrj    = os.path.abspath(self._getPath('processTraj.xtc'))
 
             noPBC = os.path.abspath(self._getExtraPath('noPBC.xtc'))
@@ -637,6 +641,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
             shutil.copy(gromacsSys.getLigTopologyFile(), self._getExtraPath())
             shutil.copy(os.path.abspath(gromacsSys.getTopologyFile()), localTopFile)
+
+            ligName = gromacsSys.getLigandID()
         else:
             poseDir      = self.getPoseDir(poseId)
             lastTpr      = os.path.abspath(os.path.join(poseDir, 'em.tpr'))
@@ -647,13 +653,11 @@ class GromacsMmpbsa(GromacsSystemPrep):
             outCsv       = os.path.abspath(os.path.join(poseDir, RESULT_CSV))
             cwd          = poseDir
 
-        # gmx_MMPBSA complex groups: receptor then ligand.
-        if self.inputFrom.get() == INPUT_GROMACS:
-            cgGroups = '1 13'
-        else:
-            recIdx = self._getNdxGroupIdx(ndxFile, 'Protein')
-            ligIdx = self._getNdxGroupIdx(ndxFile, 'LIG')
-            cgGroups = f'{recIdx} {ligIdx}'
+            ligName = self._poseLigNameForPoseId(poseId)
+
+        recIdx = self._getNdxGroupIdx(ndxFile, 'Protein')
+        ligIdx = self._getNdxGroupIdx(ndxFile, ligName)
+        cgGroups = f'{recIdx} {ligIdx}'
 
         args = ('-O -i {inp} -cs {cs} -ct {ct} -ci {ci} -cg {cg} '
                 '-cp {cp} -o {out} -eo {eo} -nogui').format(
@@ -862,7 +866,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
       args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
       runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
 
-      replaceInFile(inpMol2File, 'UNL1', 'LIG')
+      self._forceMol2ResName(inpMol2File, self._poseLigResName(inpFile))
       return inpMol2File
 
     def getLigParamDir(self, molName):
@@ -1008,6 +1012,32 @@ class GromacsMmpbsa(GromacsSystemPrep):
         if molName is None:
             return False
         return os.path.exists(self._failedFlagPath(molName))
+
+    def _poseLigResName(self, molFile):
+        name = self._readResNameFromFile(molFile)
+        return name if self._isPdbStyleResName(name) else 'LIG'
+
+    def _poseLigNameForPoseId(self, poseId):
+        for mol in self.inputSetOfMols.get():
+            if os.path.splitext(os.path.basename(mol.getPoseFile()))[0] == poseId:
+                return self._poseLigResName(mol.getPoseFile())
+        return 'LIG'
+
+    @staticmethod
+    def _getMergedGroupName(ndxFile, ligName):
+        candidates = [f'Protein_{ligName}']
+        present = []
+        with open(ndxFile) as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith('[') and line.endswith(']'):
+                    present.append(line[1:-1].strip())
+        for c in candidates:
+            if c in present:
+                return c
+        raise ValueError(
+            f'No merged Protein/{ligName} group found in {ndxFile}. '
+            f'Groups present: {present}')
 
 # -- helpers ------------------------------------------------------------------
 

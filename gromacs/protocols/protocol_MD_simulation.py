@@ -764,10 +764,6 @@ class GromacsMDSimulation(EMProtocol):
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
 
             inpSystem = self.gromacsSystem.get()
-            if inpSystem.hasLig():
-                centerGroup = 'Protein_{}'.format(inpSystem.getLigandID())
-            else:
-                centerGroup = 'Protein'
 
             # Concatenate raw stage trajectories
             command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
@@ -786,8 +782,18 @@ class GromacsMDSimulation(EMProtocol):
             gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
                                            args=command, cwd=self._getPath())
 
-            # Center on protein (or complex), compact box
-            command = 'trjconv -s {} -f {} -center -pbc mol -ur compact -o {}'.format(sTpr, nojumpTrj, outTrj)
+            # Center on protein (or complex), compact box.
+            if inpSystem.hasLig():
+                ligName = inpSystem.getLigandID()
+                centerGroup = 'Protein_{}'.format(ligName)
+                ndxFile = os.path.abspath(inpSystem.getIndexFile())
+                command = ('trjconv -s {} -f {} -center -pbc mol -ur compact '
+                           '-n {} -o {}').format(sTpr, nojumpTrj, ndxFile, outTrj)
+            else:
+                centerGroup = 'Protein'
+                command = ('trjconv -s {} -f {} -center -pbc mol -ur compact '
+                           '-o {}').format(sTpr, nojumpTrj, outTrj)
+
             gromacsPlugin.runGromacsPrintf(self, printfValues=[centerGroup, 'System'],
                                            args=command, cwd=self._getPath())
 
