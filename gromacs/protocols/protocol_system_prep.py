@@ -341,6 +341,12 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             self.fixPdbTER(cappedPdb)
             inputStructure = cappedPdb
 
+        # Chains that share residue numbers (e.g. two chains both numbered 1-99) would break the output
+        # analysis. Detect that overlap and, only then, renumber the residues continuously.
+        if self.chainsHaveOverlappingResNumbers(inputStructure):
+            renumberedPdb = os.path.abspath(self._getExtraPath(f'{systemBasename}_renumbered.pdb'))
+            inputStructure = self.renumberResiduesPDB(inputStructure, renumberedPdb)
+
         Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
         Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
         params = (f' pdb2gmx -f {inputStructure} -o {systemBasename}_processed.gro '
@@ -791,6 +797,43 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         with open(pdbPath, 'w') as f:
             f.writelines(fixedLines)
+
+    def chainsHaveOverlappingResNumbers(self, inPdb):
+        """Return True if two or more chains share at least one residue number (e.g. two chains both
+        numbered 1-99). """
+        parser = PDB.PDBParser(QUIET=True)
+        model = next(iter(parser.get_structure('protein', inPdb)))
+        seen = set()
+        for chain in model:
+            # res.id is (hetero-flag, residue_number, insertion_code); res.id[1] is the residue number
+            chainNums = {res.id[1] for res in chain}
+            if seen & chainNums:
+                return True
+            seen |= chainNums
+        return False
+
+    def renumberResiduesPDB(self, inPdb, outPdb):
+        """Renumber the residues of a PDB continuously across all chains so that, after merging the chains
+        with "gmx pdb2gmx -merge all", the resulting .gro does not contain repeated residue numbers.
+        """
+        parser = PDB.PDBParser(QUIET=True)
+        structure = parser.get_structure('protein', inPdb)
+        # Renumber only the first model (the one pdb2gmx will read)
+        model = next(iter(structure))
+        residues = list(model.get_residues())
+        startNum = residues[0].id[1]
+        # Two loops are required so we first park every residue at a temporary number
+        # (100000 + i), guaranteed free and far above any real residue number, and then assign the final.
+        for i, res in enumerate(residues):
+            res.id = (res.id[0], 100000 + i, ' ')
+        for offset, res in enumerate(residues):
+            res.id = (res.id[0], startNum + offset, ' ')
+
+        io = PDB.PDBIO()
+        io.set_structure(structure)
+        io.save(outPdb)
+        self._log.info(f'Residues renumbered continuously into {outPdb}')
+        return outPdb
 
     def countSSBonds(self, inputStructure, waterff='spc', mainff='amber03'):
         """
