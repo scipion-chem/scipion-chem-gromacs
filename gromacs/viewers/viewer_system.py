@@ -121,7 +121,12 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                             'Protein represented as NewCartoon and waters as dots')
 
     def _defineAnalysisParams(self, form):
-      group = form.addGroup('Gromacs analysis')
+      sectionLabel = 'Trajectory analysis'
+      if form.getSection(sectionLabel):
+          section = form.getSection(sectionLabel)
+      else:
+          section = form.addSection(sectionLabel)
+      group = section.addGroup('Gromacs trajectory analysis')
       group.addParam('displayAnalysis', params.EnumParam,
                      choices=self._analysis, default=0,
                      label='Choose the analysis to display: ',
