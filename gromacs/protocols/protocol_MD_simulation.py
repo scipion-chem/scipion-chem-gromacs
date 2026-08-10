@@ -300,6 +300,9 @@ class GromacsMDSimulation(EMProtocol):
 
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
+        if self.gromacsSystem.get().hasLig():
+            ligTopFile = self.gromacsSystem.get().getLigTopologyFile()
+            shutil.copy(ligTopFile, os.path.dirname(localTopFile))
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
         localPdbFile = self._getPath('outputSystem.pdb')
         self._convertGroToPdbNoWat(localGroFile, localPdbFile)
