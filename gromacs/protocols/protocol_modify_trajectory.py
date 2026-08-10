@@ -266,8 +266,8 @@ class GromacsModifySystem(EMProtocol):
         tprFile = inpSystem.getTprFile()
         tprFile = os.path.abspath(tprFile) if tprFile else None
         if not tprFile or not os.path.exists(tprFile):
-            raise Exception('A .tpr file is necessary to correct PBC jumps, but the input Gromacs System has '
-                            'none associated.')
+            raise FileNotFoundError('A .tpr file is necessary to correct PBC jumps, but the input Gromacs '
+                                    'System has none associated.')
 
         wholeTrj = os.path.abspath(self._getTmpPath('pbcWhole.xtc'))
         wholeArgs = ' trjconv -f {} -s {} -n {} -pbc whole -o {}'. \
