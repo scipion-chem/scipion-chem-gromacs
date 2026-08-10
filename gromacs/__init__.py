@@ -285,9 +285,9 @@ class Plugin(pwchemPlugin):
 			return os.path.abspath(indexFile)
 		inpSystem = protocol.gromacsSystem.get()
 		indexFile = inpSystem.getIndexFile()
-		if os.path.exists(indexFile):
+		if indexFile and os.path.exists(indexFile):
 			return os.path.abspath(indexFile)
-		if not os.path.exists(indexFile):
+		if not indexFile or not os.path.exists(indexFile):
 			indexFile = cls.firstIndexCreation(protocol, inpSystem)
 		return os.path.abspath(indexFile)
 
