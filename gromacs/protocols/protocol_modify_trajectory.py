@@ -130,7 +130,7 @@ class GromacsModifySystem(EMProtocol):
         if inputTrajectory:
             inputTrajectory = os.path.abspath(inputTrajectory)
             if self.correctPBC:
-                inputTrajectory = self.correctPBCJumps(inputTrajectory, inputStructure)
+                inputTrajectory = self.correctPBCJumps(inputTrajectory)
 
             auxTrj = os.path.abspath(self._getExtraPath('cleanTrajectory.xtc'))
             convArgs = " trjconv -f {} -s {} -o {}". \
@@ -195,6 +195,11 @@ class GromacsModifySystem(EMProtocol):
         if self.doFiltering and self.filter.get() == 0 and self.filterF.get() <= 1:
             vals.append('The factor for low-pass filtering needs to be at least 2')
 
+        if self.correctPBC:
+            tprFile = self.gromacsSystem.get().getTprFile()
+            if not tprFile or not os.path.exists(os.path.abspath(tprFile)):
+                vals.append('A .tpr file is necessary to correct PBC jumps.')
+
         return vals
 
     def _warnings(self):
@@ -247,7 +252,7 @@ class GromacsModifySystem(EMProtocol):
         intTime = 0 if (time.is_integer() and int(time) == 0) else time
         return intTime
 
-    def correctPBCJumps(self, inputTrajectory, inputStructure):
+    def correctPBCJumps(self, inputTrajectory):
         """Fixes periodic boundary condition (PBC) artifacts of the raw trajectory following the
         strict 3-step gmx trjconv procedure: whole molecules -> continuous (nojump) path ->
         centered / compactly wrapped system. The centering group is the protein-ligand complex
@@ -257,19 +262,26 @@ class GromacsModifySystem(EMProtocol):
         indexFile = gromacsPlugin.ensureIndexFile(self)
         centerGroup = 'Protein_{}'.format(inpSystem.getLigandID()) if inpSystem.hasLig() else 'Protein'
 
+        # -pbc mol requires a .tpr for -s
+        tprFile = inpSystem.getTprFile()
+        tprFile = os.path.abspath(tprFile) if tprFile else None
+        if not tprFile or not os.path.exists(tprFile):
+            raise Exception('A .tpr file is necessary to correct PBC jumps, but the input Gromacs System has '
+                            'none associated.')
+
         wholeTrj = os.path.abspath(self._getTmpPath('pbcWhole.xtc'))
         wholeArgs = ' trjconv -f {} -s {} -n {} -pbc whole -o {}'. \
-            format(inputTrajectory, inputStructure, indexFile, wholeTrj)
+            format(inputTrajectory, tprFile, indexFile, wholeTrj)
         gromacsPlugin.runGromacsPrintf(self, printfValues=['System'], args=wholeArgs, cwd=self._getPath())
 
         nojumpTrj = os.path.abspath(self._getTmpPath('pbcNojump.xtc'))
         nojumpArgs = ' trjconv -f {} -s {} -n {} -pbc nojump -o {}'. \
-            format(wholeTrj, inputStructure, indexFile, nojumpTrj)
+            format(wholeTrj, tprFile, indexFile, nojumpTrj)
         gromacsPlugin.runGromacsPrintf(self, printfValues=['System'], args=nojumpArgs, cwd=self._getPath())
 
         correctedTrj = os.path.abspath(self._getExtraPath('pbcCorrected.xtc'))
         centerArgs = ' trjconv -f {} -s {} -n {} -center -pbc mol -ur compact -o {}'. \
-            format(nojumpTrj, inputStructure, indexFile, correctedTrj)
+            format(nojumpTrj, tprFile, indexFile, correctedTrj)
         gromacsPlugin.runGromacsPrintf(self, printfValues=[centerGroup, 'System'],
                                        args=centerArgs, cwd=self._getPath())
 

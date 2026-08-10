@@ -141,7 +141,7 @@ class TestGromacsTrajMod(TestGromacsRunSimulation):
     def _modSimulation(self, protSim):
         protMod = self.newProtocol(
             GromacsModifySystem,
-            gromacsSystem=protSim.outputSystem, cleaning=True, doFit=True)
+            gromacsSystem=protSim.outputSystem, correctPBC=True, cleaning=True, doFit=True)
 
         self.launchProtocol(protMod)
         return protMod
