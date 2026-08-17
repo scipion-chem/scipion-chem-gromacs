@@ -45,11 +45,26 @@ from pwchem.utils import pdbFromASFile
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
     WatchElementWizard
 
-from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+from ..protocols import GromacsSystemPrep, GromacsMDSimulation, GromacsPmxRBFE, GromacsPmxABFE
 from gromacs.protocols.protocol_system_prep import STRUCTURE, LIGAND
 from gromacs import Plugin as gromacsPlugin
 
 SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
+                                targets=['inputLigand'],
+                                inputs=['inputSetOfMols'],
+                                outputs=['inputLigand'])
+
+SelectElementWizard().addTarget(protocol=GromacsPmxRBFE,
+                                targets=['inputLigand'],
+                                inputs=['inputSetOfMols'],
+                                outputs=['inputLigand'])
+
+SelectElementWizard().addTarget(protocol=GromacsPmxRBFE,
+                                targets=['ligandB'],
+                                inputs=['inputSetOfMols'],
+                                outputs=['ligandB'])
+
+SelectElementWizard().addTarget(protocol=GromacsPmxABFE,
                                 targets=['inputLigand'],
                                 inputs=['inputSetOfMols'],
                                 outputs=['inputLigand'])

@@ -475,7 +475,7 @@ class GromacsMDSimulation(EMProtocol):
         if len(modelChains) == 1:
             printGroup = ['Protein']
             if inpSystem.hasLig():
-                printGroup = [f'Protein_{inpSystem.getLigandID()}']
+                printGroup = [gromacsPlugin.getProteinLigandGroupName(self, indexFile)]
 
             self._runEditconf(groFile, indexFile, pdbFile, modelChains[0], printGroup)
             return
@@ -493,7 +493,8 @@ class GromacsMDSimulation(EMProtocol):
         if inpSystem.hasLig():
             ligPdb = self._getTmpPath('ligand.pdb')
             allPdbs.append(ligPdb)
-            self._runEditconf(groFile, indexFile, ligPdb, 'L', [inpSystem.getLigandID()])
+            self._runEditconf(groFile, indexFile, ligPdb, 'L',
+                              [gromacsPlugin.getLigandGroupName(self, indexFile)])
 
         # Combine all individual PDB pieces into the final file
         self._combinePdbFiles(allPdbs, pdbFile)

@@ -30,3 +30,5 @@ from .protocol_MD_simulation import GromacsMDSimulation
 from .protocol_modify_trajectory import GromacsModifySystem
 from .protocol_import_system import GromacsImportSystem
 from .protocol_MMPBSA import GromacsMmpbsa
+from .protocol_pmx_rbfe import GromacsPmxRBFE
+from .protocol_pmx_abfe import GromacsPmxABFE

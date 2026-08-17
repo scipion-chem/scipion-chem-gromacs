@@ -54,6 +54,7 @@ class Plugin(pwchemPlugin):
 	def _defineVariables(cls):
 		""" Return and write a variable in the config file. """
 		cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
+		cls._defineEmVar(PMX_DIC['home'], cls.getEnvName(PMX_DIC))
 
 	@classmethod
 	def defineBinaries(cls, env):
@@ -64,6 +65,7 @@ class Plugin(pwchemPlugin):
 		# Installing packages
 		cls.addGromacs(env, modifiedProcs)
 		cls.addGmxMMPBSA(env)
+		cls.addPmx(env)
 
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
@@ -128,6 +130,33 @@ class Plugin(pwchemPlugin):
 			.addPackage(env, dependencies=['conda', 'pip', 'git'], default=default)
 
 	@classmethod
+	def addPmx(cls, env, default=True):
+		""" This function installs pmx (alchemical FEP setup/analysis toolkit) in a dedicated conda environment. """
+
+		installer = InstallHelper(PMX_DIC['name'],
+		                          packageHome=cls.getVar(PMX_DIC['home']),
+		                          packageVersion=PMX_DIC['version'])
+
+		envName = cls.getEnvName(PMX_DIC)
+		activation = cls.getEnvActivationCommand(PMX_DIC)
+
+		# pmx's own build backend declares setuptools~=46.0.0; a fresh env's modern default
+		# (84.x) makes pip's isolated build environment unsatisfiable ("setuptools==84.0.0 is
+		# incompatible with setuptools~=46.0.0"), reproduced directly on this machine. Pin
+		# setuptools/wheel down first and build with --no-build-isolation against them instead
+		# of letting pip create its own (conflicting) isolated build env.
+		pipCmd = (f"bash -c '{activation} && "
+		           f"pip install \"setuptools~=46.0.0\" wheel && "
+		           f"pip install --no-build-isolation git+https://github.com/deGrootLab/pmx.git@develop'")
+		# numpy>=2 breaks pmx analyse's BAR estimator (TypeError: only 0-dimensional
+		# arrays can be converted to Python scalars), reproduced on this machine.
+		installer \
+			.addCommand(f'conda create -y -c conda-forge --name {envName} python=3.10 '
+		                '"numpy<2" scipy matplotlib future rdkit pip git', 'PMX_ENV_CREATED') \
+			.addCommand(pipCmd, 'PMX_INSTALLED') \
+			.addPackage(env, dependencies=['conda', 'pip', 'git'], default=default)
+
+	@classmethod
 	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False, **kwargs):
 		""" Run Gromacs command from a given protocol. """
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
@@ -166,6 +195,27 @@ class Plugin(pwchemPlugin):
 	def getGMXMMPBSAEnvActivation(cls):
 		""" Return the shell command to activate the gmx_MMPBSA conda environment. """
 		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
+	@classmethod
+	def runPmx(cls, protocol, subcommand, args='', cwd=None):
+		""" Run a pmx CLI subcommand (e.g. atomMapping, ligandHybrid, analyse, abfe) from a given protocol. """
+		activation = cls.getEnvActivationCommand(PMX_DIC)
+		# pmx abfe --build internally shells out to a bare 'gmx' (pmx.gmx.get_gmx(), a plain
+		# PATH lookup) for editconf/solvate/genion - confirmed by actually hitting "OSError: gmx
+		# executable not found" when this ran through Scipion's own subprocess environment (gmx
+		# isn't installed inside the pmx env itself, nor on PATH there). Prepending GROMACS' own
+		# bin dir here fixes it without needing gmx installed inside the pmx env.
+		gmxBinDir = os.path.dirname(cls.getGromacsBin())
+		fullProgram = f'{activation} && export PATH="{gmxBinDir}:$PATH" && pmx {subcommand}'
+
+		print('Running: ', fullProgram, args)
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
+
+	@classmethod
+	def getPmxEnvActivation(cls):
+		""" Return the shell command to activate the pmx conda environment. """
+		return cls.getEnvActivationCommand(PMX_DIC)
 
 	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):

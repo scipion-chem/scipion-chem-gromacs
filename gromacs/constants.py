@@ -35,6 +35,13 @@ CUDA_MINIMUM_VERSION_V26 = '12.1'
 # Package dictionaries
 GROMACS_DIC = {'name': 'gromacs', 'version': V2026, 'home': 'GROMACS_HOME'}
 GMXMMPBSA_DIC = {'name': 'gmxMMPBSA', 'version': '1.6.4', 'home': 'GMXMMPBSA_HOME'}
+PMX_DIC = {'name': 'pmx', 'version': 'develop', 'home': 'PMX_HOME'}
+
+# pmx fast-growth FEP defaults (from pmx's own scripts/prepare_crooks_runs.py reference recipe)
+PMX_SC_ALPHA = 0.3
+PMX_SC_SIGMA = 0.25
+PMX_SW_TIME = 50.0      # ps, forward/reverse switching (transition) run length
+PMX_N_SNAPSHOTS = 20    # frames extracted per end-state to launch transitions from
 
 BR, CA, CL, CS, CU, CU2, F, I, K, LI, MG, NA, RB, ZN = 'BR-', 'CA2+', 'CL-', 'CS+', 'CU+', 'CU2+', 'F-', 'I-', 'K+', \
                                                        'LI+', 'MG2+', 'NA+', 'RB+', 'ZN2+'
