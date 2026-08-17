@@ -260,6 +260,30 @@ class Plugin(pwchemPlugin):
 		return [invGroups.get(name, name) for name in names]
 
 	@classmethod
+	def getProteinLigandGroupName(cls, protocol, indexFile):
+		"""Return the real name of the merged Protein+ligand index group.
+
+		GromacsSystem.getLigandID() is only a cosmetic best-effort label (guessed from the
+		ACPYPE molecule name) and does not necessarily match the group name GROMACS itself
+		assigned when merging 'Protein' with the ligand's group via make_ndx ('1 | 13' in
+		Plugin.firstIndexCreation), which auto-names the merged group 'Protein_<ligand group
+		name>' using the ligand's real residue/group name. Reading it back from the index
+		file avoids that mismatch instead of reconstructing the name from the guess.
+		"""
+		groups = cls.parseIndexFile(protocol, indexFile)
+		for name in groups.values():
+			if name.startswith('Protein_'):
+				return name
+		raise ValueError(f'No merged Protein_<ligand> group found in index file {indexFile}')
+
+	@classmethod
+	def getLigandGroupName(cls, protocol, indexFile):
+		"""Return the real name of the ligand-only index group (e.g. 'RET'), read from the
+		merged 'Protein_<ligand>' group name rather than trusting GromacsSystem.getLigandID().
+		"""
+		return cls.getProteinLigandGroupName(protocol, indexFile).split('Protein_', 1)[1]
+
+	@classmethod
 	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=None):
 		if inputCommands is None:
 			inputCommands = ['q']

@@ -456,7 +456,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
     def makePreprocessingIndexStep(self, poseId=None, molName=None):
         """
         Build the initial GROMACS index on the full (solvated) system.
-        Creates group 21 Protein_LIG
+        Creates a merged 'Protein_<ligand>' group (Mode A only).
         """
         if self._ligandFailed(molName):
             self.info(f'Skipping makePreprocessingIndexStep for {poseId}: ligand not parametrized.')
@@ -494,8 +494,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
             lastTpr    = os.path.abspath(gromacsSys.getTprFile())
             ndxFile    = os.path.abspath(self._getExtraPath(PREPROC_NDX))
-            ligName    = gromacsSys.getLigandID()
-            mergedGrp  = f'Protein_{ligName}'
+            mergedGrp  = gromacsPlugin.getProteinLigandGroupName(self, ndxFile)
             procTrj    = os.path.abspath(self._getPath('processTraj.xtc'))
 
             noPBC = os.path.abspath(self._getExtraPath('noPBC.xtc'))
@@ -647,13 +646,24 @@ class GromacsMmpbsa(GromacsSystemPrep):
             outCsv       = os.path.abspath(os.path.join(poseDir, RESULT_CSV))
             cwd          = poseDir
 
-        # gmx_MMPBSA complex groups: receptor then ligand.
+        # gmx_MMPBSA complex groups: receptor then ligand. Neither "13" (Mode A) nor the
+        # literal name "LIG" (Mode B) reliably identify the ligand group - both are only
+        # true when the ligand's real GROMACS residue/group name happens to reduce to a
+        # generic 'LIG'/position 13, which ACPYPE does NOT guarantee (it preserves whatever
+        # residue name the input structure already had, e.g. a real PDB code like 'RET') -
+        # confirmed by hitting exactly this in Mode B: "Group 'LIG' not found in index file".
+        # Mode A's preproc.ndx has the 'Protein_<ligand>' group makePreprocessingIndexStep
+        # merges via '1 | 13'; Mode B's has no merge, but GROMACS' own auto-generated "Other"
+        # group (the catch-all for non-protein/water/ion residues) robustly identifies the
+        # ligand either way, for the same single-ligand systems this plugin already assumes
+        # elsewhere (see GromacsPmxRBFE's _extractLigandAGro for the same reasoning).
+        recIdx = self._getNdxGroupIdx(ndxFile, 'Protein')
         if self.inputFrom.get() == INPUT_GROMACS:
-            cgGroups = '1 13'
+            ligName = gromacsPlugin.getLigandGroupName(self, ndxFile)
+            ligIdx = self._getNdxGroupIdx(ndxFile, ligName)
         else:
-            recIdx = self._getNdxGroupIdx(ndxFile, 'Protein')
-            ligIdx = self._getNdxGroupIdx(ndxFile, 'LIG')
-            cgGroups = f'{recIdx} {ligIdx}'
+            ligIdx = self._getNdxGroupIdx(ndxFile, 'Other')
+        cgGroups = f'{recIdx} {ligIdx}'
 
         args = ('-O -i {inp} -cs {cs} -ct {ct} -ci {ci} -cg {cg} '
                 '-cp {cp} -o {out} -eo {eo} -nogui').format(
