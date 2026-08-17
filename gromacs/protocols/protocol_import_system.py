@@ -226,17 +226,30 @@ class GromacsImportSystem(EMProtocol):
         return files
 
     def _importTopology(self):
-        """Copy the .top file together with every file it #includes, preserving
-        the relative layout (e.g. the CHARMM-GUI 'toppar/' directory) so the
-        include paths stay valid. Returns (localTopPath, {includeRelPath: localAbsPath})."""
+        """Copy the .top file together with every file it #includes, following
+        includes recursively (an included .itp can itself #include further
+        files, e.g. a standard force field's forcefield.itp pulling in its own
+        ffnonbonded.itp/ffbonded.itp). Preserves the relative layout (e.g. the
+        CHARMM-GUI 'toppar/' directory, or a force field's own subfolder) so
+        the include paths stay valid. Returns (localTopPath,
+        {includeRelPath: localAbsPath}) for the topology's own (first-level)
+        includes."""
         topSrc = os.path.abspath(self.inputTopology.get())
         topDir = os.path.dirname(topSrc)
         localTop = self._getExtraPath(os.path.basename(topSrc))
         shutil.copy(topSrc, localTop)
 
-        includes = {}
-        for relInc in parseTopologyIncludes(topSrc):
-            srcInc = self._resolveInclude(relInc, topDir)
+        topLevelIncludes = parseTopologyIncludes(topSrc)
+        includes, seen = {}, set()
+        pending = [(relInc, topDir) for relInc in topLevelIncludes]
+
+        while pending:
+            relInc, srcDir = pending.pop(0)
+            if relInc in seen:
+                continue
+            seen.add(relInc)
+
+            srcInc = self._resolveInclude(relInc, srcDir)
             if srcInc is None:
                 self.info(f'WARNING: included topology file not found, skipping: {relInc}')
                 continue
@@ -248,7 +261,13 @@ class GromacsImportSystem(EMProtocol):
                 dstInc = self._getExtraPath(os.path.basename(relInc))
             os.makedirs(os.path.dirname(dstInc), exist_ok=True)
             shutil.copy(srcInc, dstInc)
-            includes[relInc] = os.path.abspath(dstInc)
+
+            if relInc in topLevelIncludes:
+                includes[relInc] = os.path.abspath(dstInc)
+
+            # Follow this file's own #includes, relative to its source directory.
+            for nestedInc in parseTopologyIncludes(srcInc):
+                pending.append((nestedInc, os.path.dirname(srcInc)))
 
         # Rewrite the #include paths to the absolute location of the copied files.
         rewriteTopologyIncludes(localTop, includes)
@@ -256,14 +275,18 @@ class GromacsImportSystem(EMProtocol):
         return localTop, includes
 
     def _resolveInclude(self, relInc, topDir):
-        """Locate an #include'd file: first next to the topology, then (as a
-        fallback) inside the optional user-provided .itp directory. Returns the
-        absolute source path or None if it cannot be found."""
+        """Locate an #include'd file: first next to the file that includes it,
+        then (as a fallback) inside the optional user-provided .itp directory,
+        then inside GROMACS's own standard force-field directory (covers
+        standard force fields such as amber14sb.ff/charmm36.ff/oplsaa.ff, which
+        are shipped with GROMACS itself and not next to the user's .top).
+        Returns the absolute source path or None if it cannot be found."""
         candidates = [os.path.join(topDir, relInc)]
         itpDir = self.inputItpDir.get()
         if itpDir:
             candidates.append(os.path.join(itpDir, relInc))
             candidates.append(os.path.join(itpDir, os.path.basename(relInc)))
+        candidates.append(os.path.join(gromacsPlugin.getGromacsTopDir(), relInc))
         for cand in candidates:
             cand = os.path.normpath(cand)
             if os.path.exists(cand):

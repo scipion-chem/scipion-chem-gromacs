@@ -173,6 +173,12 @@ class Plugin(pwchemPlugin):
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
 
 	@classmethod
+	def getGromacsTopDir(cls):
+		""" Directory where GROMACS ships its own standard force fields
+		(amber14sb.ff, charmm36.ff, oplsaa.ff...), water models and ion files. """
+		return join(cls.getVar(GROMACS_DIC['home']), 'install', 'share', 'gromacs', 'top')
+
+	@classmethod
 	def getEnviron(cls):
 		return Environ(os.environ)
 
