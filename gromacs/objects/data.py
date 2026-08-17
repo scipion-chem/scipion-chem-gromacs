@@ -109,11 +109,17 @@ class GromacsSystem(MDSystem):
                   if 'gmx check -f' in line:
                       isCheck = False
               else:
-                  if isFirst and line.startswith('Reading frame'):
-                      isFirst = False
-                      firstFrame, firstTime = int(line.split()[2]), float(line.split()[4])
-                  elif not isFirst and line.startswith('Reading frame'):
-                      lastFrame, lastTime = int(line.split()[2]), float(line.split()[4])
+                  # Match only actual "Reading frame <N> time <T>" data lines.
+                  # 'Reading frame'.startswith would also match the unrelated
+                  # header line "Reading frames from <fmt> file" (note the 's'),
+                  # whose 3rd token is not a frame number.
+                  parts = line.split()
+                  if len(parts) >= 5 and parts[0] == 'Reading' and parts[1] == 'frame':
+                      if isFirst:
+                          isFirst = False
+                          firstFrame, firstTime = int(parts[2]), float(parts[4])
+                      else:
+                          lastFrame, lastTime = int(parts[2]), float(parts[4])
 
         self.setTimes([firstTime, lastTime])
         self.setFrameIdxs([firstFrame, lastFrame])
