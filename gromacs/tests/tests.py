@@ -35,12 +35,12 @@ from gromacs import Plugin as gromacsPlugin
 
 from pwchem.tests import TestExtractLigand
 from pwchem.protocols.VirtualDrugScreening.protocol_receptor_preparation import ProtChemPrepareReceptor
-from pwchem.protocols.VirtualDrugScreening.protocol_import_smallMolecules import ProtChemImportSmallMolecules
-from pwchem.protocols.VirtualDrugScreening.protocol_ligand_preparation import ProtChemOBabelPrepareLigands
-from pwchem.protocols.VirtualDrugScreening.protocol_define_manual_structROIs import ProtDefineStructROIs
 
 STRUCTURE, LIGAND = 0, 1
 chainStr = '{"model": 0, "chain": "A", "residues": 236}'
+# JNK1 chain A (data/tests/smallMolecules/FEP/jnk1_18625-1_18626-1.pdb), residues 1-358 -
+# real residue range confirmed against the source PDB used to build that file.
+jnk1ChainStr = '{"model": 0, "chain": "A", "residues": 358}'
 
 workflow = '''{'simTime': 100.0, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': False, 'trajInterval': 1.0, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'Protein', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'Energy min', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'coupleStyle': 'isotropic'}
 {'simTime': 0.1, 'timeStep': 0.002, 'nStepsMin': 100, 'emStep': 0.002, 'emTol': 1000.0, 'timeNeigh': 10, 'saveTrj': True, 'trajInterval': 0.05, 'temperature': 300.0, 'tempRelaxCons': 0.1, 'tempCouple': -1, 'pressure': 1.0, 'presRelaxCons': 2.0, 'presCouple': -1, 'restraints': 'MainChain', 'restraintForce': 50.0, 'integrator': 'steep', 'ensemType': 'NVT', 'thermostat': 'V-rescale', 'barostat': 'Parrinello-Rahman', 'coupleStyle': 'isotropic'}
@@ -205,114 +205,64 @@ class TestGromacsMMPBSA(TestGromacsRunSimulation, TestExtractLigand):
 class TestGromacsPmxRBFE(TestGromacsPrepareSystem):
     """Smoke test for the pmx relative binding free energy (RBFE) protocol.
 
-    `test` uses two genuinely different ligands, both docked for real (Vina,
-    mirroring pwchem's TestScoreDocking/TestSCORCH2 pipeline: import ->
-    OBabel prep -> Vina) into the *same* real binding site of the apo 1uaz
-    receptor used to build the GROMACS system - the site is pinned to the
-    real centroid of 1uaz chain A's native RET (retinal) ligand (computed
-    once from the downloaded 1uaz.cif, see _runDefLigandPocket), not a blind
-    whole-protein search. This matters, and was found the hard way: an
-    earlier version of this test docked each ligand blindly over the whole
-    protein independently, and the two ended up in different sites; pmx's
-    atomMapping/ligandHybrid then merged a "unique" atom from ligand B
-    straight from its own pose into ligand A's frame with no realignment,
-    landing tens of nm away and making mdrun's domain decomposition fail
-    outright ("no domain decomposition ... compatible with ... a minimum
-    cell size of 47 nm"). RBFE needs co-located poses, not just docked poses.
-    Ligands come from the shared "smallMolecules" dataset (4 ZINC compounds).
+    `test` uses a real published RBFE benchmark edge instead of docking anything:
+    ligands 18625-1/18626-1 against JNK1, from pmx's own protLig_benchmark
+    (https://github.com/deGrootLab/pmx/tree/master/protLig_benchmark) and its
+    ligand_tutorial.ipynb, both grounded in Gapsys/Perez-Benito et al. 2020,
+    Chem. Sci. 11:1140 (the paper pmx's non-equilibrium RBFE approach is
+    validated against). Deliberately NOT built via docking (this plugin's tests
+    must not depend on a separate docking plugin like autodock): the two
+    ligands' real, already co-located poses (confirmed: ligand centroid ~2 A
+    from a real JNK1 chain-A atom) were taken directly from the tutorial's own
+    input files and merged with JNK1 chain A into one PDB
+    (data/tests/smallMolecules/FEP/jnk1_18625-1_18626-1.pdb), extracted here via
+    the same ProtExtractLigands mechanism the self-transform test below already
+    uses - no docking step anywhere in this test. The two ligands are also
+    genuinely similar (RDKit Morgan Tanimoto 0.77 - one chlorine moved to a
+    different ring position, exactly the kind of edge RBFE is meant for),
+    unlike an earlier version of this test that blind-docked unrelated ZINC
+    compounds (Tanimoto <0.26) into 1uaz.
 
-    Caveat, checked for real (not assumed) with RDKit Morgan-fingerprint
-    Tanimoto similarity on the actual mol2 structures: none of the 4 dataset
-    ligands are close analogs of one another - all 6 pairwise Tanimoto scores
-    fall in 0.057-0.262, below the ~0.4 threshold usually taken as "similar
-    enough" for a physically meaningful RBFE alchemical transformation (poor
-    forward/reverse work overlap is expected for a low-similarity pair). Of
-    the 4, ZINC00000480/ZINC00001019 is the least-dissimilar pair available
-    (Tanimoto=0.262), so `test` uses that pair: it exercises the pipeline on a
-    real structural change (unlike a self->self transform) without claiming a
-    scientifically meaningful RBFE result. See claude/decisions/pmx_RBFE.md.
+    Experimental ddG for this edge is -3.22 kJ/mol (from the tutorial) - not
+    asserted here since the settings below are tiny/fast for testing, not for
+    a physically meaningful free energy estimate, but available as a real
+    target if this test is ever run with production-scale settings.
 
-    `test2` keeps the original self->self (RET->RET) transformation, which
-    should give dG(A->B)~=0 within error - a sanity check on the alchemical
-    machinery itself, independent of ligand-pair similarity/pose alignment.
+    `test2` keeps the original self->self (RET->RET) transformation on 1uaz,
+    which should give dG(A->B)~=0 within error - a sanity check on the
+    alchemical machinery itself, independent of ligand-pair identity.
 
-    Settings (window counts/times/nStepsMin) are kept tiny/fast for testing
-    in both tests, not for a physically meaningful free energy estimate."""
-
-    @classmethod
-    def _runDefLigandPocket(cls):
-        # Residues 218-226 of chain A: a window around Lys222, the residue covalently
-        # bonded (Schiff base) to 1uaz's native RET (retinal) - confirmed for real from
-        # the downloaded 1uaz.cif's covale annotations and coordinates (Lys222's real
-        # centroid, ~80.7/29.6/5.5, sits a few A from RET's own real centroid,
-        # ~90.7/23.6/6.4 - consistent with a direct covalent bond). RET itself is
-        # already stripped from protPrepareReceptor's structure (HETATM=True), so this
-        # residue window - not the ligand - is what pins both ligands' docking to the
-        # same real binding site instead of each drifting off to its own blind pose.
-        #
-        # surfaceCoords=False: RET sits deeply buried inside 1uaz's transmembrane helix
-        # bundle (bacteriorhodopsin), nowhere near the molecular surface - the default
-        # surfaceCoords=True tries to snap every input coordinate to the nearest surface
-        # point within maxDepth (3 A) and silently yields zero ROIs when none exists
-        # nearby, confirmed for real with a single-point "Coordinate:" ROI at RET's own
-        # centroid (outputStructROIs came back empty). A multi-atom residue window
-        # avoids the surface-mapping step entirely and gives the ROI real spatial
-        # extent (needed for a nonzero Vina docking box - a single point has none).
-        cls.protPocket = cls.newProtocol(
-            ProtDefineStructROIs, inROIs='1) Residues: {"chain": "A", "index": "218-226"}',
-            surfaceCoords=False)
-        cls.protPocket.inputAtomStruct.set(cls.protPrepareReceptor)
-        cls.protPocket.inputAtomStruct.setExtended('outputStructure')
-        cls.launchProtocol(cls.protPocket)
-        return cls.protPocket
+    See claude/decisions/pmx_RBFE.md for the full comparison against the
+    tutorial/paper's methodology (in particular: this protocol currently only
+    computes the bound-complex leg, not the solvent/water leg the published
+    method subtracts to get a true binding free energy - flagged there, not
+    fixed here)."""
 
     @classmethod
-    def _runImportZincMols(cls):
+    def _runImportJNK1PDB(cls):
         dsLig = DataSet.getDataSet('smallMolecules')
-        cls.protImportZinc = cls.newProtocol(
-            ProtChemImportSmallMolecules, filesPath=dsLig.getFile('mol2'))
-        cls.launchProtocol(cls.protImportZinc)
-        return cls.protImportZinc
+        cls.protImportJNK1PDB = cls.newProtocol(
+            ProtImportPdb, inputPdbData=1,
+            pdbFile=dsLig.getFile('FEP/jnk1_18625-1_18626-1.pdb'))
+        cls.launchProtocol(cls.protImportJNK1PDB)
+        return cls.protImportJNK1PDB
 
     @classmethod
-    def _runZincOBabel(cls, protImport):
-        cls.protZincOBabel = cls.newProtocol(
-            ProtChemOBabelPrepareLigands, inputType=0, method_charges=0,
-            inputSmallMolecules=protImport.outputSmallMolecules, doConformers=False)
-        cls.launchProtocol(cls.protZincOBabel)
-        return cls.protZincOBabel
-
-    @classmethod
-    def _runDockZincMols(cls, protOBabel, protPocket):
-        from autodock.protocols import ProtChemVinaDocking
-        protVina = cls.newProtocol(
-            ProtChemVinaDocking, fromReceptor=1, pocketRadiusN=2, nRuns=1, numberOfThreads=4)
-        protVina.inputStructROIs.set(protPocket)
-        protVina.inputStructROIs.setExtended('outputStructROIs')
-        protVina.inputSmallMolecules.set(protOBabel)
-        protVina.inputSmallMolecules.setExtended('outputSmallMolecules')
-        cls.launchProtocol(protVina)
-        return protVina
-
-    @staticmethod
-    def _getMolByZincId(molSet, zincId):
-        for mol in molSet:
-            if zincId in mol.getMolName():
-                return mol.clone()
-        raise ValueError(f'{zincId} not found in {molSet}')
-
-    @classmethod
-    def _runPmxRBFE(cls, protDock):
-        molA = cls._getMolByZincId(protDock.outputSmallMolecules, 'ZINC00000480')
-        molB = cls._getMolByZincId(protDock.outputSmallMolecules, 'ZINC00001019')
+    def _runPmxRBFE(cls, protExtract):
+        # getMolName() is guessed from the shared source PDB's filename and comes back
+        # identical for both ligands extracted from the same file - the pose/file path
+        # (which keeps ProtExtractLigands' own per-residue naming, "..._L25_900.cif" vs
+        # "..._L26_901.cif") is what actually distinguishes them here.
+        molA = str(next(m for m in protExtract.outputSmallMolecules if 'L25' in m.getPoseFile()))
+        molB = str(next(m for m in protExtract.outputSmallMolecules if 'L26' in m.getPoseFile()))
 
         protRBFE = cls.newProtocol(
             GromacsPmxRBFE, nStructs=2, swTime=2.0, nvtTime=2.0, nptTime=4.0, nStepsMin=200)
-        protRBFE.inputSetOfMols.set(protDock)
+        protRBFE.inputSetOfMols.set(protExtract)
         protRBFE.inputSetOfMols.setExtended('outputSmallMolecules')
-        protRBFE.inputLigand.set(str(molA))
-        protRBFE.ligandB.set(str(molB))
-        protRBFE.setObjLabel('gromacs - pmx RBFE (different ligands)')
+        protRBFE.inputLigand.set(molA)
+        protRBFE.ligandB.set(molB)
+        protRBFE.setObjLabel('gromacs - pmx RBFE (JNK1 18625-1 -> 18626-1)')
 
         cls.launchProtocol(protRBFE)
         return protRBFE
@@ -331,19 +281,13 @@ class TestGromacsPmxRBFE(TestGromacsPrepareSystem):
         return protRBFE
 
     def test(self):
-        self._runPrepareReceptor()
-        self._waitOutput(self.protPrepareReceptor, 'outputStructure', sleepTime=10)
-        protPocket = self._runDefLigandPocket()
-        self._waitOutput(protPocket, 'outputStructROIs', sleepTime=5)
+        protImportJNK1 = self._runImportJNK1PDB()
+        self._waitOutput(protImportJNK1, 'outputPdb')
 
-        protImport = self._runImportZincMols()
-        self._waitOutput(protImport, 'outputSmallMolecules')
-        protOBabel = self._runZincOBabel(protImport)
-        self._waitOutput(protOBabel, 'outputSmallMolecules')
-        protDock = self._runDockZincMols(protOBabel, protPocket)
-        self._waitOutput(protDock, 'outputSmallMolecules', sleepTime=10)
+        protExtract = self._runExtractLigand(protImportJNK1, jnk1ChainStr)
+        self._waitOutput(protExtract, 'outputSmallMolecules')
 
-        protRBFE = self._runPmxRBFE(protDock)
+        protRBFE = self._runPmxRBFE(protExtract)
         self._waitOutput(protRBFE, 'outputSystem', sleepTime=10)
         self.assertIsNotNone(getattr(protRBFE, 'outputSystem', None))
 

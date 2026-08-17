@@ -603,11 +603,23 @@ class GromacsPmxRBFE(GromacsSystemPrep):
                    f'sc-sigma         = {sigma}\n'
                    f'sc-power         = 1\n'
                    f'sc-coul          = yes\n')
+        # rcoulomb/rvdw/vdw-type/DispCorr match pmx's own validated ligand_tutorial.ipynb
+        # mdp files (eq_l0.mdp/ti_l0.mdp) as closely as reasonable here - confirmed by
+        # reading those files directly rather than guessing: PME with rcoulomb=1.1,
+        # switched vdW between 1.0-1.1 nm, and a dispersion correction that this
+        # protocol was previously missing entirely (DispCorr defaults to "no" in
+        # GROMACS if unset, silently omitting a real, systematic long-range vdW
+        # energy/pressure contribution).
         common = ('nstlist          = 10\n'
                   'cutoff-scheme    = Verlet\n'
                   'coulombtype      = PME\n'
-                  'rcoulomb         = 1.0\n'
-                  'rvdw             = 1.0\n'
+                  'rcoulomb         = 1.1\n'
+                  'fourierspacing   = 0.12\n'
+                  'ewald-rtol       = 1e-5\n'
+                  'vdw-type         = switch\n'
+                  'rvdw-switch      = 1.0\n'
+                  'rvdw             = 1.1\n'
+                  'DispCorr         = EnerPres\n'
                   'pbc              = xyz\n'
                   'constraints      = h-bonds\n'
                   'constraint_algorithm = lincs\n')
@@ -635,11 +647,16 @@ class GromacsPmxRBFE(GromacsSystemPrep):
                    'tau_t            = 0.1\n'
                    'nsttcouple       = 10\n')
             if kw.get('pcoupl', False):
-                text += ('pcoupl           = C-rescale\n'
+                # Parrinello-Rahman/tau_p=5/compressibility=4.6e-5 match pmx's own
+                # ligand_tutorial.ipynb mdp files exactly (this protocol previously used
+                # C-rescale/tau_p=2.0/4.5e-5 - a different, also-valid barostat choice,
+                # but not the one the published/benchmarked non-equilibrium RBFE workflow
+                # this protocol follows actually validated its results against).
+                text += ('pcoupl           = Parrinello-Rahman\n'
                         'pcoupltype       = isotropic\n'
                         f'ref_p            = {self.pressure.get()}\n'
-                        'tau_p            = 2.0\n'
-                        'compressibility  = 4.5e-5\n'
+                        'tau_p            = 5.0\n'
+                        'compressibility  = 4.6e-5\n'
                         'nstpcouple       = 10\n')
             else:
                 text += 'pcoupl           = no\n'

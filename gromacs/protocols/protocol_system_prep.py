@@ -583,8 +583,26 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
       inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
 
-      args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+      if inpFile.endswith('.cif'):
+        # OpenBabel's own CIF reader has a real, reproducible atom-typing bug for at
+        # least chlorine (confirmed directly: reading a .cif with type_symbol 'CL' and
+        # converting to .mol2/.pdb assigns SYBYL type 'C.3'/'CL' - garbage - even though
+        # the same molecule converts correctly, with no warnings, when read from a
+        # well-formed .pdb instead). ProtExtractLigands (pwchem) always writes extracted
+        # ligands as .cif, so any halogenated ligand extracted that way would silently
+        # break ACPYPE downstream ("No Gasteiger parameter for atom ... Type: DU").
+        # Route .cif inputs through Bio.PDB first - a real, independent parser/writer,
+        # not OpenBabel's - to get a normal, well-formed PDB before OpenBabel ever
+        # touches the file; OpenBabel's PDB reader was confirmed to handle the exact
+        # same chlorine correctly.
+        parser = PDB.MMCIFParser(QUIET=True)
+        structure = parser.get_structure(sysbaseName, inpFile)
+        io = PDB.PDBIO()
+        io.set_structure(structure)
+        io.save(tmpFile)
+      else:
+        args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
+        runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
 
       args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
       runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
