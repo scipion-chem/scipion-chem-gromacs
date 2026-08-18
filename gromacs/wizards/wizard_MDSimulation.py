@@ -43,7 +43,7 @@ from pwem.objects import Pointer, String
 from pwchem.utils import groupConsecutiveIdxs
 from pwchem.utils import pdbFromASFile
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
-    WatchElementWizard
+    WatchElementWizard, SelectMultiElementWizard
 
 from ..protocols import GromacsSystemPrep, GromacsMDSimulation, GromacsPmxRBFE, GromacsPmxABFE
 from gromacs.protocols.protocol_system_prep import STRUCTURE, LIGAND
@@ -54,20 +54,57 @@ SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
                                 inputs=['inputSetOfMols'],
                                 outputs=['inputLigand'])
 
-SelectElementWizard().addTarget(protocol=GromacsPmxRBFE,
-                                targets=['inputLigand'],
-                                inputs=['inputSetOfMols'],
-                                outputs=['inputLigand'])
-
-SelectElementWizard().addTarget(protocol=GromacsPmxRBFE,
-                                targets=['ligandB'],
-                                inputs=['inputSetOfMols'],
-                                outputs=['ligandB'])
-
 SelectElementWizard().addTarget(protocol=GromacsPmxABFE,
                                 targets=['inputLigand'],
                                 inputs=['inputSetOfMols'],
                                 outputs=['inputLigand'])
+
+
+class SelectMultiLigandsWizard(SelectMultiElementWizard):
+    """RBFE-specific sibling of pwchem's own SelectMultiElementWizard (same multi-select
+    ListDialog underneath, default selectmode='extended' - the same mechanism
+    SelectSSBondWIzard elsewhere in this plugin also reuses), which only fills a single
+    comma-separated output var. This subclass additionally fills two more output vars
+    with the first two selected names, for GromacsPmxRBFE, which keeps single-ligand-A/B
+    params around internally for its existing, unchanged execution logic to consume.
+    """
+    _targets, _inputs, _outputs = [], {}, {}
+
+    def show(self, form, *params):
+        # Not reusing the inherited displayDialog(): it hardcodes "Select one of items in
+        # the set", which is actively misleading here (multi-select already works via the
+        # dialog's default selectmode='extended' - Ctrl/Shift-click - the message just
+        # never says so). Same list-building logic otherwise, message text corrected.
+        inputParam, outputParam = self.getInputOutput(form)
+        protocol = form.protocol
+        try:
+            scipionSet = getattr(protocol, inputParam[0])
+            if isinstance(scipionSet, Pointer):
+                scipionSet = scipionSet.get()
+            listOfElements = self.getListOfElements(protocol, scipionSet)
+        except Exception as e:
+            print("ERROR: ", e)
+            return
+
+        finalList = [String(i) for i in listOfElements]
+        provider = ListTreeProviderString(finalList)
+        dlg = dialog.ListDialog(form.root, "Set items", provider,
+                                "Select 2 or more items in the set\n"
+                                "(Ctrl+Click or Shift+Click for multiple):")
+        if not dlg.values:
+            return
+        selected = [v.get().strip() for v in dlg.values]
+        form.setVar(outputParam[0], '\n'.join(selected))
+        if len(outputParam) > 1 and len(selected) > 0:
+            form.setVar(outputParam[1], selected[0])
+        if len(outputParam) > 2 and len(selected) > 1:
+            form.setVar(outputParam[2], selected[1])
+
+
+SelectMultiLigandsWizard().addTarget(protocol=GromacsPmxRBFE,
+                                targets=['selectedLigands'],
+                                inputs=['inputSetOfMols'],
+                                outputs=['selectedLigands', 'inputLigand', 'ligandB'])
 
 AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
                              targets=['insertStep'],

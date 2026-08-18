@@ -260,9 +260,42 @@ class TestGromacsPmxRBFE(TestGromacsPrepareSystem):
             GromacsPmxRBFE, nStructs=2, swTime=2.0, nvtTime=2.0, nptTime=4.0, nStepsMin=200)
         protRBFE.inputSetOfMols.set(protExtract)
         protRBFE.inputSetOfMols.setExtended('outputSmallMolecules')
+        protRBFE.selectedLigands.set(f'{molA}\n{molB}')
         protRBFE.inputLigand.set(molA)
         protRBFE.ligandB.set(molB)
         protRBFE.setObjLabel('gromacs - pmx RBFE (JNK1 18625-1 -> 18626-1)')
+
+        cls.launchProtocol(protRBFE)
+        return protRBFE
+
+    @classmethod
+    def _runImportJNK1TrioPDB(cls):
+        dsLig = DataSet.getDataSet('smallMolecules')
+        cls.protImportJNK1TrioPDB = cls.newProtocol(
+            ProtImportPdb, inputPdbData=1,
+            pdbFile=dsLig.getFile('FEP/jnk1_18624-1_18625-1_18626-1.pdb'))
+        cls.launchProtocol(cls.protImportJNK1TrioPDB)
+        return cls.protImportJNK1TrioPDB
+
+    @classmethod
+    def _runPmxRBFEChain(cls, protExtract):
+        # Real, published edges (see transformations_gaff2/edges.txt in pmx's own
+        # protLig_benchmark): 18626-1 is a hub with direct edges to both 18624-1 and
+        # 18625-1. Selected here out of selection order on purpose (18625-1 first) so
+        # that a real multi-edge run only reproduces this exact A->B->C chain if its own
+        # RDKit-similarity reordering (not just selection order) is actually being used.
+        molA = str(next(m for m in protExtract.outputSmallMolecules if 'L25' in m.getPoseFile()))
+        molB = str(next(m for m in protExtract.outputSmallMolecules if 'L26' in m.getPoseFile()))
+        molC = str(next(m for m in protExtract.outputSmallMolecules if 'L24' in m.getPoseFile()))
+
+        protRBFE = cls.newProtocol(
+            GromacsPmxRBFE, nStructs=2, swTime=2.0, nvtTime=2.0, nptTime=4.0, nStepsMin=200)
+        protRBFE.inputSetOfMols.set(protExtract)
+        protRBFE.inputSetOfMols.setExtended('outputSmallMolecules')
+        protRBFE.selectedLigands.set(f'{molA}\n{molB}\n{molC}')
+        protRBFE.inputLigand.set(molA)
+        protRBFE.ligandB.set(molB)
+        protRBFE.setObjLabel('gromacs - pmx RBFE (3-ligand chain, JNK1)')
 
         cls.launchProtocol(protRBFE)
         return protRBFE
@@ -273,8 +306,10 @@ class TestGromacsPmxRBFE(TestGromacsPrepareSystem):
             GromacsPmxRBFE, nStructs=2, swTime=2.0, nvtTime=2.0, nptTime=4.0, nStepsMin=200)
         protRBFE.inputSetOfMols.set(protExtract)
         protRBFE.inputSetOfMols.setExtended('outputSmallMolecules')
-        protRBFE.inputLigand.set('SmallMolecule (g1_1uaz_RET_255-1_1 molecule)')
-        protRBFE.ligandB.set('SmallMolecule (g1_1uaz_RET_255-1_1 molecule)')
+        retName = 'SmallMolecule (g1_1uaz_RET_255-1_1 molecule)'
+        protRBFE.selectedLigands.set(f'{retName}\n{retName}')
+        protRBFE.inputLigand.set(retName)
+        protRBFE.ligandB.set(retName)
         protRBFE.setObjLabel('gromacs - pmx RBFE (self-transform sanity check)')
 
         cls.launchProtocol(protRBFE)
@@ -298,6 +333,21 @@ class TestGromacsPmxRBFE(TestGromacsPrepareSystem):
         protRBFE = self._runPmxRBFESelfTransform(protExtract)
         self._waitOutput(protRBFE, 'outputSystem', sleepTime=10)
         self.assertIsNotNone(getattr(protRBFE, 'outputSystem', None))
+
+    def test3(self):
+        """3 ligands selected -> a 2-edge chain (see module docstring's real-edges note),
+        one 'outputSystem_edge<i>' output per edge."""
+        protImportJNK1Trio = self._runImportJNK1TrioPDB()
+        self._waitOutput(protImportJNK1Trio, 'outputPdb')
+
+        protExtract = self._runExtractLigand(protImportJNK1Trio, jnk1ChainStr)
+        self._waitOutput(protExtract, 'outputSmallMolecules')
+
+        protRBFE = self._runPmxRBFEChain(protExtract)
+        self._waitOutput(protRBFE, 'outputSystem_edge0', sleepTime=10)
+        self._waitOutput(protRBFE, 'outputSystem_edge1', sleepTime=10)
+        self.assertIsNotNone(getattr(protRBFE, 'outputSystem_edge0', None))
+        self.assertIsNotNone(getattr(protRBFE, 'outputSystem_edge1', None))
 
 
 class TestGromacsPmxABFE(TestGromacsPrepareSystem):
