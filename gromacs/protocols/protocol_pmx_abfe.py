@@ -80,9 +80,12 @@ class GromacsPmxABFE(GromacsSystemPrep):
     morph into/from - RBFE needs a shared scaffold (pmx atomMapping is
     MCS-based); ABFE evaluates one ligand's binding on its own.
 
-    Window counts default to small, fast-for-testing values, not to settings
-    tuned for production accuracy - the same scope note as GromacsPmxRBFE's
-    fast-growth snapshot/switching-time defaults.
+    Window counts and per-window simulation times default to the LOWER end of what's
+    commonly used in published ABFE work (2 ns production/window, 8 Coulomb + 12 van der
+    Waals decoupling windows) - a reasonable starting point for a real result, not just a
+    mechanical sanity check, but still computationally heavy (see _warnings) and still
+    worth raising for a more rigorous estimate. Tests override these with much smaller,
+    fast-for-testing values (see gromacs/tests/tests.py).
     """
     _label = 'pmx absolute binding free energy (ABFE)'
     stepsExecutionMode = params.STEPS_PARALLEL
@@ -141,16 +144,20 @@ class GromacsPmxABFE(GromacsSystemPrep):
         grp = form.addGroup('Equilibration (per window)')
         grp.addParam('nStepsMin', params.IntParam, default=10000, label='Max EM steps: ')
         grp.addParam('emTol', params.FloatParam, default=1000.0, label='EM max force objective: ')
-        grp.addParam('equilTime', params.FloatParam, default=50.0, label='Equilibration time (ps): ')
-        grp.addParam('prodTime', params.FloatParam, default=100.0, label='Production time (ps): ',
-                     help='dH/dl is collected throughout the production run of every window. '
-                          'DEFAULT IS FAST/EXPLORATORY, NOT PRODUCTION-QUALITY: 100 ps per window is '
-                          'enough to check that the setup/topology/lambda schedule are mechanically '
-                          'correct, but is far too short to trust the resulting dG. Published ABFE '
-                          'protocols typically use at least 2000-5000 ps (2-5 ns) per window, more '
-                          'for the van der Waals decoupling windows near the fully-decoupled end '
-                          'state where sampling is hardest. Raise this (and consider raising the '
-                          'window counts below too) before relying on the combined result.')
+        grp.addParam('equilTime', params.FloatParam, default=500.0, label='Equilibration time (ps): ',
+                     help='Per-window NPT equilibration before dH/dl collection starts, letting the '
+                          'system relax to that window\'s lambda value. 500 ps is a commonly-used '
+                          'lower bound for this (typical practice ranges roughly 100 ps-1 ns); raise '
+                          'it alongside "Production time" for a more defensible result.')
+        grp.addParam('prodTime', params.FloatParam, default=2000.0, label='Production time (ps): ',
+                     help='dH/dl is collected throughout the production run of every window. 2000 ps '
+                          '(2 ns) is the LOWER end of what published ABFE protocols typically use '
+                          '(2-5 ns per window, more for the van der Waals decoupling windows near the '
+                          'fully-decoupled end state where sampling is hardest) - a reasonable '
+                          'starting point for a real result, not just a mechanical sanity check, but '
+                          'still worth raising (see the window counts below too) for a more rigorous '
+                          'estimate, especially for larger/more lipophilic ligands. This is still '
+                          'computationally heavy at the default - see this protocol\'s warnings.')
         grp.addParam('temperature', params.FloatParam, default=300.0, label='Temperature (K): ')
         grp.addParam('pressure', params.FloatParam, default=1.0, label='Pressure (bar): ')
         grp.addParam('timeStep', params.FloatParam, default=0.002, expertLevel=params.LEVEL_ADVANCED,
@@ -163,21 +170,20 @@ class GromacsPmxABFE(GromacsSystemPrep):
                           '8 is a reasonable, commonly-used count for this leg - the restraint term '
                           'usually converges without needing as many windows as the decoupling legs '
                           'below.')
-        grp.addParam('nCoulWindows', params.IntParam, default=5,
+        grp.addParam('nCoulWindows', params.IntParam, default=8,
                      label='Decouple-leg Coulomb windows: ',
                      help='Windows turning the ligand\'s charges off (shared schedule for both '
-                          'decoupling legs). 5 is the low end of what\'s commonly used (electrostatic '
-                          'decoupling is usually smoother than van der Waals) - fine for a quick '
-                          'check, consider 8-10 for a more defensible result.')
-        grp.addParam('nVdwWindows', params.IntParam, default=8,
+                          'decoupling legs). Electrostatic decoupling is usually smoother than van '
+                          'der Waals, so 8 (the low end of the commonly-used 8-10 range) is a '
+                          'reasonable default; raise toward 10 for a more defensible result.')
+        grp.addParam('nVdwWindows', params.IntParam, default=12,
                      label='Decouple-leg van der Waals windows: ',
                      help='Windows turning the ligand\'s van der Waals interactions off, after '
                           'Coulomb. Van der Waals decoupling usually needs more/denser windows '
                           'than Coulomb to converge - this is the hardest-converging leg (worst '
-                          'phase-space overlap near the fully-decoupled state). DEFAULT IS FAST/'
-                          'EXPLORATORY: 8 is on the low side for a trustworthy result - 12-20 is the '
-                          'more commonly recommended range, especially for larger/more lipophilic '
-                          'ligands.')
+                          'phase-space overlap near the fully-decoupled state). 12 is the LOW end '
+                          'of the commonly-recommended 12-20 range - raise it, especially for '
+                          'larger/more lipophilic ligands, before trusting this leg\'s result.')
         grp.addParam('scAlpha', params.FloatParam, default=PMX_SC_ALPHA, expertLevel=params.LEVEL_ADVANCED,
                      label='Soft-core alpha: ')
         grp.addParam('scSigma', params.FloatParam, default=PMX_SC_SIGMA, expertLevel=params.LEVEL_ADVANCED,
@@ -581,6 +587,19 @@ class GromacsPmxABFE(GromacsSystemPrep):
             if self.inputLigand.get() not in names:
                 errors.append(f'Ligand "{self.inputLigand.get()}" not found in the input set of molecules.')
         return errors
+
+    def _warnings(self):
+        ws = []
+        nWindows = self.nRestrWindows.get() + 2 * self._nDecoupleWindows()
+        totalNs = nWindows * (self.equilTime.get() + self.prodTime.get()) / 1000.0
+        ws.append(f'This will run {nWindows} independent equilibrium windows across the 3 legs '
+                  f'(restrain + decouple_bound + decouple_free), each with its own EM + '
+                  f'{self.equilTime.get():.0f} ps equilibration + {self.prodTime.get():.0f} ps '
+                  f'production ({totalNs:.1f} ns of MD in total, though windows run in parallel '
+                  'up to your available threads/GPUs) - absolute binding free energy is '
+                  'computationally heavy and substantially more so if you raise window counts or per-window '
+                  'time for a more rigorous estimate.')
+        return ws
 
     def _summary(self):
         summary = []
