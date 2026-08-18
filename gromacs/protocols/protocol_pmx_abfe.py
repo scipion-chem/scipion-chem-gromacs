@@ -439,7 +439,14 @@ class GromacsPmxABFE(GromacsSystemPrep):
             gpuStr = f' -nb gpu -gpu_id {gpuList}'
         else:
             gpuStr = ' -nb cpu'
-        command = f'mdrun -v -deffnm {deffnm}{gpuStr} -nt {self.numberOfThreads.get()}'
+        # -ntmpi 1 (all requested threads as OpenMP, not thread-MPI ranks): a bare -nt leaves
+        # gmx to auto-guess a rank count, and on a high-core-count machine it can pick more
+        # thread-MPI ranks than a small box supports - confirmed for real on a 64-thread remote
+        # run, where decouple_free (ligand alone in solvent - by far the smallest of the three
+        # ABFE legs) failed outright ("no domain decomposition ... compatible with ... minimum
+        # cell size"). A single rank never needs domain decomposition, sidestepping this
+        # regardless of window/box size.
+        command = f'mdrun -v -deffnm {deffnm}{gpuStr} -ntmpi 1 -ntomp {self.numberOfThreads.get()}'
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
 
     def _failedFlagPath(self, leg, i):

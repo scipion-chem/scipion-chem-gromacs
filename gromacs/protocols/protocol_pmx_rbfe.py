@@ -1112,7 +1112,15 @@ class GromacsPmxRBFE(GromacsSystemPrep):
             gpuStr = f' -nb gpu -gpu_id {gpuList}'
         else:
             gpuStr = ' -nb cpu'
-        command = f'mdrun -v -deffnm {deffnm}{gpuStr} -nt {self.numberOfThreads.get()}'
+        # -ntmpi 1 (all requested threads as OpenMP, not thread-MPI ranks): a bare -nt leaves
+        # gmx to auto-guess a rank count, and on a high-core-count machine it can pick more
+        # thread-MPI ranks than a small box supports - confirmed for real (GromacsPmxABFE hit
+        # this exact failure on its own small ligand-alone-in-solvent leg on a 64-thread remote
+        # run: "no domain decomposition ... compatible with ... minimum cell size"). This
+        # protocol's own water leg (ligand alone in solvent, no protein) is the same kind of
+        # small box, so it's equally exposed. A single rank never needs domain decomposition,
+        # sidestepping this regardless of window/box size.
+        command = f'mdrun -v -deffnm {deffnm}{gpuStr} -ntmpi 1 -ntomp {self.numberOfThreads.get()}'
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=stageDir)
 
     def equilibrateStateStep(self, leg, state):
