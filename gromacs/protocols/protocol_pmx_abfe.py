@@ -261,22 +261,22 @@ class GromacsPmxABFE(GromacsSystemPrep):
         return self._getPath(f'{self.getSystemName()}_protein.gro')
 
     # -- 1. pmx abfe --build --------------------------------------------------------
+    # pmx abfe --build's automatic Boresch restraint-atom selection can pick a degenerate
+    # (duplicate or collinear) atom for the ligand's 3 restraint anchor atoms - confirmed for
+    # real, twice, on the same small/symmetric ligand (benzene): grompp fails with "Duplicate
+    # atom index in dihedrals" for EVERY window of both the restrain and decouple_bound legs
+    # (they all share this one complex.top), traced to a literal "nan" reference angle in one
+    # of the restraint's 3 injected dihedral terms - a geometrically undefined dihedral from an
+    # atom repeated within its own i-j-k-l quadruple. This is seed-dependent (confirmed: two
+    # separate runs of the identical ligand/receptor, default seed=-1 each time, got a good
+    # draw once and a bad one once) - so it's caught here, right after the cheap setup call,
+    # and retried with a fresh seed before any of the (potentially dozens of) expensive
+    # per-window MD steps downstream ever start, all of which would otherwise fail identically.
+    N_ABFE_SETUP_ATTEMPTS = 5
+
     def runAbfeSetupStep(self):
         abfeDir = self._getExtraPath(ABFE_DIR)
         os.makedirs(abfeDir, exist_ok=True)
-
-        # pmx abfe --build unconditionally os.mkdir()s 'complex'/'ligand' in cwd and
-        # writes complex.top/ligand.itp/restraints.info etc alongside them - it is not
-        # safe to re-invoke over its own previous (partial or full) output, which is
-        # exactly what happens on a step retry after a failure. Clear any leftovers from
-        # a prior attempt first so this step is actually idempotent.
-        for name in ('complex', 'ligand'):
-            shutil.rmtree(os.path.join(abfeDir, name), ignore_errors=True)
-        for name in ('complex.gro', 'complex.top', 'ligand.itp', 'posre_ligand.itp',
-                     'restraints.info'):
-            fpath = os.path.join(abfeDir, name)
-            if os.path.exists(fpath):
-                os.remove(fpath)
 
         molName = self.getLigandName()
         ligItp = os.path.abspath(self.getLigandPath(f'{molName}_GMX.itp'))
@@ -284,12 +284,58 @@ class GromacsPmxABFE(GromacsSystemPrep):
         proteinTop = os.path.abspath(self._proteinTopFile())
         proteinGro = os.path.abspath(self._proteinGroFile())
 
-        args = (f'-pt {proteinTop} -lt {ligItp} -pc {proteinGro} -lc {ligGro} --build')
-        if self.seed.get() is not None and self.seed.get() >= 0:
-            args += f' --seed {self.seed.get()}'
+        baseArgs = f'-pt {proteinTop} -lt {ligItp} -pc {proteinGro} -lc {ligGro} --build'
         if not self.restrSwitchOn.get():
-            args += ' --restr_switch_on'  # store_false flag: passing it flips to False
-        gromacsPlugin.runPmx(self, 'abfe', args, cwd=abfeDir)
+            baseArgs += ' --restr_switch_on'  # store_false flag: passing it flips to False
+
+        userSeed = self.seed.get()
+        hasFixedSeed = userSeed is not None and userSeed >= 0
+        # Only auto-retry-with-a-different-seed when the user left this at -1 ("let pmx pick").
+        # A user-pinned seed is presumably already verified (e.g. via manual iteration) or
+        # chosen for reproducibility - silently trying other seeds behind their back would
+        # defeat that; fail loudly instead if their exact chosen seed is degenerate.
+        attempts = 1 if hasFixedSeed else self.N_ABFE_SETUP_ATTEMPTS
+
+        complexTop = os.path.join(abfeDir, 'complex', 'complex.top')
+        for attempt in range(1, attempts + 1):
+            # pmx abfe --build unconditionally os.mkdir()s 'complex'/'ligand' in cwd and
+            # writes complex.top/ligand.itp/restraints.info etc alongside them - it is not
+            # safe to re-invoke over its own previous (partial or full) output. Clear any
+            # leftovers from a prior attempt first so this step is actually idempotent.
+            for name in ('complex', 'ligand'):
+                shutil.rmtree(os.path.join(abfeDir, name), ignore_errors=True)
+            for name in ('complex.gro', 'complex.top', 'ligand.itp', 'posre_ligand.itp',
+                         'restraints.info'):
+                fpath = os.path.join(abfeDir, name)
+                if os.path.exists(fpath):
+                    os.remove(fpath)
+
+            args = baseArgs + (f' --seed {userSeed}' if hasFixedSeed else '')
+            gromacsPlugin.runPmx(self, 'abfe', args, cwd=abfeDir)
+
+            if not self._hasDegenerateRestraint(complexTop):
+                return
+            if attempt < attempts:
+                self.warning(f'runAbfeSetupStep attempt {attempt}/{attempts}: pmx abfe --build '
+                            f'produced a degenerate Boresch restraint (a "nan" bonded-term '
+                            f'parameter in complex.top - typically a duplicate/collinear atom '
+                            f'in its automatic restraint-atom selection, more likely for small/'
+                            f'symmetric ligands) - retrying with a fresh random seed.')
+
+        raise RuntimeError(
+            f'pmx abfe --build produced a degenerate Boresch restraint ("nan" in complex.top) '
+            f'after {attempts} attempt(s). Every window in the restrain/decouple_bound legs '
+            f'shares this topology and would fail identically at grompp ("Duplicate atom index '
+            f'in dihedrals").' + ('' if not hasFixedSeed else
+            f' A fixed seed ({userSeed}) was set, so no retry was attempted - try a different '
+            f'seed value.'))
+
+    @staticmethod
+    def _hasDegenerateRestraint(complexTop):
+        if not os.path.exists(complexTop):
+            return True
+        with open(complexTop) as f:
+            return 'nan' in f.read().lower()
 
     def _legDir(self, leg):
         return self._getExtraPath(ABFE_DIR, 'complex' if leg != DECOUPLE_FREE else 'ligand')
