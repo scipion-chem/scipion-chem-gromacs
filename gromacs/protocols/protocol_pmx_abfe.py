@@ -103,6 +103,10 @@ class GromacsPmxABFE(GromacsSystemPrep):
                        expertLevel=params.LEVEL_ADVANCED,
                        label='Choose GPU IDs',
                        help='Add a list of GPU devices that can be used (Comma separated)')
+        # ABFE is always ligand-vs-nothing (no second structure/ligand involved), same as
+        # GromacsPmxRBFE: the AtomStruct-only input mode doesn't apply, so it's hidden.
+        form.addHidden('inputFrom', params.EnumParam, choices=['AtomStruct', 'SetOfSmallMolecules'],
+                       default=LIGAND)
 
         form.addSection(label=Message.LABEL_INPUT)
         form.addParam('inputSetOfMols', params.PointerParam, pointerClass='SetOfSmallMolecules',
