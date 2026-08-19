@@ -103,10 +103,6 @@ class GromacsPmxABFE(GromacsSystemPrep):
                        expertLevel=params.LEVEL_ADVANCED,
                        label='Choose GPU IDs',
                        help='Add a list of GPU devices that can be used (Comma separated)')
-        # ABFE is always ligand-vs-nothing (no second structure/ligand involved), same
-        # as GromacsPmxRBFE: the AtomStruct-only input mode doesn't apply, so it's hidden.
-        form.addHidden('inputFrom', params.EnumParam, choices=['AtomStruct', 'SetOfSmallMolecules'],
-                       default=LIGAND)
 
         form.addSection(label=Message.LABEL_INPUT)
         form.addParam('inputSetOfMols', params.PointerParam, pointerClass='SetOfSmallMolecules',
@@ -452,24 +448,45 @@ class GromacsPmxABFE(GromacsSystemPrep):
     def _failedFlagPath(self, leg, i):
         return os.path.abspath(self._getExtraPath(f'.failed_{leg}_{i}.flag'))
 
+    # Equilibration (not production - see productionWindowStep) gets one automatic retry on
+    # failure. Confirmed for real (a real remote ABFE run's decouple_bound windows 17/18): a
+    # window can die mid-equilibration from a rare, sudden local event - e.g. water rushing
+    # into the cavity a ligand was occupying as it nears full decoupling - a genuinely
+    # stochastic failure, not a deterministic setup problem, since equilibration always starts
+    # with freshly-drawn velocities (gen_vel=yes, gen_seed=-1 - a real, different velocity draw
+    # every time grompp writes a new .tpr, even from identical starting positions). One retry is
+    # a low-cost, low-risk way to recover from bad luck without silently truncating the leg's
+    # BAR chain over what may well not reproduce. Production is NOT retried the same way: it
+    # continues deterministically from equil.cpt (continuation=yes), so retrying with no change
+    # would just reproduce the identical failure.
+    N_EQUIL_ATTEMPTS = 2
+
     def equilibrateWindowStep(self, leg, i):
         wDir = self._windowDir(leg, i)
         os.makedirs(wDir, exist_ok=True)
         topFile = self._legTopFile(leg)
         startGro = self._legStartGro(leg)
 
-        try:
-            emMdp = self._writeAbfeMdp(os.path.join(wDir, 'em.mdp'), leg, i, 'em')
-            self._runGrompp(wDir, emMdp, startGro, topFile, 'em')
-            self._runMdrun(wDir, 'em')
+        for attempt in range(1, self.N_EQUIL_ATTEMPTS + 1):
+            try:
+                emMdp = self._writeAbfeMdp(os.path.join(wDir, 'em.mdp'), leg, i, 'em')
+                self._runGrompp(wDir, emMdp, startGro, topFile, 'em')
+                self._runMdrun(wDir, 'em')
 
-            eqMdp = self._writeAbfeMdp(os.path.join(wDir, 'equil.mdp'), leg, i, 'equil')
-            self._runGrompp(wDir, eqMdp, os.path.join(wDir, 'em.gro'), topFile, 'equil')
-            self._runMdrun(wDir, 'equil')
-        except Exception as e:
-            self.warning(f'Equilibration failed for leg {leg} window {i}: {e}')
-            with open(self._failedFlagPath(leg, i), 'w') as fh:
-                fh.write(str(e) + '\n')
+                eqMdp = self._writeAbfeMdp(os.path.join(wDir, 'equil.mdp'), leg, i, 'equil')
+                self._runGrompp(wDir, eqMdp, os.path.join(wDir, 'em.gro'), topFile, 'equil')
+                self._runMdrun(wDir, 'equil')
+                return
+            except Exception as e:
+                if attempt < self.N_EQUIL_ATTEMPTS:
+                    self.warning(f'Equilibration failed for leg {leg} window {i} (attempt '
+                                f'{attempt}/{self.N_EQUIL_ATTEMPTS}): {e} - retrying once with '
+                                f'a fresh random velocity draw before giving up on this window.')
+                else:
+                    self.warning(f'Equilibration failed for leg {leg} window {i} after '
+                                f'{self.N_EQUIL_ATTEMPTS} attempts: {e}')
+                    with open(self._failedFlagPath(leg, i), 'w') as fh:
+                        fh.write(str(e) + '\n')
 
     def productionWindowStep(self, leg, i):
         if os.path.exists(self._failedFlagPath(leg, i)):
@@ -527,6 +544,15 @@ class GromacsPmxABFE(GromacsSystemPrep):
         gromacsPlugin.runGromacs(self, 'gmx', command, cwd=anDir)
 
     # -- 6. Output -----------------------------------------------------------------
+    def _legWindowUsage(self, leg):
+        """(used, total) window counts for a leg's BAR chain. `used` can be less than `total`
+        if a window failed partway through the schedule - see _legDhdlFiles: gmx bar needs an
+        unbroken adjacent-window chain, so everything from the first failure onward is dropped,
+        not just the failed window itself. Surfaced here (not just as a transient step-log
+        warning) so a truncated, less-trustworthy leg result is never mistaken for a complete
+        one just by reading results.txt/the summary."""
+        return len(self._legDhdlFiles(leg)), self._legWindowCount(leg)
+
     def createOutputStep(self):
         dGRestraints = self._parseRestraintsDG()
         legResults = {}
@@ -538,14 +564,20 @@ class GromacsPmxABFE(GromacsSystemPrep):
         for leg in LEGS:
             dg, err = legResults[leg]
             errStr = f' +/- {err}' if err is not None else ''
-            summaryLines.append(f'dG_{leg} = {dg}{errStr} kJ/mol')
+            used, total = self._legWindowUsage(leg)
+            usageStr = (f'  [WARNING: only {used}/{total} windows used - a window failed and '
+                       f'everything from that point in the schedule was dropped (gmx bar needs '
+                       f'an unbroken adjacent-window chain); treat this leg\'s result as less '
+                       f'trustworthy, especially if the missing windows are near the '
+                       f'fully-decoupled end of the schedule]' if used < total else '')
+            summaryLines.append(f'dG_{leg} = {dg}{errStr} kJ/mol{usageStr}')
 
         dGTotal = None
         if dGRestraints is not None and all(legResults[leg][0] is not None for leg in LEGS):
             dGTotal = (legResults[RESTRAIN][0] + legResults[DECOUPLE_BOUND][0]
                       - legResults[DECOUPLE_FREE][0] - dGRestraints)
             summaryLines.append(f'dG_bind = dG_restrain + dG_decouple_bound - dG_decouple_free '
-                               f'- dG_restraints = {dGTotal} kJ/mol')
+                               f'- dG_restraints = {dGTotal:.2f} kJ/mol')
         else:
             summaryLines.append('dG_bind could not be computed: one or more legs/terms are missing.')
 
