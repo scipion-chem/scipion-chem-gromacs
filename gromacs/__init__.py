@@ -63,6 +63,7 @@ class Plugin(pwchemPlugin):
 
 		# Installing packages
 		cls.addGromacs(env, modifiedProcs)
+		cls.addGmxMMPBSA(env)
 
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
@@ -105,6 +106,28 @@ class Plugin(pwchemPlugin):
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
 
 	@classmethod
+	def addGmxMMPBSA(cls, env, default=True):
+		""" This function installs gmx_MMPBSA in a dedicated conda environment. """
+
+		installer = InstallHelper(GMXMMPBSA_DIC['name'],
+		                          packageHome=cls.getVar(GMXMMPBSA_DIC['home']),
+		                          packageVersion=GMXMMPBSA_DIC['version'])
+
+		envName = cls.getEnvName(GMXMMPBSA_DIC)
+		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
+
+		pipCmd = (f"bash -c '{activation} && "
+		           f"pip install \"pyqt6==6.7.1\" gmx_MMPBSA=={GMXMMPBSA_DIC['version']}'")
+		installer \
+			.addCommand(f'conda create -y -c conda-forge --name {envName} python=3.11.8 '
+		                'mpi4py=4.0.1 "ambertools<=23.3" numpy=1.26.4 matplotlib=3.7.3 '
+		                'scipy=1.14.1 pandas=1.5.3 seaborn=0.11.2 "gromacs<=2023.4" '
+		                'pocl git pip', 'GMXMMPBSA_ENV_CREATED') \
+			.addCommand(pipCmd, 'GMXMMPBSA_GMX_INSTALLED') \
+			.addPackage(env, dependencies=['conda', 'pip', 'git'], default=default)
+
+	@classmethod
 	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False, **kwargs):
 		""" Run Gromacs command from a given protocol. """
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
@@ -126,6 +149,23 @@ class Plugin(pwchemPlugin):
 		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
 		print('Running: ', program, args)
 		subprocess.check_call(program + args, cwd=cwd, shell=True)
+
+	@classmethod
+	def runGMXMMPBSA(cls, protocol, program='gmx_MMPBSA', args=None, cwd=None, numberOfMpi=1):
+		""" Run gmx_MMPBSA command from a given protocol. """
+
+		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+		mpiPrefix = 'mpirun -np {} '.format(numberOfMpi) if numberOfMpi > 1 else ''
+		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
+
+		print('Running: ', fullProgram, args)
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
+
+	@classmethod
+	def getGMXMMPBSAEnvActivation(cls):
+		""" Return the shell command to activate the gmx_MMPBSA conda environment. """
+		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
 
 	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):

@@ -299,9 +299,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       outStr = f'{inStr}\n; Include ligand topology\n#include "{molName}_GMX.itp"\n'
       replaceInFile(topFile, inStr, outStr)
 
-      emptyStr = ' ' * (20-len(molName))
       inStr = '; Compound        #mols\nProtein_chain_A     1'
-      outStr = f'{inStr}\n{molName}{emptyStr}1'
+      outStr = f'{inStr}\n{molName} 1'
       replaceInFile(topFile, inStr, outStr)
 
     def parseGROFile(self, groFile):
@@ -341,6 +340,12 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             self.runPymol(self.addCapsPml(inputStructure, cappedPdb, mode), self._getExtraPath())
             self.fixPdbTER(cappedPdb)
             inputStructure = cappedPdb
+
+        # Chains that share residue numbers (e.g. two chains both numbered 1-99) would break the output
+        # analysis. Detect that overlap and, only then, renumber the residues continuously.
+        if self.chainsHaveOverlappingResNumbers(inputStructure):
+            renumberedPdb = os.path.abspath(self._getExtraPath(f'{systemBasename}_renumbered.pdb'))
+            inputStructure = self.renumberResiduesPDB(inputStructure, renumberedPdb)
 
         Waterff = GROMACS_WATERFF_NAME[self.waterForceField.get()]
         Mainff = GROMACS_MAINFF_NAME[self.mainForceField.get()]
@@ -457,6 +462,11 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         if self.inputFrom.get() == LIGAND:
             molName = self.getLigandName()
             ligName = molName.split('_')[-1]
+
+            # use LIG when molName has not PDB res name style
+            if ligName.isdigit() or len(ligName) != 3:
+                ligName = 'LIG'
+
             groSystem.setLigandID(ligName)
             groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
         else:
@@ -552,15 +562,13 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       if not inputStructure.endswith('.pdb'):
         inputPdb = self.getInputPDBFile(inputStructure)
         if not os.path.exists(inputPdb):
-          inputStructure = self.convertReceptor2PDB(inputStructure)
+          inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
       return inputStructure
 
-    def convertReceptor2PDB(self, proteinFile):
+    def convertReceptor2PDB(self, proteinFile, oFile):
         _, inExt = os.path.splitext(os.path.basename(proteinFile))
-        oFile = self.getInputPDBFile(proteinFile)
-        args = ' -i {} {} -opdb -O {}'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
+        args = ' -i {} {} -opdb -O {} -d'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
         runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
         return oFile
 
     def getInputPDBFile(self, proteinFile):
@@ -629,7 +637,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     def getModelChains(self):
         inputStructure = self.getInputReceptorFile()
         if not inputStructure.endswith('.pdb'):
-          inputStructure = self.convertReceptor2PDB(inputStructure)
+            inputPdb = self.getInputPDBFile(inputStructure)
+            inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
 
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
@@ -645,7 +654,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             inputStructure = self.getInputReceptorFile()
 
         if not inputStructure.endswith('.pdb'):
-            inputStructure = self.convertReceptor2PDB(inputStructure)
+            inputPdb = self.getInputPDBFile(inputStructure)
+            inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
 
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
@@ -787,6 +797,43 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         with open(pdbPath, 'w') as f:
             f.writelines(fixedLines)
+
+    def chainsHaveOverlappingResNumbers(self, inPdb):
+        """Return True if two or more chains share at least one residue number (e.g. two chains both
+        numbered 1-99). """
+        parser = PDB.PDBParser(QUIET=True)
+        model = next(iter(parser.get_structure('protein', inPdb)))
+        seen = set()
+        for chain in model:
+            # res.id is (hetero-flag, residue_number, insertion_code); res.id[1] is the residue number
+            chainNums = {res.id[1] for res in chain}
+            if seen & chainNums:
+                return True
+            seen |= chainNums
+        return False
+
+    def renumberResiduesPDB(self, inPdb, outPdb):
+        """Renumber the residues of a PDB continuously across all chains so that, after merging the chains
+        with "gmx pdb2gmx -merge all", the resulting .gro does not contain repeated residue numbers.
+        """
+        parser = PDB.PDBParser(QUIET=True)
+        structure = parser.get_structure('protein', inPdb)
+        # Renumber only the first model (the one pdb2gmx will read)
+        model = next(iter(structure))
+        residues = list(model.get_residues())
+        startNum = residues[0].id[1]
+        # Two loops are required so we first park every residue at a temporary number
+        # (100000 + i), guaranteed free and far above any real residue number, and then assign the final.
+        for i, res in enumerate(residues):
+            res.id = (res.id[0], 100000 + i, ' ')
+        for offset, res in enumerate(residues):
+            res.id = (res.id[0], startNum + offset, ' ')
+
+        io = PDB.PDBIO()
+        io.set_structure(structure)
+        io.save(outPdb)
+        self._log.info(f'Residues renumbered continuously into {outPdb}')
+        return outPdb
 
     def countSSBonds(self, inputStructure, waterff='spc', mainff='amber03'):
         """
