@@ -384,6 +384,14 @@ class GromacsPmxABFE(GromacsSystemPrep):
                   'coulombtype      = PME\n'
                   'rcoulomb         = 1.0\n'
                   'rvdw             = 1.0\n'
+                  # DispCorr defaults to "no" in GROMACS if unset, silently dropping a real
+                  # long-range vdW energy/pressure tail correction beyond rvdw - the same real
+                  # gap GromacsPmxRBFE's own mdp writer already fixed for this exact reason.
+                  # Missing this matters most for the vdW-decoupling legs specifically: the
+                  # quantity being measured IS a vdW energy difference, so an uncorrected
+                  # long-range tail is a systematic error directly in the answer, not just a
+                  # minor energy/pressure bookkeeping detail.
+                  'DispCorr         = EnerPres\n'
                   'pbc              = xyz\n'
                   'constraints      = h-bonds\n'
                   'constraint_algorithm = lincs\n')
