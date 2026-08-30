@@ -43,9 +43,97 @@ from gromacs.objects import GromacsSystem
 class GromacsModifySystem(EMProtocol):
     """
     This protocol modifies a gromacs system trajectory and/or coordinates:
-        - Cleans from waters and ions
-        - Subsamples trajectory and applies filters
-        - Fits trajectory to initial structure
+    
+    AI Generated:
+
+        GromacsModifySystem
+
+        Overview
+        --------
+        This protocol modifies a GROMACS system by processing its structure and/or
+        trajectory to prepare it for analysis, visualization, or further simulation.
+
+        It provides tools for cleaning, fitting, cutting, subsampling, and filtering
+        trajectories, enabling flexible post-processing of molecular dynamics data.
+
+        Inputs
+        ------
+        gromacsSystem:
+            A GROMACS system containing:
+            - Structure file (GRO/PDB)
+            - Topology (TOP)
+            - Optional trajectory (XTC/TRR)
+
+        Workflow
+        --------
+        1. Structure preparation
+           - Optionally removes waters and ions
+           - Generates a cleaned structure containing only the protein
+           - Uses GROMACS index and editconf tools
+
+        2. Trajectory preprocessing
+           - Loads input trajectory if available
+           - Applies transformations using trjconv
+
+        3. Cleaning (optional)
+           - Removes solvent and ions from trajectory
+           - Keeps only selected atom groups (e.g., protein)
+
+        4. Fitting (optional)
+           - Aligns trajectory to reference structure
+           - Supports multiple fitting modes:
+             - rotation + translation
+             - translation only
+             - progressive fitting
+
+        5. Cutting (optional)
+           - Extracts a time window from trajectory
+           - Allows selection of start and end times
+           - Supports multiple time units (fs, ps, ns, etc.)
+
+        6. Subsampling (optional)
+           - Reduces number of frames
+           - Keeps one frame every N steps
+
+        7. Filtering (optional)
+           - Applies signal filtering to trajectory:
+             - Low-pass filtering (smoothing)
+             - High-pass filtering (removing slow motions)
+           - May include fitting if required
+
+        8. Output generation
+           - Writes cleaned structure file
+           - Writes processed trajectory file
+           - Builds updated GromacsSystem object
+
+        Output
+        ------
+        outputSystem:
+            GromacsSystem containing:
+            - Cleaned structure file
+            - Original topology
+            - Modified trajectory (if available)
+            - Updated trajectory metadata
+
+        Summary
+        -------
+        This protocol enables flexible post-processing of molecular dynamics data,
+        allowing:
+        - removal of solvent and ions
+        - trajectory alignment and centering
+        - extraction of specific time intervals
+        - reduction of trajectory size via subsampling
+        - signal filtering for noise reduction or motion analysis
+        - preparation of trajectories for downstream analysis
+
+        Notes
+        -----
+        - Requires a trajectory for most operations (fitting, filtering, subsampling)
+        - Cleaning affects both structure and trajectory consistency
+        - High-pass filtering may require trajectory fitting
+        - Large trajectories may require significant processing time
+        - Compatible with standard GROMACS tools (trjconv, filter)
+    
     """
     _label = 'System modification'
 
