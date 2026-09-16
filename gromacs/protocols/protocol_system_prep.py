@@ -29,7 +29,7 @@
 """
 This module will prepare the system for the simulation
 """
-import os, subprocess, shutil
+import os, subprocess, shutil, uuid
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
@@ -567,8 +567,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def convertReceptor2PDB(self, proteinFile, oFile):
         _, inExt = os.path.splitext(os.path.basename(proteinFile))
-        args = ' -i {} {} -opdb -O {} -d'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
+        tmpOFile = '{}.{}.tmp'.format(oFile, uuid.uuid4().hex)
+        args = ' -i {} {} -opdb -O {} -d'.format(inExt[1:], os.path.abspath(proteinFile), tmpOFile)
         runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+        os.replace(tmpOFile, oFile)
         return oFile
 
     def getInputPDBFile(self, proteinFile):
