@@ -165,7 +165,6 @@ class GromacsModifySystem(EMProtocol):
 
     def createOutputStep(self):
       outSystem = GromacsSystem()
-      outSystem.setOriStructFile(self.getCleanStructureFile())
       outSystem.setSystemFile(self.getCleanStructureFile())
       outSystem.setTopologyFile(self.gromacsSystem.get().getTopologyFile())
       if self.gromacsSystem.get().getTrajectoryFile():
