@@ -751,9 +751,9 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         """Remove the chains holding no protein / nucleic residue, typically a metal ion that the PDB
         converter placed in a chain of its own"""
         for model in structureHandler.structure:
-            for chain in list(model):
-                if not any(self.isPolymerResidue(res) for res in chain):
-                    model.detach_child(chain.id)
+            nonPolymerIds = [chain.id for chain in model if not any(self.isPolymerResidue(res) for res in chain)]
+            for chainId in nonPolymerIds:
+                model.detach_child(chainId)
 
     @staticmethod
     def isPolymerResidue(residue):

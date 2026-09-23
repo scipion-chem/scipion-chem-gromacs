@@ -209,23 +209,27 @@ class Plugin(pwchemPlugin):
 			return []
 
 		for rtpFile in os.listdir(ffDir):
-			if not rtpFile.endswith('.rtp'):
-				continue
-
-			inResidue, inAtoms, atomTypes = False, False, []
-			with open(join(ffDir, rtpFile)) as f:
-				for line in f:
-					line = line.strip()
-					if line.startswith('['):
-						section = line[1:-1].strip()
-						if inResidue and section != 'atoms':
-							return atomTypes
-						inResidue, inAtoms = inResidue or section == resName, section == 'atoms'
-					elif inResidue and inAtoms and line and not line.startswith(';'):
-						atomTypes.append(line.split()[1])
-			if atomTypes:
-				return atomTypes
+			if rtpFile.endswith('.rtp'):
+				atomTypes = cls.parseRtpAtomTypes(join(ffDir, rtpFile), resName)
+				if atomTypes:
+					return atomTypes
 		return []
+
+	@classmethod
+	def parseRtpAtomTypes(cls, rtpFile, resName):
+		""" Atom types of the '[ atoms ]' block of the resName entry of a single .rtp file. """
+		inResidue, inAtoms, atomTypes = False, False, []
+		with open(rtpFile) as f:
+			for line in f:
+				line = line.strip()
+				if line.startswith('['):
+					section = line[1:-1].strip()
+					if inResidue and section != 'atoms':
+						break
+					inResidue, inAtoms = inResidue or section == resName, section == 'atoms'
+				elif inResidue and inAtoms and line and not line.startswith(';'):
+					atomTypes.append(line.split()[1])
+		return atomTypes
 
 	@classmethod
 	def getForceFieldsWithResidues(cls, resNames):
