@@ -33,16 +33,26 @@ information such as name and number of residues.
 """
 
 # Imports
-import json
+import json, os, re
+from Bio import PDB
 from pyworkflow.gui import ListTreeProviderString, dialog
+import pyworkflow.object as pwobj
 
 from pwem.objects import Pointer, String
 
+from pwchem.utils import groupConsecutiveIdxs
+from pwchem.utils import pdbFromASFile
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
     WatchElementWizard
-from pwchem.utils import groupConsecutiveIdxs
 
-from ..protocols.protocol_MD_simulation import *
+from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+from gromacs.protocols.protocol_system_prep import STRUCTURE, LIGAND
+from gromacs import Plugin as gromacsPlugin
+
+SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
+                                targets=['inputLigand'],
+                                inputs=['inputSetOfMols'],
+                                outputs=['inputLigand'])
 
 AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
                              targets=['insertStep'],
@@ -65,15 +75,10 @@ class GromacsCheckIndexWizard(VariableWizard):
 
     def show(self, form, *params):
         protocol = form.protocol
-        inputParam, outputParam = self.getInputOutput(form)
+        _, outputParam = self.getInputOutput(form)
 
-        system = getattr(protocol, inputParam[0]).get()
-
-        outIndex = protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            groups = protocol.parseIndexFile(outIndex)
-        else:
-            groups = protocol.createIndexFile(system, inIndex=None, outIndex=outIndex)
+        indexFile = gromacsPlugin.ensureIndexFile(protocol)
+        groups = gromacsPlugin.parseIndexFile(protocol, indexFile)
 
         finalList = [String('-1: None')]
         for index, name in groups.items():
@@ -94,19 +99,27 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
 
     def show(self, form, *params):
         protocol = form.protocol
-        inputParam, outputParam = self.getInputOutput(form)
+        inputParam, _ = self.getInputOutput(form)
+        inpSystem = getattr(protocol, inputParam[0]).get()
 
-        system = getattr(protocol, inputParam[0]).get()
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
-
-        inCommand = getattr(protocol, inputParam[1]).get()
-        inCommand = ' '.join(protocol.translateNamesToIndexGroup(inCommand.split()))
-
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
-
+        inCommand = getattr(protocol, inputParam[1]).get().strip()
+        inCommand = inCommand.replace('"', '\\"')
+        try:
+            gromacsPlugin.createIndexFile(
+                protocol,
+                inpSystem,
+                inputCommands=[inCommand],
+                inIndex=inIndex,
+                outIndex=outIndex
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"GROMACS make_ndx failed! Please check the syntax explained in help.\n\n"
+                f"Attempted command: {inCommand}\n"
+                f"Details: {str(e)}"
+            ) from e
 
 GromacsCustomIndexWizard().addTarget(protocol=GromacsMDSimulation,
                                targets=['restraintCommand'],
@@ -134,7 +147,7 @@ class SelectChainWizardGromacs(VariableWizard):
 
         finalChainList = []
         for i in chainList:
-          finalChainList.append(pwobj.String('Chain: ' + i))
+          finalChainList.append(String('Chain: ' + i))
         provider = ListTreeProviderString(finalChainList)
         dlg = dialog.ListDialog(form.root, "Model chains", provider,
                               "Select one of the chains (model, chain, "
@@ -156,36 +169,50 @@ class SelectResidueWizardGromacs(VariableWizard):
                 prev.append(val)
         return prev
 
-    def parseTopoResidues(self, topFile, chains):
-        '''Returns the residues as {chainName: {resIdx: resType, resIdx2: resType2}, ....,
-        chainName2: {}, ...}'''
-        inAtoms, prevIdx = False, None
-        resDic, chainIdx = {c: {} for c in chains}, 0
+    def parseTopoResidues(self, topFile, chains, chainLengths):
+        resDic = {c: {} for c in chains}
+
+        # Create the iterator and set the initial state
+        chainLimits = iter(zip(chains, chainLengths))
+        currChain, targetLen = next(chainLimits, (None, 0))
+
+        inAtoms = False
+
         with open(topFile) as f:
             for line in f:
-                chainStr = chains[chainIdx]
-                if inAtoms:
-                    if line.startswith('; residue'):
-                        resIdx, resType = line.split()[2:4]
-                        if not prevIdx or int(resIdx) - 1 == prevIdx:
-                            resDic[chainStr][int(resIdx)] = resType
-                        else:
-                            chainIdx += 1
-                            resDic[chains[chainIdx]][int(resIdx)] = resType
-                        prevIdx = int(resIdx)
+                line = line.strip()
 
-                if not inAtoms and line.startswith('[ atoms ]'):
-                    inAtoms = True
-                elif inAtoms and not line.strip():
-                    break
+                if not line:
+                    continue
+
+                # Only parse inside [ atoms ]
+                if line.startswith('['):
+                    inAtoms = 'atoms' in line
+                    continue
+
+                # Parse residues
+                if inAtoms and line.startswith('; residue') and currChain:
+
+                    # 1. Switch to the next chain if the current one is full
+                    if len(resDic[currChain]) == targetLen:
+                        currChain, targetLen = next(chainLimits, (None, 0))
+
+                    # 2. Extract and assign the residue data
+                    parts = line.split()
+                    if len(parts) >= 4 and currChain:
+                        resIdx = int(parts[2])
+                        resType = parts[3]
+
+                        resDic[currChain][resIdx] = resType
         return resDic
 
     def getResidues(self, inputObj):
-        '''Returns the residues in the selected chain as [[resIdx, resType], ...., [resIdx, resType]]'''
+        """Returns all residues as {chain: {resIdx: resType}}."""
         chains = inputObj.getChainNames()
+        chainLengths = inputObj.getChainLengths()
         topFile = inputObj.getTopologyFile()
 
-        resDic = self.parseTopoResidues(topFile, chains)
+        resDic = self.parseTopoResidues(topFile, chains, chainLengths)
         return resDic
 
     def show(self, form, *params):
@@ -210,7 +237,7 @@ class SelectResidueWizardGromacs(VariableWizard):
                               "Select one or several residues (residue number, "
                               "residue name)")
 
-        groups = protocol.parseIndexFile(protocol.getCustomIndexFile())
+        groups = gromacsPlugin.parseIndexFile(protocol, gromacsPlugin.ensureIndexFile(protocol))
         restraintStr = 'ResidueRestraint_{}: '.format(len(self.getPrevResidueRest(groups)))
 
         if len(dlg.values) == 1 and dlg.values[0].get() == ALL_RES:
@@ -221,7 +248,7 @@ class SelectResidueWizardGromacs(VariableWizard):
         else:
             idxsDic = {ch: [] for ch in inputObj.getChainNames()}
             for val in dlg.values:
-                if not val.get() == ALL_RES:
+                if val.get() != ALL_RES:
                     idxsDic[json.loads(val.get())['chain']].append(json.loads(val.get())['index'])
 
             for ch in idxsDic:
@@ -252,19 +279,18 @@ class AddROIRestraintWizard(VariableWizard):
         return roi
 
     def createROIRestraintIndex(self, system, roi, protocol):
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
         #  Creating index for atoms in ROI
         atomGroups = groupConsecutiveIdxs(roi.getDecodedCAtoms())
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        groups = gromacsPlugin.parseIndexFile(protocol, outIndex)
 
         # Renaming ROI index to ROI name
         roiIdx, roiName = list(groups.keys())[-1], roi.__str__().replace(' ', '_')
         inCommand = 'name {} {}'.format(roiIdx, roiName)
-        protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=outIndex, outIndex=outIndex)
         return roiIdx, roiName
 
     def show(self, form, *params):
@@ -276,7 +302,7 @@ class AddROIRestraintWizard(VariableWizard):
         newSet = getattr(protocol, inputParams[1]).get()
         newId = newSet.getObjId()
 
-        if not newId in prevIds:
+        if newId not in prevIds:
             newIndex = len(prevPointers)
             prevPointers.append(Pointer(newSet))
         else:
@@ -286,7 +312,7 @@ class AddROIRestraintWizard(VariableWizard):
         roiName = getattr(protocol, inputParams[2]).get()
         roi = self.getSelectedROI(prevPointers, newIndex, roiName)
         system = getattr(protocol, inputParams[0]).get()
-        roiIdx, roiName = self.createROIRestraintIndex(system, roi, protocol)
+        _, roiName = self.createROIRestraintIndex(system, roi, protocol)
 
 AddROIRestraintWizard().addTarget(protocol=GromacsMDSimulation,
                                   targets=['restraintROIInfo'],
@@ -296,37 +322,53 @@ AddROIRestraintWizard().addTarget(protocol=GromacsMDSimulation,
 class AddResidueRestraintWizard(SelectResidueWizardGromacs):
     _targets, _inputs, _outputs = [], {}, {}
 
-    def parseTopoAtoms(self, topFile, chains):
-        '''Returns the residues as
-        {chainName: {resIdx: atoms, resIdx2: atoms2}, chainName2: {resIdx: atoms, ...}, ...}'''
-        inAtoms, prevIdx = False, None
-        resDic, chainIdx = {c: {} for c in chains}, 0
+    def parseTopoAtoms(self, topFile, chains, chainLengths):
+        '''Returns the atoms grouped by residue as
+        {chainName: {resIdx: [atomId1, atomId2, ...]}, ...}'''
+        resDic = {c: {} for c in chains}
+
         with open(topFile) as f:
             for line in f:
-                chainStr = chains[chainIdx]
-                if inAtoms:
-                    if line.startswith('; residue'):
-                        resIdx = line.split()[2]
-                        if not prevIdx or int(resIdx) - 1 == prevIdx:
-                            resDic[chainStr][int(resIdx)] = []
-                        else:
-                            chainIdx += 1
-                            resDic[chains[chainIdx]][int(resIdx)] = []
-                        prevIdx = int(resIdx)
-                    elif line.strip() and not line.startswith(';'):
-                        resDic[chainStr][prevIdx].append(int(line.split()[0]))
-
-                if not inAtoms and line.startswith('[ atoms ]'):
-                    inAtoms = True
-                elif inAtoms and not line.strip():
+                if line.startswith('[ atoms ]'):
                     break
+
+            self.processAtomsBlock(f, chains, chainLengths, resDic)
         return resDic
+
+    def processAtomsBlock(self, fileObj, chains, chainLengths, resDic):
+        """Parses the atoms block line by line using guard clauses."""
+        chainLimits = iter(zip(chains, chainLengths))
+        currChain, targetLen = next(chainLimits, (None, 0))
+        currRes = None
+
+        for line in fileObj:
+            line = line.strip()
+
+            if not line:
+                break
+
+            if line.startswith('; residue'):
+                if not currChain:
+                    continue
+
+                if len(resDic[currChain]) == targetLen:
+                    currChain, targetLen = next(chainLimits, (None, 0))
+
+                if currChain:
+                    currRes = int(line.split()[2])
+                    resDic[currChain][currRes] = []
+                continue
+
+            if line.startswith(';') or not currChain or currRes is None:
+                continue
+
+            atomId = int(line.split()[0])
+            resDic[currChain][currRes].append(atomId)
 
     def getResDic(self, resStr):
         resDic = {}
-        for chain_res in resStr.split()[1:]:
-            print('Chain_res: ', chain_res)
-            ch, res = chain_res.split('_')
+        for chainRes in resStr.split()[1:]:
+            ch, res = chainRes.split('_')
             resDic[ch] = res
         return resDic
 
@@ -340,12 +382,11 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
 
     def createResiduesRestraintIndex(self, system, resDic, protocol):
         chains = system.getChainNames()
+        chainLengths = system.getChainLengths()
         topFile = system.getTopologyFile()
-        atomsDic = self.parseTopoAtoms(topFile, chains)
+        atomsDic = self.parseTopoAtoms(topFile, chains, chainLengths)
 
-        inIndex, outIndex = None, protocol.getCustomIndexFile()
-        if os.path.exists(outIndex):
-            inIndex = outIndex
+        inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
 
         # Mapping residues to atoms index
         atomList = []
@@ -361,25 +402,147 @@ class AddResidueRestraintWizard(SelectResidueWizardGromacs):
 
         atomGroups = groupConsecutiveIdxs(atomList)
         inCommand = ' | '.join(['a {}-{}'.format(ag[0], ag[-1]) for ag in atomGroups])
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=inIndex, outIndex=outIndex)
+
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=inIndex, outIndex=outIndex)
+        groups = gromacsPlugin.parseIndexFile(protocol, outIndex)
 
         # Renaming group
         restIdx, restName = list(groups.keys())[-1], 'ResidueRestraint_{}'.format(len(self.getPrevResidueRest(groups)))
         inCommand = 'name {} {}'.format(restIdx, restName)
-        groups = protocol.createIndexFile(system, inputCommands=[inCommand, ''], inIndex=outIndex, outIndex=outIndex)
+        gromacsPlugin.createIndexFile(protocol, system, inputCommands=[inCommand], inIndex=outIndex, outIndex=outIndex)
         return restIdx, restName
 
     def show(self, form, *params):
-        inputParams, outputParam = self.getInputOutput(form)
+        inputParams, _ = self.getInputOutput(form)
         protocol = form.protocol
 
         resStr = getattr(protocol, inputParams[1]).get()
         system = getattr(protocol, inputParams[0]).get()
         resDic = self.getResDic(resStr)
-        restIdx, restName = self.createResiduesRestraintIndex(system, resDic, protocol)
+        self.createResiduesRestraintIndex(system, resDic, protocol)
 
 AddResidueRestraintWizard().addTarget(protocol=GromacsMDSimulation,
                                   targets=['restraintResidueInfo'],
                                   inputs=['gromacsSystem', 'restrainResidue'],
                                   outputs=[])
 
+
+class SelectSSBondWIzard(VariableWizard):
+    _targets, _inputs, _outputs = [], {}, {}
+
+    def show(self, form, *params):
+        _, outputParams = self.getInputOutput(form)
+        protocol = form.protocol
+
+        # Detect SS bonds by running pdb2gmx in dry-run mode
+        outPath = os.path.abspath(protocol.getProject().getTmpPath('SS_info.log'))
+        inputStruct = self.getStructFile(protocol)
+        if not inputStruct:
+            dialog.showError("Missing Input",
+                             "Please select a valid input structure first.",
+                             form.root)
+            return
+
+        base, ext = os.path.splitext(os.path.basename(inputStruct))
+
+        # Only convert if the input is not already a PDB
+        if ext.lower() != '.pdb':
+            tmpPdbPath = os.path.abspath(protocol.getProject().getTmpPath(f'{base}_temp.pdb'))
+            pdbFile = pdbFromASFile(inputStruct, tmpPdbPath)
+        else:
+            pdbFile = inputStruct
+
+        ssBonds = self.detectSSBonds(pdbFile, outPath)
+
+        if not ssBonds:
+            dialog.showInfo("Disulfide Bonds",
+                            "No potential disulfide bonds detected in structure.",
+                            form.root)
+            return
+
+        # 1. Wrap the bond labels into pyworkflow String objects
+        bondStringList = [String(bond['label']) for bond in ssBonds]
+
+        # 2. Create the provider and the ListDialog
+        provider = ListTreeProviderString(bondStringList)
+        dlg = dialog.ListDialog(form.root, "Select Disulfide Bonds", provider,
+                                "Select which disulfide bonds to form\n(Ctrl+Click or Shift+Click for multiple):")
+
+        # 3. Process the selections if the user clicked OK and made a choice
+        if dlg.values:
+            selectedIndices = []
+            selectedLabels = [val.get() for val in dlg.values]
+
+            # Map the selected labels back to their original 0-based indices
+            for i, bond in enumerate(ssBonds):
+                if bond['label'] in selectedLabels:
+                    selectedIndices.append(str(i))
+
+            if selectedIndices:
+                form.setVar(outputParams[0], ','.join(selectedIndices))
+
+    def detectSSBonds(self, inputStructure, outputFile, waterff='spc', mainff='amber03'):
+        """
+        Run pdb2gmx with -ss to count how many SS bonds GROMACS detects.
+        Parse the output to extract the bond proposals.
+        """
+        maxBonds = self.maximumSSbonds(inputStructure)
+        params = f'pdb2gmx -f {inputStructure} -o test.gro -water {waterff} -ff {mainff} -merge all -ss -ignh' \
+               f' > {outputFile} 2>&1'
+
+        printfValues =['n'] * maxBonds
+        gromacsPlugin.runGromacsPrintfViewer(printfValues, params, cwd=os.path.dirname(outputFile))
+
+        # Parse the output to extract SS bond proposals
+        bonds = self.parseSSBondOutput(outputFile)
+        return bonds
+
+    def maximumSSbonds(self, inputStructure):
+        parser = PDB.PDBParser(QUIET=True)
+        structure = parser.get_structure("protein", inputStructure)
+        cysCount = sum(1 for residue in structure.get_residues()
+                        if residue.get_resname() in ['CYS', 'CYX'])
+        # Maximum possible bonds is = n*(n-1)/2
+        maxBonds = (cysCount * (cysCount - 1)) // 2
+        return maxBonds
+
+    def parseSSBondOutput(self, outputFile):
+        """
+        Parse GROMACS output to extract SS bond proposals.
+        Returns list of dicts: [{'cys1': 'CYS-3', 'cys2': 'CYS-40', 'label': 'CYS-3 and CYS-40']
+        """
+        with open(outputFile, 'r') as f:
+            content = f.read()
+        bonds = []
+        pattern = r'Link\s+(CYS-\d+)\s+SG-\d+\s+and\s+(CYS-\d+)\s+SG-\d+\s+\(y/n\)\s*\?'
+
+        for match in re.finditer(pattern, content):
+            cys1, cys2 = match.groups()
+            bonds.append({
+                'cys1': cys1,
+                'cys2': cys2,
+                'label': f"{cys1} and {cys2}"
+            })
+
+        return bonds
+
+    def getStructFile(self, protocol):
+        """
+        Extracts the absolute path of the receptor depending on whether
+        the input is a SetOfSmallMolecules or an AtomStruct.
+        """
+        if protocol.inputFrom.get() == LIGAND:
+            inputObj = protocol.inputSetOfMols.get()
+            if inputObj:
+                return os.path.abspath(inputObj.getProteinFile())
+        else:
+            inputObj = protocol.inputStructure.get()
+            if inputObj:
+                return os.path.abspath(inputObj.getFileName())
+
+        return None
+
+SelectSSBondWIzard().addTarget(protocol=GromacsSystemPrep,
+                                  targets=['selectSSBonds'],
+                                  inputs=['inputFrom'],
+                                  outputs=['selectSSBonds'])

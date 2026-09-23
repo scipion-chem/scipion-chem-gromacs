@@ -63,7 +63,7 @@ class GromacsImportSystem(EMProtocol):
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        self._insertFunctionStep('createOutputStep')
+        self._insertFunctionStep(self.createOutputStep)
 
     def createOutputStep(self):
       outSystem = GromacsSystem()

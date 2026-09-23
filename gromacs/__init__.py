@@ -26,31 +26,35 @@
 
 # General imports
 import subprocess, multiprocessing
+import os
 from os.path import join
 
 # Scipion em imports
 import pwem
 from scipion.install.funcs import InstallHelper
-from pyworkflow.utils import redStr, yellowStr
+from pyworkflow.utils import redStr, yellowStr, Environ
 
 # Plugin imports
+from pwchem import Plugin as pwchemPlugin
+
 from .objects import *
 from .constants import *
 
 _logo = "gromacs_logo.png"
+__version__ = '1.0.0'
 _references = ['Abraham2015']
 
-class Plugin(pwem.Plugin):
+class Plugin(pwchemPlugin):
 	_homeVar = GROMACS_DIC['home']
 	_pathVars = [GROMACS_DIC['home']]
-	_supportedVersions = [V2020, V2021]
+	_supportedVersions = [V2020, V2021, V2026]
 	_gromacsName = GROMACS_DIC['name'] + '-' + GROMACS_DIC['version']
 
 	@classmethod
 	def _defineVariables(cls):
 		""" Return and write a variable in the config file. """
 		cls._defineEmVar(GROMACS_DIC['home'], cls._gromacsName)
-	
+
 	@classmethod
 	def defineBinaries(cls, env):
 		""" This function defines all the packages that will be installed. """
@@ -59,7 +63,8 @@ class Plugin(pwem.Plugin):
 
 		# Installing packages
 		cls.addGromacs(env, modifiedProcs)
-	
+		cls.addGmxMMPBSA(env)
+
 	@classmethod
 	def addGromacs(cls, env, modifiedProcs, default=True):
 		""" This function installs Gromacs's package. """
@@ -90,7 +95,7 @@ class Plugin(pwem.Plugin):
 			.getExtraFile('http://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-feb2021.ff.tgz', 'CHARM_DOWNLOADED', location=charmInnerLocation, fileName=charmFileName)\
 			.addCommand(f'tar -xf {charmFileName}', 'CHARM_EXTRACTED', workDir=charmInnerLocation)\
 			.addCommand(f'mkdir {normalInnerLocation} {mpiInnerLocation}', 'BUILD_DIRS_MADE')\
-			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3', 
+			.addCommand(f'cmake .. -DGMX_BUILD_OWN_FFTW=ON -DREGRESSIONTEST_DOWNLOAD=ON -DGMX_GPU=CUDA -DCMAKE_CUDA_ARCHITECTURES=native -DCMAKE_INSTALL_PREFIX={cls.getVar(GROMACS_DIC["home"])}/install -DGMX_FFT_LIBRARY=fftw3',
 	       				'GROMACS_BUILT', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED', workDir=normalInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED', workDir=normalInnerLocation)\
@@ -99,14 +104,46 @@ class Plugin(pwem.Plugin):
 			.addCommand(f'make -j{env.getProcessors()}', 'GROMACS_COMPILED' + mpiExt, workDir=mpiInnerLocation)\
 			.addCommand(f'make -j{env.getProcessors()} install', 'GROMACS_INSTALLED' + mpiExt, workDir=mpiInnerLocation)\
 			.addPackage(env, dependencies=['wget', 'tar', 'cmake', 'make'], default=default)
-		
+
+	@classmethod
+	def addGmxMMPBSA(cls, env, default=True):
+		""" This function installs gmx_MMPBSA in a dedicated conda environment. """
+
+		installer = InstallHelper(GMXMMPBSA_DIC['name'],
+		                          packageHome=cls.getVar(GMXMMPBSA_DIC['home']),
+		                          packageVersion=GMXMMPBSA_DIC['version'])
+
+		envName = cls.getEnvName(GMXMMPBSA_DIC)
+		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
+
+		pipCmd = (f"bash -c '{activation} && "
+		           f"pip install \"pyqt6==6.7.1\" gmx_MMPBSA=={GMXMMPBSA_DIC['version']}'")
+		installer \
+			.addCommand(f'conda create -y -c conda-forge --name {envName} python=3.11.8 '
+		                'mpi4py=4.0.1 "ambertools<=23.3" numpy=1.26.4 matplotlib=3.7.3 '
+		                'scipy=1.14.1 pandas=1.5.3 seaborn=0.11.2 "gromacs<=2023.4" '
+		                'pocl git pip', 'GMXMMPBSA_ENV_CREATED') \
+			.addCommand(pipCmd, 'GMXMMPBSA_GMX_INSTALLED') \
+			.addPackage(env, dependencies=['conda', 'pip', 'git'], default=default)
+
 	@classmethod
 	def runGromacs(cls, protocol, program='gmx', args='', cwd=None, mpi=False, **kwargs):
 		""" Run Gromacs command from a given protocol. """
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
 
 	@classmethod
-	def runGromacsPrintf(cls, printfValues, args, cwd, mpi=False):
+	def runGromacsPrintf(cls, protocol, printfValues, args, cwd, mpi=False):
+		""" Run Gromacs command with interactive printf input via Scipion's runJob. """
+		printfValues = list(map(str, printfValues))
+		gmxBin = cls.getGromacsBin(mpi=mpi)
+		fullProgram = 'printf "{}\\n" | {}'.format('\\n'.join(printfValues), gmxBin)
+
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1)
+
+	@classmethod
+	def runGromacsPrintfViewer(cls, printfValues, args, cwd, mpi=False):
 		""" Run Gromacs command from a given protocol. """
 		printfValues = list(map(str, printfValues))
 		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
@@ -114,13 +151,30 @@ class Plugin(pwem.Plugin):
 		subprocess.check_call(program + args, cwd=cwd, shell=True)
 
 	@classmethod
+	def runGMXMMPBSA(cls, protocol, program='gmx_MMPBSA', args=None, cwd=None, numberOfMpi=1):
+		""" Run gmx_MMPBSA command from a given protocol. """
+
+		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+		mpiPrefix = 'mpirun -np {} '.format(numberOfMpi) if numberOfMpi > 1 else ''
+		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
+
+		print('Running: ', fullProgram, args)
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
+
+	@classmethod
+	def getGMXMMPBSAEnvActivation(cls):
+		""" Return the shell command to activate the gmx_MMPBSA conda environment. """
+		return cls.getEnvActivationCommand(GMXMMPBSA_DIC)
+
+	@classmethod
 	def getGromacsBin(cls, program='gmx', mpi=False):
 		mpiExt = '_mpi' if mpi else ''
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
 
-	@classmethod  # Test that
+	@classmethod
 	def getEnviron(cls):
-		pass
+		return Environ(os.environ)
 
 	@classmethod
 	def _getGromacsDownloadUrl(cls):
@@ -131,6 +185,7 @@ class Plugin(pwem.Plugin):
 	def checkRequirements(cls, env):
 		""" This function checks if the software requirements are being met. """
 		cls.checkCMakeVersion()
+		cls.checkCudaVersion()
 		return cls.defineProcessors(env)
 
 	@classmethod
@@ -179,9 +234,136 @@ class Plugin(pwem.Plugin):
 			cmakVersion = result.split('\n')[0].split()[-1]
 
 			# Checking if installed version is below minimum required
-			if CMAKE_MINIMUM_VERSION and (cls.versionTuple(cmakVersion) < cls.versionTuple(CMAKE_MINIMUM_VERSION)):
-				raise Exception(redStr(f"Your CMake version ({cmakVersion}) is below {CMAKE_MINIMUM_VERSION}.\nPlease update your CMake version by following the instructions at {cmakeInstallURL}"))
+			if CMAKE_MINIMUM_VERSION_V26 and (cls.versionTuple(cmakVersion) < cls.versionTuple(CMAKE_MINIMUM_VERSION_V26)):
+				raise Exception(redStr(f"Your CMake version ({cmakVersion}) is below {CMAKE_MINIMUM_VERSION_V26}.\nPlease update your CMake version by following the instructions at {cmakeInstallURL}"))
 		except FileNotFoundError:
 			raise FileNotFoundError(redStr(f"CMake is not installed.\nPlease install your CMake version by following the instructions at {cmakeInstallURL}"))
 		except Exception:
 			raise Exception(redStr("Can not get the cmake version.\nPlease visit https://github.com/I2PC/xmipp/wiki/Cmake-troubleshoting"))
+
+	@classmethod
+	def parseIndexFile(cls, protocol, indexFile):
+		groups, index = {}, 0
+		with open(indexFile) as f:
+			for line in f:
+				if line.startswith('['):
+					groups[index] = line.replace('[', '').replace(']', '').strip()
+					index += 1
+		return groups
+
+	@classmethod
+	def translateNamesToIndexGroup(cls, protocol, names):
+		"""Translate group name(s) to their numeric index in the index file."""
+		indexFile = cls.ensureIndexFile(protocol)
+		groups = cls.parseIndexFile(protocol, indexFile)
+		invGroups = {v: k for k, v in groups.items()}
+		return [invGroups.get(name, name) for name in names]
+
+	@classmethod
+	def createIndexFile(cls, protocol, system, inIndex=None, outIndex=None, inputCommands=None):
+		if inputCommands is None:
+			inputCommands = ['q']
+		outIndex = protocol._getExtraPath('indexes.ndx') if not outIndex else outIndex
+		outDir = (os.path.dirname(outIndex))
+		inIndex = f' -n {os.path.abspath(inIndex)}' if inIndex else ''
+		command = f'make_ndx -f {os.path.abspath(system.getSystemFile())}{inIndex} -o {os.path.abspath(outIndex)}'
+
+		if inputCommands[-1] != 'q':
+			inputCommands.append('q')
+		cls.runGromacsPrintfViewer(printfValues=inputCommands, args=command, cwd=outDir)
+		return outIndex
+
+	@classmethod
+	def ensureIndexFile(cls, protocol):
+		"""Return the protocol index file, creating it first if it does not exist.
+        """
+		indexFile = cls.getCustomIndexFile(protocol)
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		indexFile = protocol._getExtraPath('indexes.ndx')
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		inpSystem = protocol.gromacsSystem.get()
+		indexFile = inpSystem.getIndexFile()
+		if os.path.exists(indexFile):
+			return os.path.abspath(indexFile)
+		if not os.path.exists(indexFile):
+			indexFile = cls.firstIndexCreation(protocol, inpSystem)
+		return os.path.abspath(indexFile)
+
+	@classmethod
+	def getCustomIndexFile(cls, protocol):
+		inputSystem = protocol.gromacsSystem.get()
+		inputId = inputSystem.getObjId()
+		return protocol.getProject().getTmpPath(f'{inputId}_custom_indexes.ndx')
+
+	@classmethod
+	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
+		indexCommands = []
+
+		if ligandName is not None:
+			indexCommands.append('1 | 13')
+			indexFile = cls.createIndexFile(protocol, groSystem, inputCommands=indexCommands)
+		else:
+			# Create basic index file with default GROMACS groups
+			indexFile = cls.createIndexFile(protocol, groSystem)
+
+		if modelChains is not None and chainLengths is not None and len(modelChains) > 1:
+			# Parse existing index file to find the last group number
+			groups = cls.parseIndexFile(protocol, indexFile)
+			lastGroupIndex = max(groups.keys())
+
+			indexCommands = []
+			residuePointer = 1
+
+			for chainId in modelChains:
+				chainLength = chainLengths[chainId]
+				start = residuePointer
+				end = residuePointer + chainLength - 1
+
+				indexCommands.append(f'ri {start}-{end}')
+
+				residuePointer = end + 1
+
+			# Name each newly created group
+			for i, chainId in enumerate(modelChains):
+				groupNumber = lastGroupIndex + i + 1
+				indexCommands.append(f'name {groupNumber} chain{chainId}')
+
+			indexCommands.append('q')
+
+			# Create updated index file with per-chain groups
+			indexFile = cls.createIndexFile(
+				protocol, groSystem,
+				inIndex=os.path.abspath(indexFile),
+				inputCommands=indexCommands
+			)
+		return indexFile
+
+	@classmethod
+	def checkCudaVersion(cls):
+		"""
+        ### This function checks if the current installed CUDA version (nvcc) is above the minimum required version.
+        ### If no version is provided it just checks if nvcc is installed.
+        """
+		cudaInstallURL = 'https://developer.nvidia.com/cuda-downloads'
+		try:
+			# Getting CUDA version from nvcc
+			# nvcc output usually looks like: "nvcc: NVIDIA (R) Cuda compiler driver... release 12.1, V12.1.105"
+			result = subprocess.check_output(["nvcc", "--version"]).decode("utf-8")
+
+			lines = result.split('\n')
+			releaseLine = [line for line in lines if 'release' in line][0]
+			cudaVersion = releaseLine.split('release ')[1].split(',')[0]
+
+			# Checking if installed version is below minimum required
+			if CUDA_MINIMUM_VERSION_V26 and (cls.versionTuple(cudaVersion) < cls.versionTuple(CUDA_MINIMUM_VERSION_V26)):
+				raise Exception(redStr(
+					f"CUDA version ({cudaVersion}) is below {CUDA_MINIMUM_VERSION_V26}.\nPlease update your CUDA version or set your PATH to a newer version by following instructions at {cudaInstallURL}"))
+
+		except FileNotFoundError:
+			raise FileNotFoundError(redStr(
+				f"nvcc (CUDA) is not installed or not in your PATH.\n"
+				f"Please install CUDA >= {CUDA_MINIMUM_VERSION_V26} or update your PATH by following the instructions at {cudaInstallURL}"))
+		except Exception as e:
+			raise Exception(redStr(f"Cannot get the CUDA version: {str(e)}\nPlease check your CUDA installation."))

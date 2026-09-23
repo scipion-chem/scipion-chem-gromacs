@@ -98,8 +98,8 @@ class GromacsModifySystem(EMProtocol):
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        self._insertFunctionStep('modifySystem')
-        self._insertFunctionStep('createOutputStep')
+        self._insertFunctionStep(self.modifySystem)
+        self._insertFunctionStep(self.createOutputStep)
 
     def modifySystem(self):
         inputStructure = os.path.abspath(self.gromacsSystem.get().getFileName())
@@ -107,11 +107,11 @@ class GromacsModifySystem(EMProtocol):
 
         if self.cleaning:
             params = " make_ndx -f {} -o clean.ndx".format(os.path.abspath(inputStructure))
-            gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'q'],
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'q'],
                                            args=params, cwd=self._getPath())
 
             params = " editconf -f {} -n clean.ndx -o {}".format(inputStructure, self.getCleanStructureFile())
-            gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'q'],
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'q'],
                                            args=params, cwd=self._getPath())
         else:
             shutil.copy(inputStructure, self.getCleanStructureFile())
@@ -141,7 +141,7 @@ class GromacsModifySystem(EMProtocol):
 
             if extraArgs:
                 convArgs += extraArgs
-                gromacsPlugin.runGromacsPrintf(printfValues=['Protein', 'Protein'],
+                gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'Protein'],
                                                args=convArgs, cwd=self._getPath())
             else:
                 auxTrj = inputTrajectory
@@ -154,7 +154,7 @@ class GromacsModifySystem(EMProtocol):
                 filterArgs += self.getFilteringArgs(self.getCleanTrajectoryFile(), self.getCleanStructureFile())
 
                 if '-fit' in filterArgs:
-                    gromacsPlugin.runGromacsPrintf(printfValues=['Protein'],
+                    gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein'],
                                                    args=filterArgs, cwd=self._getPath())
                 else:
                     gromacsPlugin.runGromacs(self, args=filterArgs, cwd=self._getPath())

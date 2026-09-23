@@ -29,6 +29,7 @@
 import os, shutil
 from subprocess import check_call
 import pyworkflow.object as pwobj
+import pwem.objects.data as data
 
 from pwchem.objects import MDSystem
 from gromacs.constants import *
@@ -46,8 +47,13 @@ class GromacsSystem(MDSystem):
         self._restrFile = pwobj.String(kwargs.get('restrFile', None))
         self._tprFile = pwobj.String(kwargs.get('tprFile', None))
         self._indexFile = pwobj.String(kwargs.get('indexFile', None))
+        self._oriStructFile = pwobj.String(kwargs.get('oriStructFile', None))
+
+        self._freeEnergy = pwobj.Float(kwargs.get('freeEnergy', None))
+        self._freeEnergyFile = pwobj.String(kwargs.get('freeEnergyFile', None))
 
         self._chainNames = pwobj.String(kwargs.get('chainNames', None))
+        self._chainLengths = pwobj.String(kwargs.get('chainLengths', None))
 
         self._firstFrame = pwobj.Integer(kwargs.get('firstFrame', None))
         self._lastFrame = pwobj.Integer(kwargs.get('lastFrame', None))
@@ -65,10 +71,18 @@ class GromacsSystem(MDSystem):
     def getChainNames(self):
         return self._chainNames.get().split(',')
     def setChainNames(self, values):
-        if type(values) == str:
+        if isinstance(values, str):
             self._chainNames.set(values)
         elif type(values) in [list, tuple]:
             self._chainNames.set(','.join(values))
+
+    def getChainLengths(self):
+        return [int(x) for x in self._chainLengths.get().split(',')]
+    def setChainLengths(self, values):
+        if isinstance(values, str):
+            self._chainLengths.set(values)
+        elif type(values) in [list, tuple]:
+            self._chainLengths.set(','.join(map(str, values)))
 
     def getFrameIdxs(self):
         return self._firstFrame, self._lastFrame
@@ -123,16 +137,36 @@ class GromacsSystem(MDSystem):
         value = os.path.relpath(value)
         self._indexFile.set(value)
 
-    def defineNewRestriction(self, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
+    def getFreeEnergy(self):
+        return self._freeEnergy.get()
+
+    def setFreeEnergy(self, value):
+        value = float(value)
+        self._freeEnergy.set(value)
+
+    def getFreeEnergyFile(self):
+        return self._freeEnergyFile.get()
+
+    def setFreeEnergyFile(self, value):
+        value = os.path.relpath(value)
+        self._freeEnergyFile.set(value)
+
+    def getOriStructFile(self):
+        return self._oriStructFile.get()
+
+    def setOriStructFile(self, value):
+        self._oriStructFile.set(value)
+
+    def defineNewRestriction(self, protocol, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
         from gromacs import Plugin as gromacsPlugin
         outDir = os.path.dirname(self.getSystemFile()) if not outDir else outDir
 
         nArg = ' -n {}'.format(indexFile) if indexFile else ''
-        params_genrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
+        paramsGenrestr = 'genrestr -f %s%s -o %s.itp -fc %d %d %d' % \
                           (os.path.abspath(self.getSystemFile()), nArg,
                            'posre_' + restraintSuffix.lower(), energy, energy, energy)
-        gromacsPlugin.runGromacsPrintf(printfValues=index, args=params_genrestr, cwd=outDir)
+        gromacsPlugin.runGromacsPrintf(protocol, printfValues=index, args=paramsGenrestr, cwd=outDir)
 
         topFile = self.getTopologyFile()
         if outDir:
@@ -158,5 +192,3 @@ class GromacsSystem(MDSystem):
                 if line.startswith('[ molecules ]'):
                     mols = True
         return ionsDic
-
-
