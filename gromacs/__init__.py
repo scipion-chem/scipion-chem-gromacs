@@ -173,6 +173,102 @@ class Plugin(pwchemPlugin):
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
 
 	@classmethod
+	def getTopDir(cls):
+		""" Directory holding the force fields shipped with the installed Gromacs."""
+		gromacsHome = cls.getVar(GROMACS_DIC['home'])
+		return join(gromacsHome, 'install/share/gromacs/top') if gromacsHome else ''
+
+	@classmethod
+	def getForceFieldDir(cls, ff):
+		""" Directory of a given force field inside the installed Gromacs."""
+		return join(cls.getTopDir(), f'{ff}.ff')
+
+	@classmethod
+	def getForceFieldResidues(cls, ff):
+		""" Residue names defined by a force field """
+		resNames = set()
+		ffDir = cls.getForceFieldDir(ff)
+		if not os.path.isdir(ffDir):
+			return resNames
+
+		for rtpFile in os.listdir(ffDir):
+			if not rtpFile.endswith('.rtp'):
+				continue
+			with open(join(ffDir, rtpFile)) as f:
+				for line in f:
+					line = line.strip()
+					if line.startswith('[') and line.endswith(']'):
+						resNames.add(line[1:-1].strip())
+		return resNames
+
+	@classmethod
+	def getForceFieldResidueAtomTypes(cls, ff, resName):
+		""" Atom types a force field assigns to a residue, from the '[ atoms ]' block of its .rtp entry. """
+		ffDir = cls.getForceFieldDir(ff)
+		if not os.path.isdir(ffDir):
+			return []
+
+		for rtpFile in os.listdir(ffDir):
+			if not rtpFile.endswith('.rtp'):
+				continue
+
+			inResidue, inAtoms, atomTypes = False, False, []
+			with open(join(ffDir, rtpFile)) as f:
+				for line in f:
+					line = line.strip()
+					if line.startswith('['):
+						section = line[1:-1].strip()
+						if inResidue and section != 'atoms':
+							return atomTypes
+						inResidue, inAtoms = inResidue or section == resName, section == 'atoms'
+					elif inResidue and inAtoms and line and not line.startswith(';'):
+						atomTypes.append(line.split()[1])
+			if atomTypes:
+				return atomTypes
+		return []
+
+	@classmethod
+	def getForceFieldsWithResidues(cls, resNames):
+		""" Installed force fields defining every residue name in resNames. """
+		topDir = cls.getTopDir()
+		if not os.path.isdir(topDir):
+			return []
+
+		ffs = sorted(d[:-3] for d in os.listdir(topDir) if d.endswith('.ff'))
+		return [ff for ff in ffs if set(resNames).issubset(cls.getForceFieldResidues(ff))]
+
+	@classmethod
+	def getForceFieldWaterModels(cls, ff):
+		""" Water models a force field supports, from its watermodels.dat (what 'pdb2gmx -water' accepts). """
+		datFile = join(cls.getForceFieldDir(ff), 'watermodels.dat')
+		if not os.path.isfile(datFile):
+			return []
+
+		with open(datFile) as f:
+			return [line.split()[0] for line in f if line.strip() and not line.startswith(';')]
+
+	@classmethod
+	def getIonFittedWaterModel(cls, ff, resName):
+		""" Water model an ion's parameters were fitted for, taken from the water suffix its force field
+		gives the atom type (Zn2+_tip3p, Cu2+_opc...). Empty when the force field has a single set. """
+		for atomType in cls.getForceFieldResidueAtomTypes(ff, resName):
+			if '_' in atomType:
+				return atomType.rsplit('_', 1)[1]
+		return ''
+
+	@classmethod
+	def getForceFieldsForIons(cls, resNames, waterFF):
+		""" Installed force fields that define every residue in resNames, support the given water model and
+		parameterize those residues for it (or with a single water-independent set). """
+		ffs = []
+		for ff in cls.getForceFieldsWithResidues(resNames):
+			if waterFF not in cls.getForceFieldWaterModels(ff):
+				continue
+			if all(cls.getIonFittedWaterModel(ff, res) in ['', waterFF] for res in resNames):
+				ffs.append(ff)
+		return ffs
+
+	@classmethod
 	def getEnviron(cls):
 		return Environ(os.environ)
 
