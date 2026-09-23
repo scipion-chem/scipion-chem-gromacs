@@ -1,7 +1,7 @@
 name: Build & test plugin on Pull Request
 on:
   pull_request:
-    branches: [main]
+    branches: [main, devel]
 
 defaults:
   run:
