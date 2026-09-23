@@ -767,6 +767,7 @@ class GromacsMDSimulation(EMProtocol):
         return trjFiles
 
     def concatTrjFiles(self, outTrj, tprFile):
+        """Concatenate the trajectories of the stages and make broken molecules whole."""
         trjFiles = self.getTrjFiles()
         if len(trjFiles) > 0:
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
@@ -774,10 +775,10 @@ class GromacsMDSimulation(EMProtocol):
             command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
             gromacsPlugin.runGromacsPrintf(self, printfValues=['c'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
-            #Fixes and center trajectory
-            command = 'trjconv -s {} -f {} -center -ur compact -pbc mol -o {}'.\
+            #Makes broken molecules whole. trjconv -pbc whole asks only for the output group
+            command = 'trjconv -s {} -f {} -pbc whole -o {}'.\
               format(os.path.abspath(tprFile), tmpTrj, outTrj)
-            gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein', 'System'] * len(trjFiles),
+            gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
                                            args=command, cwd=self._getPath())
             return os.path.abspath(self._getPath(outTrj))
         return None
