@@ -159,18 +159,13 @@ class Plugin(pwchemPlugin):
 
 		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
 		mpiPrefix = 'mpirun -np {} '.format(numberOfMpi) if numberOfMpi > 1 else ''
-		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
+		# mmpbsa environment do not have the newest ff -- take the gromacs ff with export GMXDATA
+		exportGmxData = 'export GMXDATA={}'.format(shlex.quote(os.path.dirname(cls.getTopDir())))
+		fullProgram = '{} && {} && {}{}'.format(activation, exportGmxData, mpiPrefix, program)
 
 		print('Running: ', fullProgram, args)
-		protocol.runJob(fullProgram, args, env=cls.getMMPBSAEnviron(), cwd=cwd,
+		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
 		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
-
-	@classmethod
-	def getMMPBSAEnviron(cls):
-		""" mmpbsa environment do not have the newest ff -- take the gromacs ff """
-		env = cls.getEnviron()
-		env['GMXDATA'] = os.path.dirname(cls.getTopDir())
-		return env
 
 	@classmethod
 	def getGMXMMPBSAEnvActivation(cls):
