@@ -398,11 +398,32 @@ class Plugin(pwchemPlugin):
 		return protocol.getProject().getTmpPath(f'{inputId}_custom_indexes.ndx')
 
 	@classmethod
+	def getLigandResname(cls, ligTopFile, default='LIG'):
+		""" Residue name of a ligand, read from the '[ atoms ]' block of the topology ACPYPE wrote for it.		"""
+		if not ligTopFile or not os.path.isfile(ligTopFile):
+			return default
+
+		inAtoms = False
+		with open(ligTopFile) as f:
+			for line in f:
+				line = line.strip()
+				if line.startswith('['):
+					if inAtoms:
+						break
+					inAtoms = line.replace('[', '').replace(']', '').strip() == 'atoms'
+				elif inAtoms and line and not line.startswith(';'):
+					fields = line.split()
+					if len(fields) > 3:
+						return fields[3]
+					break
+		return default
+
+	@classmethod
 	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
 		indexCommands = []
 
-		if ligandName is not None:
-			indexCommands.append('1 | 13')
+		if ligandName:
+			indexCommands.append(f'"Protein" | "{ligandName}"')
 			indexFile = cls.createIndexFile(protocol, groSystem, inputCommands=indexCommands)
 		else:
 			# Create basic index file with default GROMACS groups

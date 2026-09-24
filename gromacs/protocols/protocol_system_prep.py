@@ -475,18 +475,17 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         if self.inputFrom.get() == LIGAND:
             molName = self.getLigandName()
-            ligName = molName.split('_')[-1]
+            ligTopFile = self._getPath(f'{molName}_GMX.itp')
 
-            # use LIG when molName has not PDB res name style
-            if ligName.isdigit() or len(ligName) != 3:
-                ligName = 'LIG'
+            # The residue name is read from the ligand topology
+            ligName = gromacsPlugin.getLigandResname(ligTopFile)
 
             groSystem.setLigandID(ligName)
-            groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
+            groSystem.setLigTopologyFile(ligTopFile)
         else:
-            molName = None
+            ligName = None
 
-        indexFile = gromacsPlugin.firstIndexCreation(self, groSystem, ligandName=molName, modelChains=chains, chainLengths=lengthsDic)
+        indexFile = gromacsPlugin.firstIndexCreation(self, groSystem, ligandName=ligName, modelChains=chains, chainLengths=lengthsDic)
 
         groSystem.setIndexFile(indexFile)
         self._defineOutputs(outputSystem=groSystem)
