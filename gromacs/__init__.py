@@ -25,7 +25,7 @@
 # **************************************************************************
 
 # General imports
-import subprocess, multiprocessing
+import subprocess, multiprocessing, shlex
 import os
 from os.path import join
 
@@ -133,20 +133,23 @@ class Plugin(pwchemPlugin):
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
 
 	@classmethod
+	def buildPrintfCommand(cls, printfValues, gmxBin):
+		""" Build 'printf <fmt> | <gmxBin>' as a properly shell-escaped pipeline"""
+		printfValues = list(map(str, printfValues))
+		fmt = '\\n'.join(printfValues) + '\\n'
+		return 'printf {} | {}'.format(shlex.quote(fmt), gmxBin)
+
+	@classmethod
 	def runGromacsPrintf(cls, protocol, printfValues, args, cwd, mpi=False):
 		""" Run Gromacs command with interactive printf input via Scipion's runJob. """
-		printfValues = list(map(str, printfValues))
-		gmxBin = cls.getGromacsBin(mpi=mpi)
-		fullProgram = 'printf "{}\\n" | {}'.format('\\n'.join(printfValues), gmxBin)
-
+		fullProgram = cls.buildPrintfCommand(printfValues, cls.getGromacsBin(mpi=mpi))
 		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
 		                numberOfMpi=1, numberOfThreads=1)
 
 	@classmethod
 	def runGromacsPrintfViewer(cls, printfValues, args, cwd, mpi=False):
 		""" Run Gromacs command from a given protocol. """
-		printfValues = list(map(str, printfValues))
-		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
+		program = cls.buildPrintfCommand(printfValues, cls.getGromacsBin(mpi=mpi)) + ' '
 		print('Running: ', program, args)
 		subprocess.check_call(program + args, cwd=cwd, shell=True)
 
@@ -159,8 +162,15 @@ class Plugin(pwchemPlugin):
 		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
 
 		print('Running: ', fullProgram, args)
-		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
+		protocol.runJob(fullProgram, args, env=cls.getMMPBSAEnviron(), cwd=cwd,
 		                numberOfMpi=1, numberOfThreads=1, executable='/bin/bash')
+
+	@classmethod
+	def getMMPBSAEnviron(cls):
+		""" mmpbsa environment do not have the newest ff -- take the gromacs ff """
+		env = cls.getEnviron()
+		env['GMXDATA'] = os.path.dirname(cls.getTopDir())
+		return env
 
 	@classmethod
 	def getGMXMMPBSAEnvActivation(cls):
