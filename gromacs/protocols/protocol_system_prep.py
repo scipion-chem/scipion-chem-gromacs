@@ -29,7 +29,7 @@
 """
 This module will prepare the system for the simulation
 """
-import os, subprocess, shutil
+import os, subprocess, shutil, uuid
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
@@ -61,6 +61,8 @@ GROMACS_GROMOS53A5 = 12
 GROMACS_GROMOS53A6 = 13
 GROMACS_GROMOS54A7 = 14
 GROMACS_OPLSAA = 15
+GROMACS_AMBER14SB = 16
+GROMACS_AMBER19SB = 17
 
 GROMACS_MAINFF_NAME = dict()
 GROMACS_MAINFF_NAME[GROMACS_AMBER03] = 'amber03'
@@ -79,6 +81,8 @@ GROMACS_MAINFF_NAME[GROMACS_GROMOS53A5] = 'gromos53a5'
 GROMACS_MAINFF_NAME[GROMACS_GROMOS53A6] = 'gromos53a6'
 GROMACS_MAINFF_NAME[GROMACS_GROMOS54A7] = 'gromos54a7'
 GROMACS_MAINFF_NAME[GROMACS_OPLSAA] = 'oplsaa'
+GROMACS_MAINFF_NAME[GROMACS_AMBER14SB] = 'amber14sb'
+GROMACS_MAINFF_NAME[GROMACS_AMBER19SB] = 'amber19sb'
 
 GROMACS_LIST = [GROMACS_MAINFF_NAME[GROMACS_AMBER03], GROMACS_MAINFF_NAME[GROMACS_AMBER94],
                 GROMACS_MAINFF_NAME[GROMACS_AMBER96], GROMACS_MAINFF_NAME[GROMACS_AMBER99],
@@ -88,13 +92,18 @@ GROMACS_LIST = [GROMACS_MAINFF_NAME[GROMACS_AMBER03], GROMACS_MAINFF_NAME[GROMAC
                 GROMACS_MAINFF_NAME[GROMACS_GROMOS43A1], GROMACS_MAINFF_NAME[GROMACS_GROMOS43A2],
                 GROMACS_MAINFF_NAME[GROMACS_GROMOS45A3], GROMACS_MAINFF_NAME[GROMACS_GROMOS53A5],
                 GROMACS_MAINFF_NAME[GROMACS_GROMOS53A6], GROMACS_MAINFF_NAME[GROMACS_GROMOS54A7],
-                GROMACS_MAINFF_NAME[GROMACS_OPLSAA]]
+                GROMACS_MAINFF_NAME[GROMACS_OPLSAA],
+                GROMACS_MAINFF_NAME[GROMACS_AMBER14SB], GROMACS_MAINFF_NAME[GROMACS_AMBER19SB]]
+
+NUCLEIC_RESNAMES = {'A', 'C', 'G', 'U', 'T', 'DA', 'DC', 'DG', 'DT', 'DU'}
 
 GROMACS_SPC = 0
 GROMACS_SPCE = 1
 GROMACS_TIP3P = 2
 GROMACS_TIP4P = 3
 GROMACS_TIP5P = 4
+GROMACS_OPC = 5
+GROMACS_OPC3 = 6
 
 GROMACS_WATERFF_NAME = dict()
 GROMACS_WATERFF_NAME[GROMACS_SPC] = 'spc'
@@ -102,10 +111,16 @@ GROMACS_WATERFF_NAME[GROMACS_SPCE] = 'spce'
 GROMACS_WATERFF_NAME[GROMACS_TIP3P] = 'tip3p'
 GROMACS_WATERFF_NAME[GROMACS_TIP4P] = 'tip4p'
 GROMACS_WATERFF_NAME[GROMACS_TIP5P] = 'tip5p'
+GROMACS_WATERFF_NAME[GROMACS_OPC] = 'opc'
+GROMACS_WATERFF_NAME[GROMACS_OPC3] = 'opc3'
 
 GROMACS_WATERS_LIST = [GROMACS_WATERFF_NAME[GROMACS_SPC], GROMACS_WATERFF_NAME[GROMACS_SPCE],
 GROMACS_WATERFF_NAME[GROMACS_TIP3P], GROMACS_WATERFF_NAME[GROMACS_TIP4P],
-GROMACS_WATERFF_NAME[GROMACS_TIP5P]]
+GROMACS_WATERFF_NAME[GROMACS_TIP5P],
+GROMACS_WATERFF_NAME[GROMACS_OPC], GROMACS_WATERFF_NAME[GROMACS_OPC3]]
+
+WATER_BOXES = {'spc': 'spc216', 'spce': 'spc216', 'tip3p': 'spc216', 'opc3': 'spc216',
+               'tip4p': 'tip4p', 'tip4pew': 'tip4p', 'opc': 'tip4p', 'tip5p': 'tip5p'}
 
 STRUCTURE, LIGAND = 0, 1
 TOPOL_TOP = "topol.top"
@@ -209,7 +224,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def _defineFFParams(self, group):
         group.addParam('mainForceField', params.EnumParam, choices=GROMACS_LIST,
-                       default=GROMACS_AMBER03,
+                       default=GROMACS_AMBER14SB,
                        label='Main Force Field: ',
                        help='Force field applied to the system. Force fields are sets of potential functions and '
                             'parametrized interactions that can be used to study physical systems.')
@@ -400,11 +415,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         systemBasename = self.getSystemName()
 
         waterModel = self.getEnumText('waterForceField')
-        if waterModel in ['spc', 'spce', 'tip3p']:
-            waterModel = 'spc216'
+        waterBox = WATER_BOXES.get(waterModel, waterModel)
 
         params_solvate = ' solvate -cp %s_newbox.gro -cs %s.gro -o %s_solv.gro' \
-                         ' -p topol.top' % (systemBasename, waterModel, systemBasename)
+                         ' -p topol.top' % (systemBasename, waterBox, systemBasename)
 
         gromacsPlugin.runGromacs(self, 'gmx', params_solvate, cwd=self._getPath())
 
@@ -461,18 +475,17 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
         if self.inputFrom.get() == LIGAND:
             molName = self.getLigandName()
-            ligName = molName.split('_')[-1]
+            ligTopFile = self._getPath(f'{molName}_GMX.itp')
 
-            # use LIG when molName has not PDB res name style
-            if ligName.isdigit() or len(ligName) != 3:
-                ligName = 'LIG'
+            # The residue name is read from the ligand topology
+            ligName = gromacsPlugin.getLigandResname(ligTopFile)
 
             groSystem.setLigandID(ligName)
-            groSystem.setLigTopologyFile(self._getPath(f'{molName}_GMX.itp'))
+            groSystem.setLigTopologyFile(ligTopFile)
         else:
-            molName = None
+            ligName = None
 
-        indexFile = gromacsPlugin.firstIndexCreation(self, groSystem, ligandName=molName, modelChains=chains, chainLengths=lengthsDic)
+        indexFile = gromacsPlugin.firstIndexCreation(self, groSystem, ligandName=ligName, modelChains=chains, chainLengths=lengthsDic)
 
         groSystem.setIndexFile(indexFile)
         self._defineOutputs(outputSystem=groSystem)
@@ -480,6 +493,30 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     # --------------------------- INFO functions -----------------------------------
     def _validate(self):
         vals = []
+        mainFF, waterFF = self.getEnumText('mainForceField'), self.getEnumText('waterForceField')
+
+        # Not every force field ships every water model (amber14sb/amber19sb have opc but no tip4p/tip5p,
+        # the classic amber ports the other way round), and pdb2gmx -water rejects the ones it lacks.
+        supportedWaters = gromacsPlugin.getForceFieldWaterModels(mainFF)
+        if supportedWaters and waterFF not in supportedWaters:
+            vals.append('Force field {} does not provide the {} water model. It supports: {}.'.format(
+              mainFF, waterFF, ', '.join(w for w in supportedWaters if w in GROMACS_WATERS_LIST)))
+
+        try:
+            ions = self.getInputIonResidues()
+        except Exception:
+            ions = set()
+        missingIons = sorted(ions - gromacsPlugin.getForceFieldResidues(mainFF))
+        if missingIons:
+            alternatives = [ff for ff in gromacsPlugin.getForceFieldsWithResidues(missingIons)
+                            if ff in GROMACS_LIST]
+            vals.append('Force field {} has no topology entry for the ion(s) {} present in the input '
+                        'structure, so pdb2gmx will not be able to parameterize them.\n{}'.format(
+                          mainFF, ', '.join(missingIons),
+                          'Installed force fields defining all of them: {}'.format(', '.join(alternatives))
+                          if alternatives else 'No installed force field defines all of them: remove them '
+                                               'from the input structure or add a custom topology entry.'))
+
         if self.placeIons.get() != 0:
             ionsDic = {'amber': [CA, CL, CS, K, LI, MG, NA, RB, ZN],
                        'gromos': [CA, CL, CU, CU2, MG, NA, ZN],
@@ -503,6 +540,42 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                             'They will not behave well with TIP models')
         
         return vals
+
+    def _warnings(self):
+        warns = []
+        mainFF, waterFF = self.getEnumText('mainForceField'), self.getEnumText('waterForceField')
+        try:
+            ions = self.getInputIonResidues()
+        except Exception:
+            ions = set()
+
+        mismatched = {}
+        for ion in sorted(ions):
+            fittedWater = gromacsPlugin.getIonFittedWaterModel(mainFF, ion)
+            if fittedWater and fittedWater != waterFF:
+                mismatched[ion] = fittedWater
+
+        if mismatched:
+            warns.append('{} parameterizes {} for the {} water model, but the system will be solvated with {}, '
+                         'so those ions keep hydration parameters fitted for a different water.\n{}'.format(
+                           mainFF, ', '.join(f'{ion} ({water})' for ion, water in mismatched.items()),
+                           ' / '.join(sorted(set(mismatched.values()))), waterFF,
+                           self.getIonWaterRemedy(ions, sorted(set(mismatched.values())), waterFF)))
+        return warns
+
+    def getIonWaterRemedy(self, ions, fittedWaters, waterFF):
+        """How to make ion parameters and water model agree: switch water when the force field offers the one
+        its ions were fitted for, otherwise switch to a force field that fits its ions for this water."""
+        mainFF = self.getEnumText('mainForceField')
+        ffWaters = gromacsPlugin.getForceFieldWaterModels(mainFF)
+        usableWaters = [w for w in fittedWaters if w in GROMACS_WATERS_LIST and w in ffWaters]
+        if len(usableWaters) == 1:
+            return 'Solvate with {} water instead.'.format(usableWaters[0])
+
+        alternatives = [ff for ff in gromacsPlugin.getForceFieldsForIons(ions, waterFF) if ff in GROMACS_LIST]
+        if alternatives:
+            return 'Force fields parameterizing these ions for {} water: {}.'.format(waterFF, ', '.join(alternatives))
+        return 'No installed force field parameterizes these ions for {} water.'.format(waterFF)
 
     def _summary(self):
         """ Summarize what the protocol has done"""
@@ -542,16 +615,16 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def getSpecifiedMol(self):
-      myMol = None
       for mol in self.inputSetOfMols.get():
         if mol.__str__() == self.inputLigand.get():
-          myMol = mol.clone()
-          break
-      if myMol == None:
-        print('The input ligand is not found')
-        return None
-      else:
-        return myMol
+          return mol.clone()
+
+      raise ValueError(f'Ligand "{self.inputLigand.get()}" is not in the input set of molecules. '
+                       f'Available: {self.getInputMolNames()}')
+
+    def getInputMolNames(self):
+      mols = self.inputSetOfMols.get()
+      return [mol.__str__() for mol in mols] if mols is not None else []
 
     def getInputReceptorFile(self):
       if self.inputFrom.get() == LIGAND:
@@ -567,8 +640,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def convertReceptor2PDB(self, proteinFile, oFile):
         _, inExt = os.path.splitext(os.path.basename(proteinFile))
-        args = ' -i {} {} -opdb -O {} -d'.format(inExt[1:], os.path.abspath(proteinFile), oFile)
+        tmpOFile = '{}.{}.tmp'.format(oFile, uuid.uuid4().hex)
+        args = ' -i {} {} -opdb -O {} -d'.format(inExt[1:], os.path.abspath(proteinFile), tmpOFile)
         runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+        os.replace(tmpOFile, oFile)
         return oFile
 
     def getInputPDBFile(self, proteinFile):
@@ -643,6 +718,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
         structureHandler.getStructure()
+        self.dropNonPolymerChains(structureHandler)
         chains, _ = structureHandler.getModelsChains()
         return list(chains[0].keys())
 
@@ -660,6 +736,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         structureHandler = AtomicStructHandler()
         structureHandler.read(inputStructure)
         structureHandler.getStructure()
+        self.dropNonPolymerChains(structureHandler)
 
         chains, _ = structureHandler.getModelsChains()
 
@@ -668,6 +745,59 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         lengths = dict(chains[0])
 
         return modelChains, lengths
+
+    def dropNonPolymerChains(self, structureHandler):
+        """Remove the chains holding no protein / nucleic residue, typically a metal ion that the PDB
+        converter placed in a chain of its own"""
+        for model in structureHandler.structure:
+            nonPolymerIds = [chain.id for chain in model if not any(self.isPolymerResidue(res) for res in chain)]
+            for chainId in nonPolymerIds:
+                model.detach_child(chainId)
+
+    @staticmethod
+    def isPolymerResidue(residue):
+        resName = residue.get_resname().strip()
+        return PDB.is_aa(resName, standard=True) or resName in NUCLEIC_RESNAMES
+
+    def getInputIonResidues(self):
+        """Residue names of the free ions and metals."""
+        inputFile = self.getRawInputFile()
+        ext = os.path.splitext(inputFile)[1].lower() if inputFile else ''
+        if ext in ['.cif', '.mmcif']:
+            parser = PDB.MMCIFParser(QUIET=True)
+        elif ext == '.pdb':
+            parser = PDB.PDBParser(QUIET=True)
+        else:
+            return set()
+
+        structure = parser.get_structure('structure', inputFile)
+        return {res.get_resname().strip() for res in next(iter(structure)).get_residues()
+                if res.id[0] not in [' ', 'W'] and len(list(res.get_atoms())) == 1}
+
+    def getRawInputFile(self):
+        """Input structure as given, with no format conversion (usable before the run starts)."""
+        inputObj = self.inputSetOfMols if self.inputFrom.get() == LIGAND else self.inputStructure
+        if not inputObj.get():
+            return None
+
+        inputFile = self.inputSetOfMols.get().getProteinFile() if self.inputFrom.get() == LIGAND \
+            else self.inputStructure.get().getFileName()
+        return os.path.abspath(inputFile) if inputFile else None
+
+    @staticmethod
+    def readGromacsFatalError(logFile):
+        """Extract the 'Fatal error' block Gromacs wrote into logFile, so a failing command reports its
+        own message instead of just a non-zero exit status."""
+        if not os.path.exists(logFile):
+            return ''
+
+        with open(logFile) as f:
+            lines = f.read().split('\n')
+
+        for i, line in enumerate(lines):
+            if line.startswith('Fatal error'):
+                return '\n'.join(lines[i:i + 10]).strip()
+        return ''
 
     def runPymol(self, pymolScript, workinDir):
         # run in the background
@@ -846,7 +976,11 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                f' > {outputFile} 2>&1'
 
         printfValues =['n'] * maxBonds
-        gromacsPlugin.runGromacsPrintf(self, printfValues, params, cwd=self._getTmpPath())
+        try:
+            gromacsPlugin.runGromacsPrintf(self, printfValues, params, cwd=self._getTmpPath())
+        except Exception:
+            raise RuntimeError('gmx pdb2gmx failed while detecting disulfide bonds.\n{}'.format(
+              self.readGromacsFatalError(outputFile)))
 
         # Count "Link CYS..." lines
         with open(outputFile, 'r') as f:

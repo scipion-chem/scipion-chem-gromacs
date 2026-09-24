@@ -455,9 +455,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
     def makePreprocessingIndexStep(self, poseId=None, molName=None):
         """
-        Build the initial GROMACS index on the full (solvated) system.
-        Creates group 21 Protein_LIG
-        """
+        Build the initial GROMACS index on the full (solvated) system."""
         if self._ligandFailed(molName):
             self.info(f'Skipping makePreprocessingIndexStep for {poseId}: ligand not parametrized.')
             return
@@ -473,9 +471,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
             ndxOut = os.path.abspath(os.path.join(poseDir, PREPROC_NDX))
 
         args = f'make_ndx -f {inputStruct} -o {ndxOut}'
-        # Mode B resolves the Protein/LIG groups by name in runMmpbsaStep, so no
-        # merge is needed; Mode A still merges group 13 (the ligand) with Protein.
-        printfValues = ['1 | 13', 'q'] if self.inputFrom.get() == INPUT_GROMACS else ['q']
+        printfValues = ['q']
+        if self.inputFrom.get() == INPUT_GROMACS:
+            printfValues = [f'"Protein" | "{self.getLigandResname(molName)}"', 'q']
         gromacsPlugin.runGromacsPrintf(protocol=self,
                                        printfValues=printfValues,
                                        args=args, cwd=cwd, mpi=False)
@@ -647,13 +645,11 @@ class GromacsMmpbsa(GromacsSystemPrep):
             outCsv       = os.path.abspath(os.path.join(poseDir, RESULT_CSV))
             cwd          = poseDir
 
-        # gmx_MMPBSA complex groups: receptor then ligand.
-        if self.inputFrom.get() == INPUT_GROMACS:
-            cgGroups = '1 13'
-        else:
-            recIdx = self._getNdxGroupIdx(ndxFile, 'Protein')
-            ligIdx = self._getNdxGroupIdx(ndxFile, 'LIG')
-            cgGroups = f'{recIdx} {ligIdx}'
+        # gmx_MMPBSA complex groups: receptor then ligand, both resolved by name so they do not
+        # depend on the default make_ndx numbering
+        recIdx = self._getNdxGroupIdx(ndxFile, 'Protein')
+        ligIdx = self._getNdxGroupIdx(ndxFile, self.getLigandResname(molName))
+        cgGroups = f'{recIdx} {ligIdx}'
 
         args = ('-O -i {inp} -cs {cs} -ct {ct} -ci {ci} -cg {cg} '
                 '-cp {cp} -o {out} -eo {eo} -nogui').format(
@@ -878,6 +874,16 @@ class GromacsMmpbsa(GromacsSystemPrep):
     def getLigParamDir(self, molName):
         lDir = os.path.abspath(os.path.join(self.getLigandFileDir(), f'{molName}.acpype'))
         return lDir
+
+    def getLigandResname(self, molName=None):
+        """Residue name Gromacs uses for the ligand, always read from the topology that ends up
+        included in topol.top, so it matches the make_ndx group names. Mode A takes it from the input
+        GromacsSystem, mode B from the topology ACPYPE wrote for this pose."""
+        if self.inputFrom.get() == INPUT_GROMACS:
+            return self.gromacsSystem.get().getLigandID()
+
+        ligItp = os.path.join(self.getLigParamDir(molName), f'{molName}_GMX.itp')
+        return gromacsPlugin.getLigandResname(ligItp)
 
     def getPoseDir(self, poseId):
         """Return (and create) the working directory for a given pose."""
