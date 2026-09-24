@@ -616,16 +616,16 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             gromacsPlugin.runGromacs(self, 'gmx', params, cwd=self._getPath())
 
     def getSpecifiedMol(self):
-      myMol = None
       for mol in self.inputSetOfMols.get():
         if mol.__str__() == self.inputLigand.get():
-          myMol = mol.clone()
-          break
-      if myMol == None:
-        print('The input ligand is not found')
-        return None
-      else:
-        return myMol
+          return mol.clone()
+
+      raise ValueError(f'Ligand "{self.inputLigand.get()}" is not in the input set of molecules. '
+                       f'Available: {self.getInputMolNames()}')
+
+    def getInputMolNames(self):
+      mols = self.inputSetOfMols.get()
+      return [mol.__str__() for mol in mols] if mols is not None else []
 
     def getInputReceptorFile(self):
       if self.inputFrom.get() == LIGAND:
