@@ -25,7 +25,7 @@
 # **************************************************************************
 
 # General imports
-import subprocess, multiprocessing
+import subprocess, multiprocessing, shlex
 import os
 from os.path import join
 
@@ -133,20 +133,23 @@ class Plugin(pwchemPlugin):
 		protocol.runJob(cls.getGromacsBin(program, mpi=mpi), args, cwd=cwd, **kwargs)
 
 	@classmethod
+	def buildPrintfCommand(cls, printfValues, gmxBin):
+		""" Build 'printf <fmt> | <gmxBin>' as a properly shell-escaped pipeline"""
+		printfValues = list(map(str, printfValues))
+		fmt = '\\n'.join(printfValues) + '\\n'
+		return 'printf {} | {}'.format(shlex.quote(fmt), gmxBin)
+
+	@classmethod
 	def runGromacsPrintf(cls, protocol, printfValues, args, cwd, mpi=False):
 		""" Run Gromacs command with interactive printf input via Scipion's runJob. """
-		printfValues = list(map(str, printfValues))
-		gmxBin = cls.getGromacsBin(mpi=mpi)
-		fullProgram = 'printf "{}\\n" | {}'.format('\\n'.join(printfValues), gmxBin)
-
+		fullProgram = cls.buildPrintfCommand(printfValues, cls.getGromacsBin(mpi=mpi))
 		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
 		                numberOfMpi=1, numberOfThreads=1)
 
 	@classmethod
 	def runGromacsPrintfViewer(cls, printfValues, args, cwd, mpi=False):
 		""" Run Gromacs command from a given protocol. """
-		printfValues = list(map(str, printfValues))
-		program = 'printf "{}\n" | {} '.format('\n'.join(printfValues), cls.getGromacsBin(mpi=mpi))
+		program = cls.buildPrintfCommand(printfValues, cls.getGromacsBin(mpi=mpi)) + ' '
 		print('Running: ', program, args)
 		subprocess.check_call(program + args, cwd=cwd, shell=True)
 
@@ -156,7 +159,9 @@ class Plugin(pwchemPlugin):
 
 		activation = cls.getEnvActivationCommand(GMXMMPBSA_DIC)
 		mpiPrefix = 'mpirun -np {} '.format(numberOfMpi) if numberOfMpi > 1 else ''
-		fullProgram = '{} && {}{}'.format(activation, mpiPrefix, program)
+		# mmpbsa environment do not have the newest ff -- take the gromacs ff with export GMXDATA
+		exportGmxData = 'export GMXDATA={}'.format(shlex.quote(os.path.dirname(cls.getTopDir())))
+		fullProgram = '{} && {} && {}{}'.format(activation, exportGmxData, mpiPrefix, program)
 
 		print('Running: ', fullProgram, args)
 		protocol.runJob(fullProgram, args, env=cls.getEnviron(), cwd=cwd,
@@ -171,6 +176,106 @@ class Plugin(pwchemPlugin):
 	def getGromacsBin(cls, program='gmx', mpi=False):
 		mpiExt = '_mpi' if mpi else ''
 		return join(cls.getVar(GROMACS_DIC['home']), f'install{mpiExt}/bin/{program}{mpiExt}')
+
+	@classmethod
+	def getTopDir(cls):
+		""" Directory holding the force fields shipped with the installed Gromacs."""
+		gromacsHome = cls.getVar(GROMACS_DIC['home'])
+		return join(gromacsHome, 'install/share/gromacs/top') if gromacsHome else ''
+
+	@classmethod
+	def getForceFieldDir(cls, ff):
+		""" Directory of a given force field inside the installed Gromacs."""
+		return join(cls.getTopDir(), f'{ff}.ff')
+
+	@classmethod
+	def getForceFieldResidues(cls, ff):
+		""" Residue names defined by a force field """
+		resNames = set()
+		ffDir = cls.getForceFieldDir(ff)
+		if not os.path.isdir(ffDir):
+			return resNames
+
+		for rtpFile in os.listdir(ffDir):
+			if not rtpFile.endswith('.rtp'):
+				continue
+			with open(join(ffDir, rtpFile)) as f:
+				for line in f:
+					line = line.strip()
+					if line.startswith('[') and line.endswith(']'):
+						resNames.add(line[1:-1].strip())
+		return resNames
+
+	@classmethod
+	def getForceFieldResidueAtomTypes(cls, ff, resName):
+		""" Atom types a force field assigns to a residue, from the '[ atoms ]' block of its .rtp entry. """
+		ffDir = cls.getForceFieldDir(ff)
+		if not os.path.isdir(ffDir):
+			return []
+
+		for rtpFile in os.listdir(ffDir):
+			if rtpFile.endswith('.rtp'):
+				atomTypes = cls.parseRtpAtomTypes(join(ffDir, rtpFile), resName)
+				if atomTypes:
+					return atomTypes
+		return []
+
+	@classmethod
+	def parseRtpAtomTypes(cls, rtpFile, resName):
+		""" Atom types of the '[ atoms ]' block of the resName entry of a single .rtp file. """
+		inResidue, inAtoms, atomTypes = False, False, []
+		with open(rtpFile) as f:
+			for line in f:
+				line = line.strip()
+				if line.startswith('['):
+					section = line[1:-1].strip()
+					if inResidue and section != 'atoms':
+						break
+					inResidue, inAtoms = inResidue or section == resName, section == 'atoms'
+				elif inResidue and inAtoms and line and not line.startswith(';'):
+					atomTypes.append(line.split()[1])
+		return atomTypes
+
+	@classmethod
+	def getForceFieldsWithResidues(cls, resNames):
+		""" Installed force fields defining every residue name in resNames. """
+		topDir = cls.getTopDir()
+		if not os.path.isdir(topDir):
+			return []
+
+		ffs = sorted(d[:-3] for d in os.listdir(topDir) if d.endswith('.ff'))
+		return [ff for ff in ffs if set(resNames).issubset(cls.getForceFieldResidues(ff))]
+
+	@classmethod
+	def getForceFieldWaterModels(cls, ff):
+		""" Water models a force field supports, from its watermodels.dat (what 'pdb2gmx -water' accepts). """
+		datFile = join(cls.getForceFieldDir(ff), 'watermodels.dat')
+		if not os.path.isfile(datFile):
+			return []
+
+		with open(datFile) as f:
+			return [line.split()[0] for line in f if line.strip() and not line.startswith(';')]
+
+	@classmethod
+	def getIonFittedWaterModel(cls, ff, resName):
+		""" Water model an ion's parameters were fitted for, taken from the water suffix its force field
+		gives the atom type (Zn2+_tip3p, Cu2+_opc...). Empty when the force field has a single set. """
+		for atomType in cls.getForceFieldResidueAtomTypes(ff, resName):
+			if '_' in atomType:
+				return atomType.rsplit('_', 1)[1]
+		return ''
+
+	@classmethod
+	def getForceFieldsForIons(cls, resNames, waterFF):
+		""" Installed force fields that define every residue in resNames, support the given water model and
+		parameterize those residues for it (or with a single water-independent set). """
+		ffs = []
+		for ff in cls.getForceFieldsWithResidues(resNames):
+			if waterFF not in cls.getForceFieldWaterModels(ff):
+				continue
+			if all(cls.getIonFittedWaterModel(ff, res) in ['', waterFF] for res in resNames):
+				ffs.append(ff)
+		return ffs
 
 	@classmethod
 	def getEnviron(cls):
@@ -298,11 +403,32 @@ class Plugin(pwchemPlugin):
 		return protocol.getProject().getTmpPath(f'{inputId}_custom_indexes.ndx')
 
 	@classmethod
+	def getLigandResname(cls, ligTopFile, default='LIG'):
+		""" Residue name of a ligand, read from the '[ atoms ]' block of the topology ACPYPE wrote for it.		"""
+		if not ligTopFile or not os.path.isfile(ligTopFile):
+			return default
+
+		inAtoms = False
+		with open(ligTopFile) as f:
+			for line in f:
+				line = line.strip()
+				if line.startswith('['):
+					if inAtoms:
+						break
+					inAtoms = line.replace('[', '').replace(']', '').strip() == 'atoms'
+				elif inAtoms and line and not line.startswith(';'):
+					fields = line.split()
+					if len(fields) > 3:
+						return fields[3]
+					break
+		return default
+
+	@classmethod
 	def firstIndexCreation(cls, protocol, groSystem, ligandName=None, modelChains=None, chainLengths=None):
 		indexCommands = []
 
-		if ligandName is not None:
-			indexCommands.append('1 | 13')
+		if ligandName:
+			indexCommands.append(f'"Protein" | "{ligandName}"')
 			indexFile = cls.createIndexFile(protocol, groSystem, inputCommands=indexCommands)
 		else:
 			# Create basic index file with default GROMACS groups
