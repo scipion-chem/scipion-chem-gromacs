@@ -137,6 +137,13 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                      label='*Chain* to display analysis on: ',
                      help='Display the chosen analysis only in this chain'
                      )
+      group.addParam('chooseRefStruct', params.EnumParam,
+                     choices=self._getRefStructChoices(), default=0,
+                     label='Reference structure: ', condition='displayAnalysis in [0, 1]',
+                     help='Conformation used as the RMSD/RMSF reference (passed to gmx with -s).\n'
+                          '"Stage start" keeps the previous behaviour (the structure that started '
+                          'the analyzed stage). "Minimized"/"Initial" reference the energy-minimized '
+                          'or original input structure, the same way as the Amber viewer.')
       group.addParam('chooseRef', params.EnumParam,
                     choices=self.getIndexGroups(), default=1,
                     label='Reference group: ',
@@ -285,7 +292,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         os.remove(oPath)
 
       groFile, trjFile = self.getStageFiles(stage)
-      args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
+      refFile = self.getRefStructFile(stage, groFile, trjFile)
+      args = ' rms -s %s -f %s -o %s -tu ns' % (os.path.abspath(refFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
       gromacsPlugin.runGromacsPrintfViewer(printfValues=self.getIndexNDX('RMSD'),
@@ -300,7 +308,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         os.remove(oPath)
 
       groFile, trjFile = self.getStageFiles(stage)
-      args = ' rmsf -s %s -f %s -o %s' % (os.path.abspath(groFile), os.path.abspath(trjFile), oFile)
+      refFile = self.getRefStructFile(stage, groFile, trjFile)
+      args = ' rmsf -s %s -f %s -o %s' % (os.path.abspath(refFile), os.path.abspath(trjFile), oFile)
       if self.getIndexFile():
           args += f' -n {self.getIndexFile()}'
       if self.aveRes.get():
@@ -468,3 +477,43 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         groups = self.getIndexGroupsDic()
         return list(groups.values())
 
+    def _getRefStructChoices(self):
+        '''Reference conformations for RMSD/RMSF.'''
+        choices = ['First frame']
+        system = self.getMDSystem()
+        if hasattr(system, 'getMinimizedFile') and system.getMinimizedFile():
+            choices.append('Minimized structure')
+        if system and system.getSystemFile():
+            choices.append('Initial structure')
+        return choices
+
+    def getRefStructFile(self, stage, groFile, trjFile):
+        '''Resolve the reference selection to a file for gmx -s.'''
+        choice = self.getEnumText('chooseRefStruct')
+        system = self.getMDSystem()
+        if choice == 'First frame':
+            return self.extractFirstFrame(stage, trjFile)
+        elif choice == 'Minimized structure' and hasattr(system, 'getMinimizedFile'):
+            refFile = system.getMinimizedFile()
+        elif choice == 'Initial structure':
+            refFile = system.getSystemFile()
+        else:
+            refFile = None
+        if refFile and os.path.exists(refFile):
+            return os.path.abspath(refFile)
+        if groFile and os.path.exists(groFile):
+            return os.path.abspath(groFile)
+        tprFile, _ = self.getStageFiles(stage, tpr=True)
+        return os.path.abspath(tprFile)
+
+    def extractFirstFrame(self, stage, trjFile):
+        '''Dump frame 0 of the (corrected) trajectory to a PDB, to use as RMSD/RMSF reference'''
+        oDir = self.getStageDir(stage)
+        refFile = os.path.join(oDir, '%s_frame0.pdb' % stage)
+        if os.path.exists(refFile):
+            os.remove(refFile)
+        tprFile, _ = self.getStageFiles(stage, tpr=True)
+        args = ' trjconv -s %s -f %s -dump 0 -o %s' % (
+            os.path.abspath(tprFile), os.path.abspath(trjFile), os.path.abspath(refFile))
+        gromacsPlugin.runGromacsPrintfViewer(printfValues=['System'], args=args, cwd=oDir)
+        return os.path.abspath(refFile)

@@ -78,7 +78,7 @@ class TestGromacsPrepareSystem(TestExtractLigand):
         else:
             protPrepareS.inputSetOfMols.set(protPrepare)
             protPrepareS.inputSetOfMols.setExtended('outputSmallMolecules')
-            protPrepareS.inputLigand.set('SmallMolecule (g1_1uaz_RET-1_1 molecule)')
+            protPrepareS.inputLigand.set(str(next(iter(protPrepare.outputSmallMolecules))))
 
         cls.launchProtocol(protPrepareS)
         return protPrepareS
@@ -141,7 +141,7 @@ class TestGromacsTrajMod(TestGromacsRunSimulation):
     def _modSimulation(self, protSim):
         protMod = self.newProtocol(
             GromacsModifySystem,
-            gromacsSystem=protSim.outputSystem, cleaning=True, doFit=True)
+            gromacsSystem=protSim.outputSystem, correctPBC=True, cleaning=True, doFit=True)
 
         self.launchProtocol(protMod)
         return protMod

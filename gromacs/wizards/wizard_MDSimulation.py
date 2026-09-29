@@ -103,9 +103,7 @@ class GromacsCustomIndexWizard(GromacsCheckIndexWizard):
         inpSystem = getattr(protocol, inputParam[0]).get()
 
         inIndex, outIndex = gromacsPlugin.ensureIndexFile(protocol), gromacsPlugin.getCustomIndexFile(protocol)
-
         inCommand = getattr(protocol, inputParam[1]).get().strip()
-        inCommand = inCommand.replace('"', '\\"')
         try:
             gromacsPlugin.createIndexFile(
                 protocol,

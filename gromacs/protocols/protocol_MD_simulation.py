@@ -293,19 +293,20 @@ class GromacsMDSimulation(EMProtocol):
 
     def createOutputStep(self):
         lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
-        if self.gromacsSystem.get().hasTrajectory() and self.prevTrj.get():
-            oriGroFile = self.gromacsSystem.get().getOriStructFile()
-        else:
-            oriGroFile = self.gromacsSystem.get().getSystemFile()
+        oriGroFile = self.gromacsSystem.get().getSystemFile()
 
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
+        if self.gromacsSystem.get().hasLig():
+            # localTopFile includes the ligand itp as a bare relative filename, so it must live alongside it
+            ligTopFile = self.gromacsSystem.get().getLigTopologyFile()
+            shutil.copy(ligTopFile, os.path.dirname(localTopFile))
         outTrj = self.concatTrjFiles(outTrj='outputTrajectory.xtc', tprFile=lastTprFile)
         localPdbFile = self._getPath('outputSystem.pdb')
         self._convertGroToPdbNoWat(localGroFile, localPdbFile)
         finalAtomStruct = AtomStruct(filename=os.path.relpath(localPdbFile))
 
-        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
+        outSystem = GromacsSystem(filename=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setLigTopologyFile(self.gromacsSystem.get().getLigTopologyFile())
         outSystem.setLigandID(self.gromacsSystem.get().getLigandID())
@@ -324,6 +325,13 @@ class GromacsMDSimulation(EMProtocol):
             shutil.copy(self.gromacsSystem.get().getIndexFile(), indexFile)
         self.cleanCustomIndex()
         outSystem.setIndexFile(indexFile)
+
+        # Export the last energy-minimization structure (no water)
+        minGroFile = self.getLastMinimizationGro()
+        if minGroFile:
+            minimizedPdb = self._getPath('minimizedSystem.pdb')
+            self._convertGroToPdbNoWat(minGroFile, minimizedPdb)
+            outSystem.setMinimizedFile(minimizedPdb)
 
         self._defineOutputs(outputSystem=outSystem, lastFrameStruct=finalAtomStruct)
 
@@ -466,7 +474,9 @@ class GromacsMDSimulation(EMProtocol):
 
         # Case 1: Single chain processing
         if len(modelChains) == 1:
-            printGroup = [inpSystem.getComplexGroup()]
+            printGroup = ['Protein']
+            if inpSystem.hasLig():
+                printGroup = [f'Protein_{inpSystem.getLigandID()}']
 
             self._runEditconf(groFile, indexFile, pdbFile, modelChains[0], printGroup)
             return
@@ -754,44 +764,20 @@ class GromacsMDSimulation(EMProtocol):
         trjFiles.reverse()
         return trjFiles
 
-
     def concatTrjFiles(self, outTrj, tprFile):
+        """Concatenate the trajectories of the stages and make broken molecules whole."""
         trjFiles = self.getTrjFiles()
         if len(trjFiles) > 0:
-            sTpr = os.path.abspath(tprFile)
             tmpTrj = os.path.abspath(self._getTmpPath('concatenated.xtc'))
-
-            inpSystem = self.gromacsSystem.get()
-            centerGroup = inpSystem.getComplexGroup()
-
-            indexArg = ''
-            indexFile = inpSystem.getIndexFile()
-            if indexFile and os.path.exists(indexFile):
-                indexArg = ' -n {}'.format(os.path.abspath(indexFile))
-
-            # Concatenate raw stage trajectories
+            #Concatenates trajectory
             command = 'trjcat -f {} -settime -o {} -cat'.format(' '.join(trjFiles), tmpTrj)
             gromacsPlugin.runGromacsPrintf(self, printfValues=['c'] * len(trjFiles),
                                            args=command, cwd=self._getPath())
-
-            # Make molecules whole
-            wholeTrj = os.path.abspath(self._getTmpPath('whole.xtc'))
-            command = 'trjconv -s {} -f {}{} -pbc whole -o {}'.format(sTpr, tmpTrj, indexArg, wholeTrj)
+            #Makes broken molecules whole. trjconv -pbc whole asks only for the output group
+            command = 'trjconv -s {} -f {} -pbc whole -o {}'.\
+              format(os.path.abspath(tprFile), tmpTrj, outTrj)
             gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
                                            args=command, cwd=self._getPath())
-
-            # Remove jumps across the boundary
-            nojumpTrj = os.path.abspath(self._getTmpPath('nojump.xtc'))
-            command = 'trjconv -s {} -f {}{} -pbc nojump -o {}'.format(sTpr, wholeTrj, indexArg, nojumpTrj)
-            gromacsPlugin.runGromacsPrintf(self, printfValues=['System'],
-                                           args=command, cwd=self._getPath())
-
-            # Center on protein (or complex), compact box
-            command = 'trjconv -s {} -f {}{} -center -pbc mol -ur compact -o {}'.format(
-                sTpr, nojumpTrj, indexArg, outTrj)
-            gromacsPlugin.runGromacsPrintf(self, printfValues=[centerGroup, 'System'],
-                                           args=command, cwd=self._getPath())
-
             return os.path.abspath(self._getPath(outTrj))
         return None
 
@@ -807,3 +793,18 @@ class GromacsMDSimulation(EMProtocol):
         for customInxFile in glob.iglob(os.path.join(tmpPath, "*custom_indexes.ndx*")):
             if os.path.isfile(customInxFile):
                 os.remove(customInxFile)
+
+    def getLastMinimizationGro(self):
+        """Return the .gro produced by the last energy-minimization stage, or None if the
+        workflow contains no 'Energy min' stage."""
+        lastEM = None
+        for i, wStep in enumerate(self.workFlowSteps.get().strip().split('\n'), start=1):
+            if wStep.strip() and eval(wStep).get('ensemType') == 'Energy min':
+                lastEM = i
+        if lastEM is None:
+            return None
+        stageDir = self._getExtraPath('stage_{}'.format(lastEM))
+        for file in os.listdir(stageDir):
+            if file.endswith('.gro'):
+                return os.path.abspath(os.path.join(stageDir, file))
+        return None
