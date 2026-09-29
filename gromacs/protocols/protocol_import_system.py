@@ -288,7 +288,7 @@ class GromacsImportSystem(EMProtocol):
         if itpDir:
             candidates.append(os.path.join(itpDir, relInc))
             candidates.append(os.path.join(itpDir, os.path.basename(relInc)))
-        candidates.append(os.path.join(gromacsPlugin.getGromacsTopDir(), relInc))
+        candidates.append(os.path.join(gromacsPlugin.getTopDir(), relInc))
         for cand in candidates:
             cand = os.path.normpath(cand)
             if os.path.exists(cand):

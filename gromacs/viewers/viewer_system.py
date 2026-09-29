@@ -121,6 +121,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                             'Protein represented as NewCartoon and waters as dots')
 
     def _defineAnalysisParams(self, form):
+      sectionLabel = 'Trajectory analysis'
+      form.lastSection = form.getSection(sectionLabel) or form.addSection(sectionLabel)
       group = form.addGroup('Gromacs analysis')
       group.addParam('displayAnalysis', params.EnumParam,
                      choices=self._analysis, default=0,
@@ -414,7 +416,7 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
     def getStageFiles(self, stage, tpr=False):
       if stage == 'All':
         system = self.getMDSystem()
-        groFile, trjFile, tprFile = system.getOriStructFile(), system.getTrajectoryFile(), system.getTprFile()
+        groFile, trjFile, tprFile = system.getSystemFile(), system.getTrajectoryFile(), system.getTprFile()
       else:
         groFile, _, tprFile = self.protocol.getPrevFinishedStageFiles(stage)
         trjFile = self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
