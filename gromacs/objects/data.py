@@ -187,12 +187,61 @@ class GromacsSystem(MDSystem):
             shutil.copy(self.getTopologyFile(), topFile)
             self.setTopologyFile(topFile)
 
-        program = "sed "
+        posreFile = os.path.join(outDir, 'posre_{}.itp'.format(restraintSuffix.lower()))
         inStr = '#ifdef POSRES_{}\\n#include "posre_{}.itp"\\n#endif'.\
             format(restraintSuffix.upper(), restraintSuffix.lower())
-        sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
-            format(inStr, os.path.abspath(topFile))
-        check_call(program + sed_params, cwd=outDir, shell=True)
+
+        # position_restraints indices are local to a single [ moleculetype ], so the ifdef/include
+        # must land right after the #include of the itp defining that exact molecule
+        nAtoms = self._countPosresAtoms(posreFile)
+        incLine = self._findMoleculeInclude(topFile, nAtoms)
+        if incLine:
+            sed_params = """-i '\\|{}|a {}' {}""".format(incLine.replace('|', '\\|'), inStr, os.path.abspath(topFile))
+        else:
+            sed_params = """-i '/; Include Position restraint file/a {}' {}""".format(inStr, os.path.abspath(topFile))
+        check_call("sed " + sed_params, cwd=outDir, shell=True)
+
+    def _countPosresAtoms(self, posreFile):
+        '''Number of atoms listed in a genrestr-generated posre itp (position_restraints indices
+        are local to their molecule, so this must equal that molecule's own atom count)'''
+        nAtoms, inSection = 0, False
+        with open(posreFile) as f:
+            for line in f:
+                sline = line.strip()
+                if sline.startswith('['):
+                    inSection = sline.startswith('[ position_restraints')
+                elif inSection and sline and not sline.startswith(';'):
+                    nAtoms += 1
+        return nAtoms
+
+    def _findMoleculeInclude(self, topFile, nAtoms):
+        '''#include line of the itp whose own [ moleculetype ] has exactly nAtoms atoms, or None
+        if no separately-included itp matches (e.g. pdb2gmx inline topologies)'''
+        topDir = os.path.dirname(topFile)
+        with open(topFile) as f:
+            for line in f:
+                sline = line.strip()
+                if sline.startswith('#include'):
+                    incPath = sline.split('"')[1]
+                    if not os.path.isabs(incPath):
+                        incPath = os.path.join(topDir, incPath)
+                    if os.path.exists(incPath) and self._itpAtomCount(incPath) == nAtoms:
+                        return sline
+        return None
+
+    def _itpAtomCount(self, itpFile):
+        '''Atom count of an itp file's own [ moleculetype ], or -1 if it defines none'''
+        nAtoms, inMol, inAtoms = -1, False, False
+        with open(itpFile) as f:
+            for line in f:
+                sline = line.strip()
+                if sline.startswith('['):
+                    inAtoms = sline.startswith('[ atoms')
+                    if sline.startswith('[ moleculetype'):
+                        inMol, nAtoms = True, 0
+                elif inMol and inAtoms and sline and not sline.startswith(';'):
+                    nAtoms += 1
+        return nAtoms
 
     def getIons(self):
         ionsDic, mols = {}, False
