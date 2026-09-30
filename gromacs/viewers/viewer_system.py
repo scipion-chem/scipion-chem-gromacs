@@ -401,14 +401,13 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
       '''Return stages with a saved trajectory'''
       stages = ['All']
       for stDir in natural_sort(glob.glob(self.protocol._getExtraPath('stage_*'))):
-        stage = os.path.basename(stDir)
-        trjFile = '{}/{}.trr'.format(stDir, stage)
-        if os.path.exists(trjFile):
-          stages.append(stage)
+        if self.protocol.getStageTrjFile(stDir):
+          stages.append(os.path.basename(stDir))
       return stages
 
     def correctTrj(self, stage):
-      args = ' trjconv -s {}.tpr -f {}.trr -o {}_corrected.xtc -pbc mol -center'.format(*[stage] * 3)
+      trjFile = os.path.basename(self.protocol.getStageTrjFile(self.protocol._getExtraPath(stage)))
+      args = ' trjconv -s {0}.tpr -f {1} -o {0}_corrected.xtc -pbc mol -center'.format(stage, trjFile)
       gromacsPlugin.runGromacsPrintfViewer(printfValues=['Protein', 'System'],
                                      args=args, cwd=self.protocol._getExtraPath(stage))
       return self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))

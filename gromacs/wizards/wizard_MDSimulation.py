@@ -54,10 +54,43 @@ SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
                                 inputs=['inputSetOfMols'],
                                 outputs=['inputLigand'])
 
-AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
-                             targets=['insertStep'],
-                             inputs=['insertStep'],
-                             outputs=['workFlowSteps', 'summarySteps'])
+class AddMDStepWizard(AddElementSummaryWizard):
+    """Add a step of the workflow in the defined position.
+    A directory of .mdp files is added as one step per file, in natural order"""
+    _targets, _inputs, _outputs = [], {}, {}
+
+    def show(self, form, *params):
+        protocol = form.protocol
+        if not protocol.isMdpDirMode():
+            return super().show(form, *params)
+
+        inputParam, outputParam = self.getInputOutput(form)
+        mdpFiles = protocol.getDirMdpFiles()
+        if not mdpFiles:
+            dialog.showError('No .mdp files', 'No .mdp files found in {}'.format(protocol.mdpDir.get()), form.root)
+            return
+
+        newSteps = []
+        for mdpFile in mdpFiles:
+            msjDic = protocol.createMSJDic()
+            msjDic.update(mdpSource='File', mdpFile=mdpFile)
+            newSteps.append(str(msjDic))
+
+        stepsParam = getattr(protocol, outputParam[0])
+        workSteps = [s for s in (stepsParam.get() or '').split('\n') if s.strip()]
+        insertAt = getattr(protocol, inputParam[0]).get().strip()
+        index = min(max(int(insertAt) - 1, 0), len(workSteps)) if insertAt else len(workSteps)
+        workSteps[index:index] = newSteps
+
+        stepsStr = '\n'.join(workSteps) + '\n'
+        stepsParam.set(stepsStr)
+        form.setVar(outputParam[0], stepsStr)
+        form.setVar(outputParam[1], protocol.createSummary())
+
+AddMDStepWizard().addTarget(protocol=GromacsMDSimulation,
+                            targets=['insertStep'],
+                            inputs=['insertStep'],
+                            outputs=['workFlowSteps', 'summarySteps'])
 
 DeleteElementWizard().addTarget(protocol=GromacsMDSimulation,
                                 targets=['deleteStep'],
