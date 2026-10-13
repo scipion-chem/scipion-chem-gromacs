@@ -157,6 +157,13 @@ class GromacsSystem(MDSystem):
     def setOriStructFile(self, value):
         self._oriStructFile.set(value)
 
+    def getComplexGroup(self):
+        """Index-group ('Protein_<ligandID>') to center/fit/clean/extract on: the protein-ligand complex
+         when a ligand is present, otherwise just 'Protein'."""
+        if self.hasLig():
+            return 'Protein_{}'.format(self.getLigandID())
+        return 'Protein'
+
     def defineNewRestriction(self, protocol, index, energy, restraintSuffix='low', outDir=None, indexFile=None):
         '''Define a new position restriction and stores it in the topology file'''
         from gromacs import Plugin as gromacsPlugin
