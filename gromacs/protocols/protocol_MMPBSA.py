@@ -53,7 +53,7 @@ from multiprocessing import cpu_count
 
 from gromacs.protocols.protocol_system_prep import (
     GromacsSystemPrep,
-    replaceInFile,
+    replaceInFile, getMol2FormalCharge,
     GROMACS_LIST, GROMACS_MAINFF_NAME,
     GROMACS_WATERS_LIST, GROMACS_WATERFF_NAME,
     GROMACS_AMBER03, GROMACS_TIP3P,
@@ -249,6 +249,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
         self._defineTrajPreprocParams(trajPreprocGroup)
 
         self._defineACPYPEparams(form, condition=f'inputFrom=={INPUT_MOLS}')
+        # One net charge for the whole set would be wrong for every ligand with a different one:
+        # each ligand uses the formal charge of its own file instead
+        form.getParam('netCharge').condition.set('False')
 
         grpFix = form.addGroup('PDBFixer', condition=f'inputFrom=={INPUT_MOLS}')
         self._definePDBFixerParams(grpFix)
@@ -380,8 +383,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
             args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
                    f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
-            if 'netCharge' in kwargs:
-                args += f' -n {kwargs["netCharge"]}'
+            args += f' -n {getMol2FormalCharge(molFile)}'
             pwchemPlugin.runACPYPE(self, args=args, cwd=self.getLigandFileDir())
         except Exception as e:
             self.warning(f'Parametrization raised for {molName}: {e}')

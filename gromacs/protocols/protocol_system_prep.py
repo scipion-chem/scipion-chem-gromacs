@@ -128,6 +128,20 @@ TOPOL_TOP = "topol.top"
 GAPS_OPTIONS = ['No', 'Gaps termini', 'All termini']
 SSBONDS_OPTIONS = ['None', 'Automatic', 'Manual']
 
+def getMol2FormalCharge(mol2File):
+  '''Net formal charge of a mol2 file. OpenBabel writes the formal charges in @<TRIPOS>UNITY_ATOM_ATTR, a block
+  Antechamber ignores, so without passing it ACPYPE guesses 0 even for charged ligands'''
+  charge, inAttrs = 0, False
+  with open(mol2File) as f:
+    for line in f:
+      if line.startswith('@<TRIPOS>'):
+        inAttrs = line.strip() == '@<TRIPOS>UNITY_ATOM_ATTR'
+      elif inAttrs:
+        fields = line.split()
+        if len(fields) == 2 and fields[0] == 'charge':
+          charge += int(fields[1])
+  return charge
+
 def replaceInFile(file, inStr, repStr):
   inStr, repStr = inStr.replace('\n', '\\n'), repStr.replace('\n', '\\n')
   subprocess.check_call(f"sed -i -z 's/{inStr}/{repStr}/g' {file}", shell=True)
@@ -189,6 +203,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                             '\n*All termini*: Add caps to both gaps and real protein termini.')
 
         self._defineACPYPEparams(form, condition=f'inputFrom=={LIGAND}')
+        form.getParam('netCharge').help.set(
+          'Net molecular charge (int). Leave empty (recommended) to use the formal charge written in the ligand file. '
+          'Set it only to override that charge, e.g. if the input file has no charge information (pdbqt) or to use a '
+          'different protonation state.')
 
         form.addSection('MD prep')
         group = form.addGroup('Boundary box')
@@ -344,8 +362,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
       args = f'-i {molFile} -b {kwargs["molName"]} -c {kwargs["chargeMethod"]} ' \
              f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
-      if 'netCharge' in kwargs:
-        args += f' -n {kwargs["netCharge"]}'
+      args += f' -n {kwargs.get("netCharge", getMol2FormalCharge(molFile))}'
       pwchemPlugin.runACPYPE(self, args=args, cwd=self._getExtraPath())
 
 
