@@ -250,6 +250,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
         self._defineACPYPEparams(form, condition=f'inputFrom=={INPUT_MOLS}')
 
+        grpFix = form.addGroup('PDBFixer', condition=f'inputFrom=={INPUT_MOLS}')
+        self._definePDBFixerParams(grpFix)
+
         grpSys = form.addGroup('System Preparation',
                                condition=f'inputFrom=={INPUT_MOLS}')
         self._defineFFParams(grpSys)
@@ -299,6 +302,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         mmpbsaSteps = []  # Collect all MMPBSA calculation steps
 
         if self.inputFrom.get() == INPUT_MOLS:
+            if self.usesPDBFixer():
+                self._insertFunctionStep(self.pdbFixerStep)
             cStep = self._insertFunctionStep(self.convertInputStep)
 
             # Track parametrization steps by molName to avoid redundant parametrization
@@ -738,6 +743,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         elif self.inputSetOfMols.get() is not None:
             summary.extend(self._getMolsSummary())
 
+        if summary and self.usesPDBFixer():
+            summary.insert(0, self.getPDBFixerSummary())
         return summary or ['Protocol has not finished yet.']
 
     def _getGromacsSummary(self, calcModel):
@@ -846,6 +853,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
             f.write('doGasteiger: False\n')
             f.write('sanitize: False\n')
         return paramsFile
+
+    def usesPDBFixer(self):
+      # Only the docked-molecules mode builds the system from the receptor structure
+      return self.inputFrom.get() == INPUT_MOLS and self.usePDBFixer.get()
 
     def getLigParamFile(self):
       return os.path.abspath(self._getExtraPath('addHydrogens.txt'))

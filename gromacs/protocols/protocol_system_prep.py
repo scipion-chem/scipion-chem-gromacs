@@ -307,7 +307,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        if self.usePDBFixer.get():
+        if self.usesPDBFixer():
           self._insertFunctionStep(self.pdbFixerStep)
         if self.inputFrom.get() == LIGAND:
           self._insertFunctionStep(self.parametrizeLigandStep)
@@ -624,11 +624,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         summary = []
 
         if self.isFinished():
-            if self.usePDBFixer.get():
-                summary.append('The input structure was repaired with PDBFixer (missing atoms: {}, missing residues: '
-                               '{}, non-standard residues replaced: {}).'.format(
-                                 self.getEnumText('addAtoms'), 'yes' if self.addRes else 'no',
-                                 'yes' if self.repNonStd else 'no'))
+            if self.usesPDBFixer():
+                summary.append(self.getPDBFixerSummary())
             summary.append("This protocol has created a processed gro file with Main force field: *%s* and " \
                            "Water Force Field *%s*." % (GROMACS_MAINFF_NAME[self.mainForceField.get()],
                                                       GROMACS_WATERFF_NAME[self.waterForceField.get()]))
@@ -675,9 +672,17 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def getInputReceptorFile(self):
       '''Receptor file the system is built from: the PDBFixer output once that step has run'''
-      if self.usePDBFixer.get() and os.path.exists(self.getPdbfixerFile()):
+      if self.usesPDBFixer() and os.path.exists(self.getPdbfixerFile()):
         return self.getPdbfixerFile()
       return self.getOriginalReceptorFile()
+
+    def usesPDBFixer(self):
+      return self.usePDBFixer.get()
+
+    def getPDBFixerSummary(self):
+      return 'The input structure was repaired with PDBFixer (missing atoms: {}, missing residues: {}, ' \
+             'non-standard residues replaced: {}).'.format(self.getEnumText('addAtoms'), 'yes' if self.addRes else 'no',
+                                                           'yes' if self.repNonStd else 'no')
 
     def getPdbfixerFile(self):
       inName = os.path.splitext(os.path.basename(self.getRawInputFile()))[0]
@@ -818,7 +823,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def getInputIonResidues(self):
         """Residue names of the free ions and metals."""
-        if self.usePDBFixer.get() and self.extraClean.get():
+        if self.usesPDBFixer() and self.extraClean.get():
             return set()
         inputFile = self.getRawInputFile()
         ext = os.path.splitext(inputFile)[1].lower() if inputFile else ''
