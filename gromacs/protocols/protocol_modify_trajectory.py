@@ -116,7 +116,6 @@ class GromacsModifySystem(EMProtocol):
         system = self.gromacsSystem.get()
         inputStructure = os.path.abspath(system.getFileName())
         inputTrajectory = system.getTrajectoryFile()
-        # Cleaning keeps the protein-ligand complex; its group (Protein_<ligandID>) only exists in the system index
         indexFile = gromacsPlugin.ensureIndexFile(self)
         outputGroup = system.getComplexGroup() if self.cleaning.get() else 'System'
 
