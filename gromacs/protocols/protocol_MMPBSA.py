@@ -53,7 +53,7 @@ from multiprocessing import cpu_count
 
 from gromacs.protocols.protocol_system_prep import (
     GromacsSystemPrep,
-    replaceInFile,
+    replaceInFile, getMol2FormalCharge,
     GROMACS_LIST, GROMACS_MAINFF_NAME,
     GROMACS_WATERS_LIST, GROMACS_WATERFF_NAME,
     GROMACS_AMBER03, GROMACS_TIP3P,
@@ -249,6 +249,12 @@ class GromacsMmpbsa(GromacsSystemPrep):
         self._defineTrajPreprocParams(trajPreprocGroup)
 
         self._defineACPYPEparams(form, condition=f'inputFrom=={INPUT_MOLS}')
+        # One net charge for the whole set would be wrong for every ligand with a different one:
+        # each ligand uses the formal charge of its own file instead
+        form.getParam('netCharge').condition.set('False')
+
+        grpFix = form.addGroup('PDBFixer', condition=f'inputFrom=={INPUT_MOLS}')
+        self._definePDBFixerParams(grpFix)
 
         grpSys = form.addGroup('System Preparation',
                                condition=f'inputFrom=={INPUT_MOLS}')
@@ -299,6 +305,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         mmpbsaSteps = []  # Collect all MMPBSA calculation steps
 
         if self.inputFrom.get() == INPUT_MOLS:
+            if self.usesPDBFixer():
+                self._insertFunctionStep(self.pdbFixerStep)
             cStep = self._insertFunctionStep(self.convertInputStep)
 
             # Track parametrization steps by molName to avoid redundant parametrization
@@ -375,8 +383,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
 
             args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
                    f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
-            if 'netCharge' in kwargs:
-                args += f' -n {kwargs["netCharge"]}'
+            args += f' -n {getMol2FormalCharge(molFile)}'
             pwchemPlugin.runACPYPE(self, args=args, cwd=self.getLigandFileDir())
         except Exception as e:
             self.warning(f'Parametrization raised for {molName}: {e}')
@@ -492,8 +499,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
             lastTpr    = os.path.abspath(gromacsSys.getTprFile())
             ndxFile    = os.path.abspath(self._getExtraPath(PREPROC_NDX))
-            ligName    = gromacsSys.getLigandID()
-            mergedGrp  = f'Protein_{ligName}'
+            mergedGrp  = gromacsSys.getComplexGroup()
             procTrj    = os.path.abspath(self._getPath('processTraj.xtc'))
 
             noPBC = os.path.abspath(self._getExtraPath('noPBC.xtc'))
@@ -738,6 +744,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         elif self.inputSetOfMols.get() is not None:
             summary.extend(self._getMolsSummary())
 
+        if summary and self.usesPDBFixer():
+            summary.insert(0, self.getPDBFixerSummary())
         return summary or ['Protocol has not finished yet.']
 
     def _getGromacsSummary(self, calcModel):
@@ -846,6 +854,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
             f.write('doGasteiger: False\n')
             f.write('sanitize: False\n')
         return paramsFile
+
+    def usesPDBFixer(self):
+      # Only the docked-molecules mode builds the system from the receptor structure
+      return self.inputFrom.get() == INPUT_MOLS and self.usePDBFixer.get()
 
     def getLigParamFile(self):
       return os.path.abspath(self._getExtraPath('addHydrogens.txt'))

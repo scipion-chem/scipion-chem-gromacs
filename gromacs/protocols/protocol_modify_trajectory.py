@@ -116,7 +116,6 @@ class GromacsModifySystem(EMProtocol):
         system = self.gromacsSystem.get()
         inputStructure = os.path.abspath(system.getFileName())
         inputTrajectory = system.getTrajectoryFile()
-        # Cleaning keeps the protein-ligand complex; its group (Protein_<ligandID>) only exists in the system index
         indexFile = gromacsPlugin.ensureIndexFile(self)
         outputGroup = system.getComplexGroup() if self.cleaning.get() else 'System'
 
@@ -164,9 +163,7 @@ class GromacsModifySystem(EMProtocol):
                 filterArgs = 'filter -f {}'.format(auxTrj)
                 if self.filter.get() == 0:
                     filterArgs += ' -nf {}'.format(self.filterF.get())
-
                 filterArgs += self.getFilteringArgs(self.getCleanTrajectoryFile(), self.getCleanStructureFile())
-
                 if '-fit' in filterArgs:
                     gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein'],
                                                    args=filterArgs, cwd=self._getPath())
@@ -174,8 +171,6 @@ class GromacsModifySystem(EMProtocol):
                     gromacsPlugin.runGromacs(self, args=filterArgs, cwd=self._getPath())
             else:
                 shutil.copy(auxTrj, self.getCleanTrajectoryFile())
-
-
 
     def createOutputStep(self):
       outSystem = GromacsSystem()

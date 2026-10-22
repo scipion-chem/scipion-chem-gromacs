@@ -102,21 +102,24 @@ class GromacsSystem(MDSystem):
         command = 'check -f {}'.format(os.path.abspath(self.getTrajectoryFile()))
         gromacsPlugin.runGromacs(protocol, 'gmx', command, cwd=outDir)
 
-        isCheck, isFirst = True, True
-        with open(infoFile) as f:
-          for line in f:
-              if isCheck:
-                  if 'gmx check -f' in line:
-                      isCheck = False
-              else:
-                  if isFirst and line.startswith('Reading frame'):
-                      isFirst = False
-                      firstFrame, firstTime = int(line.split()[2]), float(line.split()[4])
-                  elif not isFirst and line.startswith('Reading frame'):
-                      lastFrame, lastTime = int(line.split()[2]), float(line.split()[4])
-
+        (firstFrame, firstTime), (lastFrame, lastTime) = self._parseCheckFrames(infoFile)
         self.setTimes([firstTime, lastTime])
         self.setFrameIdxs([firstFrame, lastFrame])
+
+    @staticmethod
+    def _parseCheckFrames(infoFile):
+        '''(frame, time) of the first and last frames reported in infoFile after the "gmx check -f" command'''
+        frames, afterCheck = [], False
+        with open(infoFile) as f:
+            for line in f:
+                if not afterCheck:
+                    afterCheck = 'gmx check -f' in line
+                    continue
+                # Only "Reading frame <N> time <T>" data lines, not the "Reading frames from <fmt> file" header
+                parts = line.split()
+                if len(parts) >= 5 and parts[:2] == ['Reading', 'frame']:
+                    frames.append((int(parts[2]), float(parts[4])))
+        return frames[0], frames[-1]
 
     def getRestraintsFile(self):
         return self._restrFile.get()
@@ -181,12 +184,61 @@ class GromacsSystem(MDSystem):
             shutil.copy(self.getTopologyFile(), topFile)
             self.setTopologyFile(topFile)
 
-        program = "sed "
+        posreFile = os.path.join(outDir, 'posre_{}.itp'.format(restraintSuffix.lower()))
         inStr = '#ifdef POSRES_{}\\n#include "posre_{}.itp"\\n#endif'.\
             format(restraintSuffix.upper(), restraintSuffix.lower())
-        sed_params = """-i '/; Include Position restraint file/a {}' {}""".\
-            format(inStr, os.path.abspath(topFile))
-        check_call(program + sed_params, cwd=outDir, shell=True)
+
+        # position_restraints indices are local to a single [ moleculetype ], so the ifdef/include
+        # must land right after the #include of the itp defining that exact molecule
+        nAtoms = self._countPosresAtoms(posreFile)
+        incLine = self._findMoleculeInclude(topFile, nAtoms)
+        if incLine:
+            sedParams = """-i '\\|{}|a {}' {}""".format(incLine.replace('|', '\\|'), inStr, os.path.abspath(topFile))
+        else:
+            sedParams = """-i '/; Include Position restraint file/a {}' {}""".format(inStr, os.path.abspath(topFile))
+        check_call("sed " + sedParams, cwd=outDir, shell=True)
+
+    def _countPosresAtoms(self, posreFile):
+        '''Number of atoms listed in a genrestr-generated posre itp (position_restraints indices
+        are local to their molecule, so this must equal that molecule's own atom count)'''
+        nAtoms, inSection = 0, False
+        with open(posreFile) as f:
+            for line in f:
+                sline = line.strip()
+                if sline.startswith('['):
+                    inSection = sline.startswith('[ position_restraints')
+                elif inSection and sline and not sline.startswith(';'):
+                    nAtoms += 1
+        return nAtoms
+
+    def _findMoleculeInclude(self, topFile, nAtoms):
+        '''#include line of the itp whose own [ moleculetype ] has exactly nAtoms atoms, or None
+        if no separately-included itp matches (e.g. pdb2gmx inline topologies)'''
+        topDir = os.path.dirname(topFile)
+        with open(topFile) as f:
+            for line in f:
+                sline = line.strip()
+                if sline.startswith('#include'):
+                    incPath = sline.split('"')[1]
+                    if not os.path.isabs(incPath):
+                        incPath = os.path.join(topDir, incPath)
+                    if os.path.exists(incPath) and self._itpAtomCount(incPath) == nAtoms:
+                        return sline
+        return None
+
+    def _itpAtomCount(self, itpFile):
+        '''Atom count of an itp file's own [ moleculetype ], or -1 if it defines none'''
+        nAtoms, inMol, inAtoms = -1, False, False
+        with open(itpFile) as f:
+            for line in f:
+                sline = line.strip()
+                if sline.startswith('['):
+                    inAtoms = sline.startswith('[ atoms')
+                    if sline.startswith('[ moleculetype'):
+                        inMol, nAtoms = True, 0
+                elif inMol and inAtoms and sline and not sline.startswith(';'):
+                    nAtoms += 1
+        return nAtoms
 
     def getIons(self):
         ionsDic, mols = {}, False

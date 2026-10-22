@@ -109,6 +109,13 @@ class GromacsMDSimulation(EMProtocol):
                        label="Use MPI program: ",
                        help='Use MPI program during simulation stage.')
 
+        form.addParam('extraMaxwarn', params.IntParam, default=0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Extra allowed grompp warnings: ',
+                       help='Increase if grompp fails with "Too many warnings" for a warning specific to your '
+                            'system that this protocol does not already know to expect (e.g. a long bond at a '
+                            'fusion protein junction). Check the warning is harmless before raising this.')
+
         group = form.addGroup('Ensemble')
         group.addParam('ensemType', params.EnumParam,
                        label='Simulation type: ',
@@ -678,7 +685,7 @@ class GromacsMDSimulation(EMProtocol):
           os.link(ligTopFile, lTopFile)
 
         #Manage warnings
-        nWarns = self.countWarns(stageNum)
+        nWarns = self.countWarns(stageNum) + self.extraMaxwarn.get()
         print('{} warnings in stage {}'.format(nWarns, stageNum))
         if nWarns >= 1:
             command += ' -maxwarn {}'.format(nWarns)
