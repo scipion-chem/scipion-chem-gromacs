@@ -128,6 +128,20 @@ TOPOL_TOP = "topol.top"
 GAPS_OPTIONS = ['No', 'Gaps termini', 'All termini']
 SSBONDS_OPTIONS = ['None', 'Automatic', 'Manual']
 
+def getMol2FormalCharge(mol2File):
+  '''Net formal charge of a mol2 file. OpenBabel writes the formal charges in @<TRIPOS>UNITY_ATOM_ATTR, a block
+  Antechamber ignores, so without passing it ACPYPE guesses 0 even for charged ligands'''
+  charge, inAttrs = 0, False
+  with open(mol2File) as f:
+    for line in f:
+      if line.startswith('@<TRIPOS>'):
+        inAttrs = line.strip() == '@<TRIPOS>UNITY_ATOM_ATTR'
+      elif inAttrs:
+        fields = line.split()
+        if len(fields) == 2 and fields[0] == 'charge':
+          charge += int(fields[1])
+  return charge
+
 def replaceInFile(file, inStr, repStr):
   inStr, repStr = inStr.replace('\n', '\\n'), repStr.replace('\n', '\\n')
   subprocess.check_call(f"sed -i -z 's/{inStr}/{repStr}/g' {file}", shell=True)
@@ -189,6 +203,10 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                             '\n*All termini*: Add caps to both gaps and real protein termini.')
 
         self._defineACPYPEparams(form, condition=f'inputFrom=={LIGAND}')
+        form.getParam('netCharge').help.set(
+          'Net molecular charge (int). Leave empty (recommended) to use the formal charge written in the ligand file. '
+          'Set it only to override that charge, e.g. if the input file has no charge information (pdbqt) or to use a '
+          'different protonation state.')
 
         form.addSection('MD prep')
         group = form.addGroup('Boundary box')
@@ -307,7 +325,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        if self.usePDBFixer.get():
+        if self.usesPDBFixer():
           self._insertFunctionStep(self.pdbFixerStep)
         if self.inputFrom.get() == LIGAND:
           self._insertFunctionStep(self.parametrizeLigandStep)
@@ -344,8 +362,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
       args = f'-i {molFile} -b {kwargs["molName"]} -c {kwargs["chargeMethod"]} ' \
              f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
-      if 'netCharge' in kwargs:
-        args += f' -n {kwargs["netCharge"]}'
+      args += f' -n {kwargs.get("netCharge", getMol2FormalCharge(molFile))}'
       pwchemPlugin.runACPYPE(self, args=args, cwd=self._getExtraPath())
 
 
@@ -624,11 +641,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         summary = []
 
         if self.isFinished():
-            if self.usePDBFixer.get():
-                summary.append('The input structure was repaired with PDBFixer (missing atoms: {}, missing residues: '
-                               '{}, non-standard residues replaced: {}).'.format(
-                                 self.getEnumText('addAtoms'), 'yes' if self.addRes else 'no',
-                                 'yes' if self.repNonStd else 'no'))
+            if self.usesPDBFixer():
+                summary.append(self.getPDBFixerSummary())
             summary.append("This protocol has created a processed gro file with Main force field: *%s* and " \
                            "Water Force Field *%s*." % (GROMACS_MAINFF_NAME[self.mainForceField.get()],
                                                       GROMACS_WATERFF_NAME[self.waterForceField.get()]))
@@ -675,9 +689,17 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def getInputReceptorFile(self):
       '''Receptor file the system is built from: the PDBFixer output once that step has run'''
-      if self.usePDBFixer.get() and os.path.exists(self.getPdbfixerFile()):
+      if self.usesPDBFixer() and os.path.exists(self.getPdbfixerFile()):
         return self.getPdbfixerFile()
       return self.getOriginalReceptorFile()
+
+    def usesPDBFixer(self):
+      return self.usePDBFixer.get()
+
+    def getPDBFixerSummary(self):
+      return 'The input structure was repaired with PDBFixer (missing atoms: {}, missing residues: {}, ' \
+             'non-standard residues replaced: {}).'.format(self.getEnumText('addAtoms'), 'yes' if self.addRes else 'no',
+                                                           'yes' if self.repNonStd else 'no')
 
     def getPdbfixerFile(self):
       inName = os.path.splitext(os.path.basename(self.getRawInputFile()))[0]
@@ -818,7 +840,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def getInputIonResidues(self):
         """Residue names of the free ions and metals."""
-        if self.usePDBFixer.get() and self.extraClean.get():
+        if self.usesPDBFixer() and self.extraClean.get():
             return set()
         inputFile = self.getRawInputFile()
         ext = os.path.splitext(inputFile)[1].lower() if inputFile else ''
