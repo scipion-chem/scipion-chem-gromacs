@@ -113,19 +113,16 @@ class GromacsModifySystem(EMProtocol):
         self._insertFunctionStep(self.createOutputStep)
 
     def modifySystem(self):
-        inputStructure = os.path.abspath(self.gromacsSystem.get().getFileName())
-        inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
         system = self.gromacsSystem.get()
-        indexFile = os.path.abspath(system.getIndexFile())
-        cleanGroup = system.getComplexGroup()
-
-        outputGroup = cleanGroup if self.cleaning.get() else 'System'
-        fitGroup = 'Protein'
+        inputStructure = os.path.abspath(system.getFileName())
+        inputTrajectory = system.getTrajectoryFile()
+        # Cleaning keeps the protein-ligand complex; its group (Protein_<ligandID>) only exists in the system index
+        indexFile = gromacsPlugin.ensureIndexFile(self)
+        outputGroup = system.getComplexGroup() if self.cleaning.get() else 'System'
 
         if self.cleaning:
-            params = " editconf -f {} -n {} -o {}".format(
-                inputStructure, indexFile, self.getCleanStructureFile())
-            gromacsPlugin.runGromacsPrintf(self, printfValues=[cleanGroup],
+            params = " editconf -f {} -n {} -o {}".format(inputStructure, indexFile, self.getCleanStructureFile())
+            gromacsPlugin.runGromacsPrintf(self, printfValues=[outputGroup],
                                            args=params, cwd=self._getPath())
         else:
             shutil.copy(inputStructure, self.getCleanStructureFile())
@@ -136,10 +133,10 @@ class GromacsModifySystem(EMProtocol):
                 inputTrajectory = self.correctPBCJumps(inputTrajectory)
 
             auxTrj = os.path.abspath(self._getExtraPath('cleanTrajectory.xtc'))
-            convArgs = " trjconv -f {} -s {} -o {}".format(inputTrajectory, inputStructure, auxTrj)
+            convArgs = " trjconv -f {} -s {} -n {} -o {}". \
+                format(inputTrajectory, inputStructure, indexFile, auxTrj)
 
-            # Always pass the system index so named groups (Protein_<LIG>) resolve
-            extraArgs = ' -n {}'.format(indexFile)
+            extraArgs = ''
             if self.doFit:
                 extraArgs += ' -fit {}'.format(self.getEnumText('fitting'))
             if self.doDrop:
@@ -154,10 +151,14 @@ class GromacsModifySystem(EMProtocol):
             if self.doSubsample:
                 extraArgs += ' -skip {}'.format(self.subsampleF.get())
 
-            convArgs += extraArgs
-            printfVals = [fitGroup, outputGroup] if self.doFit else [outputGroup]
-            gromacsPlugin.runGromacsPrintf(self, printfValues=printfVals,
-                                           args=convArgs, cwd=self._getPath())
+            if extraArgs or self.cleaning:
+                convArgs += extraArgs
+                # trjconv asks for the fitting group (only with -fit) and then for the output group
+                printfVals = ['Protein', outputGroup] if self.doFit else [outputGroup]
+                gromacsPlugin.runGromacsPrintf(self, printfValues=printfVals,
+                                               args=convArgs, cwd=self._getPath())
+            else:
+                auxTrj = inputTrajectory
 
             if self.doFiltering:
                 filterArgs = 'filter -f {}'.format(auxTrj)
@@ -165,7 +166,7 @@ class GromacsModifySystem(EMProtocol):
                     filterArgs += ' -nf {}'.format(self.filterF.get())
                 filterArgs += self.getFilteringArgs(self.getCleanTrajectoryFile(), self.getCleanStructureFile())
                 if '-fit' in filterArgs:
-                    gromacsPlugin.runGromacsPrintf(self, printfValues=[outputGroup],
+                    gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein'],
                                                    args=filterArgs, cwd=self._getPath())
                 else:
                     gromacsPlugin.runGromacs(self, args=filterArgs, cwd=self._getPath())
@@ -254,7 +255,7 @@ class GromacsModifySystem(EMProtocol):
         """
         inpSystem = self.gromacsSystem.get()
         indexFile = gromacsPlugin.ensureIndexFile(self)
-        centerGroup = 'Protein_{}'.format(inpSystem.getLigandID()) if inpSystem.hasLig() else 'Protein'
+        centerGroup = inpSystem.getComplexGroup()
 
         # -pbc mol requires a .tpr for -s
         tprFile = inpSystem.getTprFile()
