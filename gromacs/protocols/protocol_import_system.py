@@ -326,8 +326,7 @@ class GromacsImportSystem(EMProtocol):
         # A..Z then a..z, then AA, AB ... (very unlikely to be needed)
         import string, itertools
         singles = string.ascii_uppercase + string.ascii_lowercase
-        for c in singles:
-            yield c
+        yield from singles
         for a, b in itertools.product(singles, repeat=2):
             yield a + b
 
@@ -423,80 +422,62 @@ class GromacsImportSystem(EMProtocol):
         if inputIndex and os.path.exists(inputIndex):
             mergeIndexGroups(baseIndex, inputIndex)
 
-        groups = gromacsPlugin.parseIndexFile(self, baseIndex)   # {num: name}
-        name2num = {v: k for k, v in groups.items()}
-        # Case-insensitive name
-        ciName2num = {v.lower(): k for k, v in groups.items()}
-        nextNum = max(groups.keys()) + 1
-        cmds = []
-
-        def addGroup(selectionCmd, groupName):
-            """Queue a selection + rename, tracking the number make_ndx will
-            assign. If a group with that name already exists (case-insensitive),
-            reuse it instead of creating a duplicate."""
-            nonlocal nextNum
-            if groupName.lower() in ciName2num:
-                return ciName2num[groupName.lower()]
-            cmds.append(selectionCmd)
-            cmds.append(f'name {nextNum} {groupName}')
-            name2num[groupName] = nextNum
-            ciName2num[groupName.lower()] = nextNum
-            assigned = nextNum
-            nextNum += 1
-            return assigned
-
-        # Per-chain groups -- only meaningful with more than one chain.
-        if len(chains) > 1 and all(c['length'] for c in chains):
-            residuePointer = 1
-            for chain in chains:
-                start = residuePointer
-                end = residuePointer + chain['length'] - 1
-                addGroup(f"ri {start}-{end}", f"chain{chain['id']}")
-                residuePointer = end + 1
-
-        # Resolve the Protein group
-        protNum = name2num.get('Protein')
-        if protNum is None and chains and all(c['length'] for c in chains):
-            totalRes = sum(c['length'] for c in chains)
-            protNum = addGroup(f"ri 1-{totalRes}", 'Protein')
-
-        # Membrane group.
-        membNum = None
-        if lipidResnames:
-            membNum = addGroup('r ' + ' '.join(lipidResnames), 'Membrane')
-
+        builder = IndexGroupBuilder(gromacsPlugin.parseIndexFile(self, baseIndex))   # {num: name}
+        self._addChainGroups(builder, chains)
+        protNum = self._addProteinGroup(builder, chains)
+        membNum = builder.add('r ' + ' '.join(lipidResnames), 'Membrane') if lipidResnames else None
         # Ligand groups (one per ligand residue name).
-        ligNums = []
-        for resname in ligResnames:
-            ligNums.append(addGroup(f'r {resname}', resname))
-
-        # Combined groups expected by the downstream protocols/viewer.
+        ligNums = [builder.add(f'r {resname}', resname) for resname in ligResnames]
         if protNum is not None:
-            # Protein_<ligandID> for every ligand present.
-            for resname, num in zip(ligResnames, ligNums):
-                addGroup(f'{protNum} | {num}', f'Protein_{resname}')
-
-            if membNum is not None:
-                addGroup(f'{protNum} | {membNum}', 'Protein_membrane')
-
-                # Protein_membrane_lig only when BOTH membrane and ligand exist.
-                if ligNums:
-                    union = ' | '.join(str(n) for n in [protNum, membNum] + ligNums)
-                    addGroup(union, 'Protein_membrane_lig')
+            self._addComplexGroups(builder, protNum, membNum, ligResnames, ligNums)
 
         outIndex = self._getExtraPath('indexes.ndx')
-        if cmds:
+        if builder.cmds:
             gromacsPlugin.createIndexFile(self, groSystem, inIndex=baseIndex,
-                                          outIndex=outIndex, inputCommands=cmds)
+                                          outIndex=outIndex, inputCommands=builder.cmds)
         else:
             shutil.copy(baseIndex, outIndex)
         return outIndex
+
+    @staticmethod
+    def _addChainGroups(builder, chains):
+        """Per-chain groups -- only meaningful with more than one chain."""
+        if len(chains) <= 1 or not all(c['length'] for c in chains):
+            return
+        start = 1
+        for chain in chains:
+            end = start + chain['length'] - 1
+            builder.add(f"ri {start}-{end}", f"chain{chain['id']}")
+            start = end + 1
+
+    @staticmethod
+    def _addProteinGroup(builder, chains):
+        """Number of the Protein group, created from the chain lengths if make_ndx did not define it"""
+        protNum = builder.name2num.get('Protein')
+        if protNum is None and chains and all(c['length'] for c in chains):
+            totalRes = sum(c['length'] for c in chains)
+            protNum = builder.add(f"ri 1-{totalRes}", 'Protein')
+        return protNum
+
+    @staticmethod
+    def _addComplexGroups(builder, protNum, membNum, ligResnames, ligNums):
+        """Combined groups expected by the downstream protocols/viewer."""
+        # Protein_<ligandID> for every ligand present.
+        for resname, num in zip(ligResnames, ligNums):
+            builder.add(f'{protNum} | {num}', f'Protein_{resname}')
+
+        if membNum is not None:
+            builder.add(f'{protNum} | {membNum}', 'Protein_membrane')
+            # Protein_membrane_lig only when BOTH membrane and ligand exist.
+            if ligNums:
+                union = ' | '.join(str(n) for n in [protNum, membNum] + ligNums)
+                builder.add(union, 'Protein_membrane_lig')
 
     # --------------------------- INFO functions ------------------------------
     def _validate(self):
         vals = []
         coords = self.inputCoords.get()
-        if coords and not os.path.splitext(coords)[1].lower() in ['.gro', '.pdb']:
+        if coords and os.path.splitext(coords)[1].lower() not in ['.gro', '.pdb']:
             vals.append('Input coordinates must be a .gro or .pdb file.')
         top = self.inputTopology.get()
         if top and not top.lower().endswith('.top'):
@@ -561,10 +542,30 @@ class GromacsImportSystem(EMProtocol):
                 'MMPBSA, trajectory and viewer protocols.']
 
 
-_SECTION_RE = re.compile(r'\[\s*(.+?)\s*\]')
+class IndexGroupBuilder:
+    """Queue of make_ndx selections + renames on top of an existing index, tracking the number make_ndx
+    will assign to each new group. A group whose name already exists (case-insensitive) is reused
+    instead of duplicated."""
+    def __init__(self, groups):
+        self.name2num = {v: k for k, v in groups.items()}
+        self.ciName2num = {v.lower(): k for k, v in groups.items()}
+        self.nextNum = max(groups.keys()) + 1
+        self.cmds = []
+
+    def add(self, selectionCmd, groupName):
+        if groupName.lower() in self.ciName2num:
+            return self.ciName2num[groupName.lower()]
+        assigned = self.nextNum
+        self.cmds += [selectionCmd, f'name {assigned} {groupName}']
+        self.name2num[groupName] = self.ciName2num[groupName.lower()] = assigned
+        self.nextNum += 1
+        return assigned
+
+
+_SECTION_RE = re.compile(r'\[([^\]]+)\]')
 _INCLUDE_RE = re.compile(r'#include\s+"([^"]+)"')
 
-def _stripComment(line):
+def stripComment(line):
     return line.split(';', 1)[0]
 
 def parseTopologyMolecules(topFile):
@@ -573,12 +574,12 @@ def parseTopologyMolecules(topFile):
     molecules, inMolecules = [], False
     with open(topFile) as f:
         for raw in f:
-            line = _stripComment(raw).strip()
+            line = stripComment(raw).strip()
             if not line:
                 continue
             section = _SECTION_RE.match(line)
             if section:
-                inMolecules = section.group(1).lower() == 'molecules'
+                inMolecules = section.group(1).strip().lower() == 'molecules'
                 continue
             if inMolecules:
                 parts = line.split()
@@ -626,51 +627,19 @@ def parseItpMolecules(itpFile):
     '[ moleculetype ]' defined in it. ``info`` holds: resnames (set), resseq
     (ordered residue names), nres (total residues), natoms, and chains (residue
     count of each chain segment."""
-    mols, current, section, awaitingName = {}, None, None, False
-    try:
-        handle = open(itpFile)
-    except OSError:
-        return mols
-    with handle as f:
-        for raw in f:
-            line = _stripComment(raw).strip()
-            if not line:
-                continue
-            section_m = _SECTION_RE.match(line)
-            if section_m:
-                section = section_m.group(1).lower()
-                if section == 'moleculetype':
-                    awaitingName = True
-                continue
-            if section == 'moleculetype' and awaitingName:
-                current = line.split()[0]
-                mols[current] = {'resnames': set(), 'resseq': [], 'nres': 0,
-                                 'natoms': 0, 'chains': [], '_lastResnr': None,
-                                 '_lastResnrInt': None, '_curChain': 0}
-                awaitingName = False
-                continue
-            if section == 'atoms' and current in mols:
-                parts = line.split()
-                # nr type resnr residue atom cgnr [charge] [mass]
-                if len(parts) >= 4:
-                    resnr, resname = parts[2], parts[3]
-                    info = mols[current]
-                    info['natoms'] += 1
-                    if resnr != info['_lastResnr']:
-                        resnrInt = _toInt(resnr)
-                        # A decrease in residue number => a new chain segment
-                        # (CHARMM-GUI can merge several chains into one
-                        # moleculetype while keeping per-chain numbering).
-                        if (info['_lastResnrInt'] is not None and resnrInt is not None
-                                and resnrInt < info['_lastResnrInt']):
-                            info['chains'].append(info['_curChain'])
-                            info['_curChain'] = 0
-                        info['_curChain'] += 1
-                        info['nres'] += 1
-                        info['resseq'].append(resname)
-                        info['_lastResnr'] = resnr
-                        info['_lastResnrInt'] = resnrInt
-                    info['resnames'].add(resname)
+    mols, current, awaitingName = {}, None, False
+    for section, line in iterTopologyLines(itpFile):
+        if line is None:
+            # Section header: the next line of a [ moleculetype ] is the molecule name
+            awaitingName = section == 'moleculetype'
+        elif section == 'moleculetype' and awaitingName:
+            current, awaitingName = line.split()[0], False
+            mols[current] = {'resnames': set(), 'resseq': [], 'nres': 0, 'natoms': 0, 'chains': [],
+                             '_lastResnr': None, '_lastResnrInt': None, '_curChain': 0}
+        elif section == 'atoms' and current in mols and len(line.split()) >= 4:
+            # nr type resnr residue atom cgnr [charge] [mass]
+            parts = line.split()
+            addItpAtom(mols[current], parts[2], parts[3])
 
     # Finalise the last (or only) chain segment of every moleculetype.
     for info in mols.values():
@@ -678,7 +647,42 @@ def parseItpMolecules(itpFile):
             info['chains'].append(info['_curChain'])
     return mols
 
-def _toInt(value):
+def iterTopologyLines(topFile):
+    """Yield (section, line) for the data lines of a .top/.itp file with comments stripped, and
+    (section, None) at every section header. Yields nothing if the file cannot be read."""
+    try:
+        with open(topFile) as f:
+            lines = f.readlines()
+    except OSError:
+        return
+    section = None
+    for raw in lines:
+        line = stripComment(raw).strip()
+        sectionMatch = _SECTION_RE.match(line)
+        if sectionMatch:
+            section = sectionMatch.group(1).strip().lower()
+            yield section, None
+        elif line:
+            yield section, line
+
+def addItpAtom(info, resnr, resname):
+    """Account an '[ atoms ]' line of a moleculetype in its info dictionary"""
+    info['natoms'] += 1
+    info['resnames'].add(resname)
+    if resnr == info['_lastResnr']:
+        return
+    resnrInt, lastResnrInt = toInt(resnr), info['_lastResnrInt']
+    # A decrease in residue number => a new chain segment
+    # (CHARMM-GUI can merge several chains into one moleculetype while keeping per-chain numbering).
+    if lastResnrInt is not None and resnrInt is not None and resnrInt < lastResnrInt:
+        info['chains'].append(info['_curChain'])
+        info['_curChain'] = 0
+    info['_curChain'] += 1
+    info['nres'] += 1
+    info['resseq'].append(resname)
+    info['_lastResnr'], info['_lastResnrInt'] = resnr, resnrInt
+
+def toInt(value):
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -689,7 +693,7 @@ def parsePdbChains(pdbFile):
     of a PDB, reading the chain identifier column (22) of ATOM records. Blank
     chain identifiers (as CHARMM-GUI writes) yield an empty list, which makes the
     caller fall back to the topology-derived chains."""
-    chains, order, current, lastResKey = {}, [], None, None
+    chains, order, lastResKey = {}, [], None
     with open(pdbFile) as f:
         for line in f:
             if not line.startswith('ATOM'):
@@ -706,7 +710,7 @@ def parsePdbChains(pdbFile):
                 lastResKey = resKey
     return [(cid, chains[cid]) for cid in order]
 
-def _isProteinResidue(resname):
+def isProteinResidue(resname):
     if resname in STANDARD_AA:
         return True
     # CHARMM-GUI terminal patches: N/C prefix (NGLY, CVAL ...) or P suffix (GLYP)
@@ -726,32 +730,33 @@ def classifyMolecule(name, info, forcedLigands=None):
     resnames = {r.upper() for r in info['resnames']} if info else set()
 
     # User-declared ligands override every automatic rule.
-    if forcedLigands and (name.upper() in forcedLigands or up in forcedLigands
-                          or (resnames & forcedLigands)):
+    if forcedLigands and ({name.upper(), up} | resnames) & forcedLigands:
         return 'ligand'
 
     # Water first (most abundant, unambiguous names).
     if up in WATER_NAMES or (resnames and resnames <= WATER_NAMES):
         return 'water'
 
-    # Protein: residues are (mostly) amino acids and there is more than one.
-    if info and info['nres'] >= 1:
-        aa = sum(1 for r in info['resseq'] if _isProteinResidue(r.upper()))
-        if info['nres'] > 1 and aa / info['nres'] > 0.5:
-            return 'protein'
+    if isProteinMolecule(info):
+        return 'protein'
 
     # Lipids / membrane.
     if up in LIPID_NAMES or (resnames and resnames <= LIPID_NAMES):
         return 'lipid'
 
     # Monoatomic ions (by name or by being a single-atom molecule).
-    if up in ION_NAMES:
-        return 'ion'
-    if info and info['natoms'] == 1:
+    if up in ION_NAMES or (info and info['natoms'] == 1):
         return 'ion'
 
     # Anything else that is not water/ion/lipid/protein is treated as a ligand.
     return 'ligand'
+
+def isProteinMolecule(info):
+    """Protein: residues are (mostly) amino acids and there is more than one"""
+    if not info or info['nres'] <= 1:
+        return False
+    aa = sum(1 for r in info['resseq'] if isProteinResidue(r.upper()))
+    return aa / info['nres'] > 0.5
 
 def classifyMolecules(molecules, molInfo, forcedLigands=None):
     """Classify every (name, count) molecule from the topology. Returns a dict
@@ -799,7 +804,7 @@ def mergeIndexGroups(baseNdx, extraNdx):
             for line in f:
                 m = _SECTION_RE.match(line.strip())
                 if m:
-                    current = m.group(1)
+                    current = m.group(1).strip()
                     groups.setdefault(current, [])
                     order.append(current)
                 elif current is not None:

@@ -102,27 +102,24 @@ class GromacsSystem(MDSystem):
         command = 'check -f {}'.format(os.path.abspath(self.getTrajectoryFile()))
         gromacsPlugin.runGromacs(protocol, 'gmx', command, cwd=outDir)
 
-        isCheck, isFirst = True, True
-        with open(infoFile) as f:
-          for line in f:
-              if isCheck:
-                  if 'gmx check -f' in line:
-                      isCheck = False
-              else:
-                  # Match only actual "Reading frame <N> time <T>" data lines.
-                  # 'Reading frame'.startswith would also match the unrelated
-                  # header line "Reading frames from <fmt> file" (note the 's'),
-                  # whose 3rd token is not a frame number.
-                  parts = line.split()
-                  if len(parts) >= 5 and parts[0] == 'Reading' and parts[1] == 'frame':
-                      if isFirst:
-                          isFirst = False
-                          firstFrame, firstTime = int(parts[2]), float(parts[4])
-                      else:
-                          lastFrame, lastTime = int(parts[2]), float(parts[4])
-
+        (firstFrame, firstTime), (lastFrame, lastTime) = self._parseCheckFrames(infoFile)
         self.setTimes([firstTime, lastTime])
         self.setFrameIdxs([firstFrame, lastFrame])
+
+    @staticmethod
+    def _parseCheckFrames(infoFile):
+        '''(frame, time) of the first and last frames reported in infoFile after the "gmx check -f" command'''
+        frames, afterCheck = [], False
+        with open(infoFile) as f:
+            for line in f:
+                if not afterCheck:
+                    afterCheck = 'gmx check -f' in line
+                    continue
+                # Only "Reading frame <N> time <T>" data lines, not the "Reading frames from <fmt> file" header
+                parts = line.split()
+                if len(parts) >= 5 and parts[:2] == ['Reading', 'frame']:
+                    frames.append((int(parts[2]), float(parts[4])))
+        return frames[0], frames[-1]
 
     def getRestraintsFile(self):
         return self._restrFile.get()
@@ -196,10 +193,10 @@ class GromacsSystem(MDSystem):
         nAtoms = self._countPosresAtoms(posreFile)
         incLine = self._findMoleculeInclude(topFile, nAtoms)
         if incLine:
-            sed_params = """-i '\\|{}|a {}' {}""".format(incLine.replace('|', '\\|'), inStr, os.path.abspath(topFile))
+            sedParams = """-i '\\|{}|a {}' {}""".format(incLine.replace('|', '\\|'), inStr, os.path.abspath(topFile))
         else:
-            sed_params = """-i '/; Include Position restraint file/a {}' {}""".format(inStr, os.path.abspath(topFile))
-        check_call("sed " + sed_params, cwd=outDir, shell=True)
+            sedParams = """-i '/; Include Position restraint file/a {}' {}""".format(inStr, os.path.abspath(topFile))
+        check_call("sed " + sedParams, cwd=outDir, shell=True)
 
     def _countPosresAtoms(self, posreFile):
         '''Number of atoms listed in a genrestr-generated posre itp (position_restraints indices
