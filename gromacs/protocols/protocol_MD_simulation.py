@@ -366,8 +366,11 @@ class GromacsMDSimulation(EMProtocol):
   
         if msjDic['restraints'] not in ['', 'None']:
           sumStr += ', restraint on {}'.format(msjDic['restraints'])
-        sumStr += ', {} K\n'.format(msjDic['temperature'])
-        return sumStr
+        sumStr += ', {} K'.format(msjDic['temperature'])
+        if ensemType != 'Energy min':
+          sumStr += ', trajectory saved every {} ps'.format(msjDic['trajInterval']) if msjDic['saveTrj'] \
+            else ', trajectory not saved'
+        return sumStr + '\n'
 
     def createSummary(self, msjDic=None):
         '''Creates the displayed summary from the internal state of the steps'''
@@ -571,10 +574,11 @@ class GromacsMDSimulation(EMProtocol):
 
     def addDefaultForMissing(self, msjDic):
       '''Add default values for missing parameters in the msjDic'''
-      paramDic = self.getStageParamsDic()
-      for pName in paramDic.keys():
+      for pName, param in self.getStageParamsDic().items():
         if pName not in msjDic:
-          msjDic[pName] = paramDic[pName].default
+          # Typed value (param.default holds it as text: 'False' would be truthy); enums are stored by label
+          value = param.paramClass(param.getDefault()).get()
+          msjDic[pName] = param.choices[value] if isinstance(param, params.EnumParam) else value
       return msjDic
 
     def generateMDPFile(self, msjDic, mdpStage):
