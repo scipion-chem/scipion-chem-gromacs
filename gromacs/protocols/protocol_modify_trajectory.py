@@ -242,12 +242,20 @@ class GromacsModifySystem(EMProtocol):
                 shutil.copy(auxTrj, self.getCleanTrajectoryFile())
 
     def createOutputStep(self):
+      inSystem = self.gromacsSystem.get()
       outSystem = GromacsSystem()
       outSystem.setSystemFile(self.getCleanStructureFile())
-      outSystem.setTopologyFile(self.gromacsSystem.get().getTopologyFile())
-      if self.gromacsSystem.get().getTrajectoryFile():
+      outSystem.setTopologyFile(inSystem.getTopologyFile())
+      if inSystem.getTrajectoryFile():
           outSystem.setTrajectoryFile(os.path.relpath(self.getCleanTrajectoryFile()))
           outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
+
+      if inSystem.getMinimizedFile():
+          outSystem.setMinimizedFile(inSystem.getMinimizedFile())
+      outSystem.setLigandID(inSystem.getLigandID())
+      outSystem.setLigTopologyFile(inSystem.getLigTopologyFile())
+      outSystem.setChainNames(inSystem.getChainNames())
+      outSystem.setChainLengths(inSystem.getChainLengths())
 
       self._defineOutputs(outputSystem=outSystem)
 

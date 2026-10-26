@@ -499,7 +499,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         elif choice == 'Minimized structure' and hasattr(system, 'getMinimizedFile'):
             refFile = system.getMinimizedFile()
         elif choice == 'Initial structure':
-            refFile = system.getSystemFile()
+            # The system file of a simulation is its final frame; the initial one is stored apart
+            refFile = system.getOriStructFile() or system.getSystemFile()
         else:
             refFile = None
         if refFile and os.path.exists(refFile):
