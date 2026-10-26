@@ -150,11 +150,116 @@ def replaceInFile(file, inStr, repStr):
 
 class GromacsSystemPrep(ProtocolLigandParametrization):
     """
-    This protocol will start a Molecular Dynamics preparation. It will create the system
-    and the topology, structure, and position restriction files
+    AI Generated:
 
-    It is necessary to insert a cleaned PDB strucrture from Protocol Import Atomic Structure
-    or other similar protocols.
+    Protocol to prepare a GROMACS system ready for Molecular Dynamics.
+
+    It builds the topology, coordinates, simulation box, solvent and ions of a protein
+    (optionally in complex with a docked ligand) with the GROMACS tools, producing a
+    GromacsSystem that can be directly simulated with "Run MD simulation".
+
+    Overview
+    --------
+    The protocol performs the following steps:
+
+    1. Optional structure repair with PDBFixer
+       - Adds missing atoms and residues
+       - Replaces non-standard residues
+
+    2. Optional ligand parametrization
+       - The selected docked ligand is parametrized with ACPYPE (GAFF/GAFF2)
+
+    3. Topology generation with pdb2gmx
+       - Applies the chosen protein and water force fields
+       - Optionally adds ACE/NME caps to the gaps and/or termini
+       - Optionally defines the disulfide bonds
+
+    4. Box definition, solvation and ions addition
+       - editconf, solvate and genion
+
+    5. Output creation
+       - GromacsSystem with topology, coordinates, restraints and index file
+
+    Input
+    -----
+    inputFrom:
+        Type of input:
+        - AtomStruct: a protein structure (apo system)
+        - SetOfSmallMolecules: a set of docked molecules; the receptor is taken from the
+          set and one ligand (inputLigand) is prepared in complex with it
+
+    inputStructure / inputSetOfMols, inputLigand:
+        Structure, or set of docked molecules and the name of the ligand to prepare.
+
+    usePDBFixer (addAtoms, addRes, repNonStd, extraClean):
+        Repair the input structure before the preparation. "Heavy" atoms is recommended,
+        since pdb2gmx adds the hydrogens of the chosen force field itself. Missing residues
+        are only detected from the SEQRES records of the input.
+
+    mainForceField / waterForceField:
+        Protein force field (AMBER, CHARMM, GROMOS, OPLS-AA families) and water model.
+
+    addCaps:
+        Add ACE/NME capping groups to the internal gaps or to all the termini.
+
+    Ligand parametrization (chargeMethod, netCharge, multip, atomType, qprog):
+        ACPYPE options. If netCharge is empty, the formal charge written in the ligand file
+        is used.
+
+    Boundary box (boxType, sizeType, distances):
+        Cubic or orthorhombic box, defined by its absolute size or by the buffer distance
+        between the solute and the box edges.
+
+    Ions (placeIons, cationType, anionType, numbers, addSalt, saltConc):
+        Neutralize the system, add a fixed number of ions and/or a salt concentration.
+
+    SS bonds (handleSSBonds, selectSSBonds):
+        Define none, all the detected or a manual selection of disulfide bonds.
+
+    Workflow
+    --------
+    1. pdbFixerStep (optional):
+       - Runs PDBFixer on the input receptor; the repaired file is used in every later step
+
+    2. parametrizeLigandStep (only with docked molecules):
+       - Adds hydrogens to the ligand and runs ACPYPE
+
+    3. PDB2GMXStep:
+       - Caps the protein if requested and renumbers the residues if several chains
+         share residue numbers
+       - Runs pdb2gmx (retrying with -ignh if the input hydrogens are not recognized)
+       - Merges the ligand topology and coordinates into the system
+
+    4. editConfStep / solvateStep / addIonsStep:
+       - Defines the box, solvates it with the water model and adds the ions
+
+    5. createOutputStep:
+       - Creates the GromacsSystem and its index file, including the protein-ligand
+         complex group (Protein_<ligand>) named after the ligand residue
+
+    Output
+    ------
+    outputSystem:
+        GromacsSystem containing:
+        - solvated coordinates (.gro) and topology (.top)
+        - position restraints file and index file (.ndx)
+        - chain names and lengths, force field and water model
+        - ligand topology and residue name (when a ligand is prepared)
+
+    Key Features
+    ------------
+    - Apo systems and protein-ligand complexes from docking results
+    - Structure repair with PDBFixer
+    - Wide choice of GROMACS force fields and water models
+    - Capping, disulfide bond and ion handling
+
+    Notes
+    -----
+    - The form checks that the water model, the ions to add and the ions present in the
+      input are supported by the chosen force field, and warns when the ion parameters
+      were fitted for a different water model
+    - Non-standard residues or ligands not passed as docked molecules cannot be
+      parametrized by pdb2gmx
     """
     _label = 'System preparation'
     IMPORT_FROM_FILE = 0

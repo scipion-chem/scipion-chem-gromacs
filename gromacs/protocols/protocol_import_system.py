@@ -81,9 +81,93 @@ LIPID_NAMES = {
 
 class GromacsImportSystem(EMProtocol):
     """
-    Import an already prepared GROMACS system (e.g. from CHARMM-GUI) into
-    Scipion, generating the structural metadata and the index (.ndx) file
-    that the simulation, MMPBSA, trajectory and viewer protocols require.
+    AI Generated:
+
+    Protocol to import an already prepared GROMACS system into Scipion.
+
+    It takes a system built outside Scipion (e.g. with CHARMM-GUI: protein, membrane,
+    ligands, solvent and ions) and creates a GromacsSystem with the structural metadata and
+    the index (.ndx) file that the simulation, MMPBSA, trajectory and viewer protocols require.
+
+    Overview
+    --------
+    1. Import of the input files
+       - Coordinates, topology and every file it #includes, optional index and trajectory
+
+    2. Classification of the molecules of the topology
+       - Protein, ligand, lipid, ion and water
+
+    3. Derivation of the structural metadata
+       - Protein chains and lengths, primary ligand, membrane, force field and water model
+
+    4. Index generation
+       - Standard GROMACS groups plus chain, ligand, membrane and complex groups
+
+    Input
+    -----
+    inputCoords:
+        Coordinates of the system (.gro, or .pdb converted to .gro).
+
+    inputTopology:
+        GROMACS topology (.top). The files it #includes are resolved relative to it,
+        recursively, and copied along with it.
+
+    inputItpDir:
+        Optional folder (e.g. the CHARMM-GUI "toppar" folder) where #included files not
+        found next to the topology are looked for.
+
+    inputPdb:
+        Optional original .pdb used to recover the chain identifiers lost in the .gro file.
+
+    ligandNames:
+        Optional comma-separated residue/molecule names to force-classify as ligands. The
+        first one becomes the primary ligand (its ID and topology are stored).
+
+    inputIndex:
+        Optional index file whose groups are merged into the generated one (e.g. the
+        CHARMM-GUI index.ndx, needed by its .mdp files).
+
+    inputTrajectory:
+        Optional trajectory (.xtc, .trr or multi-model .pdb) matching the coordinates.
+
+    Workflow
+    --------
+    1. Copies the input files, rewriting the topology #includes to their copied location
+
+    2. Classifies every molecule of the "[ molecules ]" section from its name and residue
+       composition (CHARMM-GUI naming conventions included); user-named ligands override
+       the automatic classification
+
+    3. Builds the protein chains (splitting molecules that merge several chains) and picks
+       the primary ligand, its residue name and topology
+
+    4. Generates the index file: make_ndx default groups, merged with the input index, plus
+       per-chain groups, Membrane, one group per ligand, Protein_<ligand>, Protein_membrane
+       and Protein_membrane_lig
+
+    5. Reads the time and frame range of the trajectory, if given
+
+    Output
+    ------
+    outputSystem:
+        GromacsSystem containing:
+        - coordinates, original structure and topology (with all its includes)
+        - chain names and lengths, ligand ID and ligand topology
+        - force field and water model (best-effort detection)
+        - index file and, if given, the trajectory
+
+    Key Features
+    ------------
+    - Direct use of CHARMM-GUI GROMACS outputs (membrane systems included)
+    - Automatic molecule classification with manual ligand override
+    - Complete index file for the downstream protocols
+
+    Notes
+    -----
+    - The topology must contain a "[ molecules ]" section, and the forced ligand names must
+      appear in it
+    - The form warns about #included files that cannot be found
+    - The trajectory atom count and order must match the coordinates and topology
     """
     _label = 'import system'
 

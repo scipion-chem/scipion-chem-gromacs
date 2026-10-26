@@ -83,14 +83,104 @@ SCRIPT_LIGPREP_NAME = 'rdkit_addHydrogens.py'
 
 class GromacsMmpbsa(GromacsSystemPrep):
     """
-    Protein-ligand MM/PBSA / MM/GBSA binding free energy via gmx_MMPBSA.
+    AI Generated:
 
-    Mode A (Gromacs System): requires a finished MD trajectory.
-    Mode B (Docked Molecules): parametrizes the ligand, builds and solvates
-    the complex, minimizes it, and runs a single-frame MMPBSA calculation.
+    Protocol to estimate protein-ligand binding free energies with MM/PBSA or MM/GBSA,
+    using gmx_MMPBSA.
+
+    It works in two modes:
+    - Gromacs System (post-MD): binding energy averaged over the frames of a finished MD
+      trajectory of a protein-ligand complex
+    - Docked Molecules: fast rescoring of docking poses; each pose is built into a solvated
+      GROMACS system, minimized, and evaluated on that single frame
 
     Reference: Valdes-Tresanco et al., J. Chem. Theory Comput. 2021.
     https://valdes-tresanco-ms.github.io/gmx_MMPBSA/dev/
+
+    Overview
+    --------
+    1. Input preparation
+       - Gromacs System: PBC correction and optional fitting of the trajectory
+       - Docked Molecules: ligand parametrization, system building and minimization
+
+    2. Index creation
+       - Receptor (Protein) and ligand groups, merged into the complex group
+
+    3. gmx_MMPBSA input writing
+       - Solvation model, entropy correction and decomposition settings
+
+    4. gmx_MMPBSA execution and result parsing
+
+    Input
+    -----
+    inputFrom:
+        Gromacs System (post-MD) or Docked Molecules.
+
+    gromacsSystem:
+        GromacsSystem with a trajectory, .tpr, topology and ligand topology.
+
+    inputSetOfMols:
+        Set of docked molecules; its receptor file is used to build every complex.
+
+    Calculation (calcType, igb, temperature, saltCon):
+        MM/GBSA (with the GB model: HCT, OBC-I, OBC-II, GBn, GBn2) or MM/PBSA, temperature
+        and salt concentration.
+
+    Entropy correction (entropyType, ieSegment, normal mode settings):
+        None, Interaction Entropy (over the last segment % of frames) or Normal Mode
+        Analysis (frame selection and minimization settings).
+
+    Per-residue decomposition (doDecomp, decompResidues, decompScheme, decompVerb):
+        Energy decomposition per residue or per atom, for the selected residues (e.g.
+        "within 6" Angstroms of the ligand).
+
+    Trajectory preprocessing (Gromacs System mode):
+        Optional rot+trans fitting and the frame range and interval to evaluate.
+
+    Docked Molecules mode settings:
+        - Ligand parametrization (ACPYPE): charge method, multiplicity, atom types and
+          quantum program; the net charge of each ligand is read from its own file
+        - PDBFixer repair of the receptor
+        - Force field, water model and box of the system
+        - Minimization: maximum steps, force tolerance and initial step size
+
+    Workflow
+    --------
+    Gromacs System mode:
+        1. makePreprocessingIndexStep: index with the Protein_<ligand> complex group
+        2. preprocInputStep: PBC correction (-pbc mol -center) and optional fitting
+        3. writeMmpbsaInputStep: gmx_MMPBSA input file with the chosen settings
+        4. runMmpbsaStep: gmx_MMPBSA over the selected frames
+
+    Docked Molecules mode:
+        1. pdbFixerStep (optional): repairs the receptor
+        2. convertInputStep: prepares the ligands and adds their hydrogens
+        3. parametrizeSpecificLigandStep: ACPYPE once per unique ligand; ligands that cannot
+           be parametrized are flagged and their poses skipped
+        4. Per pose, in parallel: prepareSystemStep (pdb2gmx, ligand merging, box,
+           solvation and minimization), index creation, input writing and gmx_MMPBSA run
+
+    Output
+    ------
+    outputSystem (Gromacs System mode):
+        Copy of the input system with the binding free energy and the results file.
+
+    outputSmallMolecules (Docked Molecules mode):
+        Copy of the input set with the MMGBSA_deltaG or MMPBSA_deltaG attribute (kcal/mol)
+        on each pose that was successfully evaluated.
+
+    Key Features
+    ------------
+    - MD-based and docking-pose-based binding free energies
+    - GB and PB solvation models, entropy corrections and energy decomposition
+    - Robust batch processing: failed ligands do not stop the other poses
+    - MPI parallelization of gmx_MMPBSA
+
+    Notes
+    -----
+    - Docked Molecules results come from a single minimized frame: useful to rank poses,
+      less accurate than averaging over an MD trajectory
+    - The summary lists the binding free energy of the system or of each pose
     """
     _label = 'MM/PBSA free energy calculation'
     stepsExecutionMode = params.STEPS_PARALLEL
