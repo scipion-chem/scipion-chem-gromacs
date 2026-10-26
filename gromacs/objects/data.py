@@ -108,18 +108,23 @@ class GromacsSystem(MDSystem):
 
     @staticmethod
     def _parseCheckFrames(infoFile):
-        '''(frame, time) of the first and last frames reported in infoFile after the "gmx check -f" command'''
-        frames, afterCheck = [], False
+        '''(frame, time) of the first and last frames of the trajectory checked with "gmx check -f" in infoFile:
+        the first one from its first "Reading frame <N> time <T>" line, the last one from its summary table
+        row "Time <nFrames> <timestep>" (the "Reading frame" lines are only printed every 10, 100, 1000... frames)'''
+        firstFrame, timeRow, afterCheck = None, None, False
         with open(infoFile) as f:
             for line in f:
                 if not afterCheck:
                     afterCheck = 'gmx check -f' in line
                     continue
-                # Only "Reading frame <N> time <T>" data lines, not the "Reading frames from <fmt> file" header
                 parts = line.split()
-                if len(parts) >= 5 and parts[:2] == ['Reading', 'frame']:
-                    frames.append((int(parts[2]), float(parts[4])))
-        return frames[0], frames[-1]
+                if firstFrame is None and len(parts) >= 5 and parts[:2] == ['Reading', 'frame']:
+                    firstFrame = (int(parts[2]), float(parts[4]))
+                elif len(parts) == 3 and parts[0] == 'Time':
+                    timeRow = (int(parts[1]), float(parts[2]))
+
+        nFrames, timestep = timeRow
+        return firstFrame, (firstFrame[0] + nFrames - 1, firstFrame[1] + (nFrames - 1) * timestep)
 
     def getRestraintsFile(self):
         return self._restrFile.get()
