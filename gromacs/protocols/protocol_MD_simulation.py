@@ -396,7 +396,8 @@ class GromacsMDSimulation(EMProtocol):
         self._convertGroToPdbNoWat(localGroFile, localPdbFile)
         finalAtomStruct = AtomStruct(filename=os.path.relpath(localPdbFile))
 
-        outSystem = GromacsSystem(filename=oriGroFile, tprFile=lastTprFile)
+        # The system is the final (relaxed)
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setLigTopologyFile(self.gromacsSystem.get().getLigTopologyFile())
         outSystem.setLigandID(self.gromacsSystem.get().getLigandID())
