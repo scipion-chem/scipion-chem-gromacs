@@ -192,6 +192,12 @@ class GromacsModifySystem(EMProtocol):
             params = " editconf -f {} -n {} -o {}".format(inputStructure, indexFile, self.getCleanStructureFile())
             gromacsPlugin.runGromacsPrintf(self, printfValues=[outputGroup],
                                            args=params, cwd=self._getPath())
+            if system.getTprFile():
+                # A .tpr with only the kept atoms, as the one of the input has all the waters and ions
+                params = " convert-tpr -s {} -n {} -o {}".format(os.path.abspath(system.getTprFile()), indexFile,
+                                                                self.getCleanTprFile())
+                gromacsPlugin.runGromacsPrintf(self, printfValues=[outputGroup],
+                                               args=params, cwd=self._getPath())
         else:
             shutil.copy(inputStructure, self.getCleanStructureFile())
 
@@ -252,6 +258,8 @@ class GromacsModifySystem(EMProtocol):
 
       if inSystem.getMinimizedFile():
           outSystem.setMinimizedFile(inSystem.getMinimizedFile())
+      if inSystem.getTprFile():
+          outSystem.setTprFile(self.getCleanTprFile() if self.cleaning else inSystem.getTprFile())
       outSystem.setLigandID(inSystem.getLigandID())
       outSystem.setLigTopologyFile(inSystem.getLigTopologyFile())
       outSystem.setChainNames(inSystem.getChainNames())
@@ -303,6 +311,9 @@ class GromacsModifySystem(EMProtocol):
         inputStructure = self.gromacsSystem.get().getFileName()
         name, ext = os.path.splitext(inputStructure)
         return os.path.abspath(self._getPath(os.path.basename(name)) + ext)
+
+    def getCleanTprFile(self):
+        return os.path.abspath(self._getPath('cleanSystem.tpr'))
 
     def getCleanTrajectoryFile(self):
         inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()
