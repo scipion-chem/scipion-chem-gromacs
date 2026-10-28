@@ -43,9 +43,9 @@ from pwem.objects import Pointer, String
 from pwchem.utils import groupConsecutiveIdxs
 from pwchem.utils import pdbFromASFile
 from pwchem.wizards import AddElementSummaryWizard, DeleteElementWizard, VariableWizard, SelectElementWizard, \
-    WatchElementWizard
+    WatchElementWizard, SelectMultiChainWizard, SelectMultiLigandWizard
 
-from ..protocols import GromacsSystemPrep, GromacsMDSimulation
+from ..protocols import GromacsSystemPrep, GromacsMDSimulation, GromacsMmpbsa
 from gromacs.protocols.protocol_system_prep import STRUCTURE, LIGAND
 from gromacs import Plugin as gromacsPlugin
 
@@ -53,6 +53,39 @@ SelectElementWizard().addTarget(protocol=GromacsSystemPrep,
                                 targets=['inputLigand'],
                                 inputs=['inputSetOfMols'],
                                 outputs=['inputLigand'])
+
+SelectMultiChainWizard().addTarget(protocol=GromacsSystemPrep,
+                                   targets=['chain_name'],
+                                   inputs=[{'inputFrom': ['inputStructure', 'inputSetOfMols']}],
+                                   outputs=['chain_name'])
+
+SelectMultiChainWizard().addTarget(protocol=GromacsMmpbsa,
+                                   targets=['chain_name'],
+                                   inputs=['inputSetOfMols'],
+                                   outputs=['chain_name'])
+
+class SelectReceptorHetWizard(SelectMultiLigandWizard):
+  """Hetero residues of the receptor, also when it comes from a set of docked molecules"""
+  _targets, _inputs, _outputs = [], {}, {}
+
+  def show(self, form, *params):
+      protocol = form.protocol
+      _, outputParam = self.getInputOutput(form)
+      molNames = self.extract_ligands(protocol.getRawInputFile(), protocol)
+
+      provider = ListTreeProviderString([String(molName) for molName in molNames])
+      dlg = dialog.ListDialog(form.root, "Ligand Names", provider, "Select one of the ligands")
+      form.setVar(outputParam[0], ', '.join(v.get() for v in dlg.values))
+
+SelectReceptorHetWizard().addTarget(protocol=GromacsSystemPrep,
+                                    targets=['het2keep'],
+                                    inputs=['het2keep'],
+                                    outputs=['het2keep'])
+
+SelectReceptorHetWizard().addTarget(protocol=GromacsMmpbsa,
+                                    targets=['het2keep'],
+                                    inputs=['het2keep'],
+                                    outputs=['het2keep'])
 
 AddElementSummaryWizard().addTarget(protocol=GromacsMDSimulation,
                              targets=['insertStep'],

@@ -140,7 +140,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
     Docked Molecules mode settings:
         - Ligand parametrization (ACPYPE): charge method, multiplicity, atom types and
           quantum program; the net charge of each ligand is read from its own file
-        - PDBFixer repair of the receptor
+        - Receptor preprocessing: removal of waters, hetero residues (e.g. a crystal ligand) and chains,
+          and PDBFixer repair
         - Force field, water model and box of the system
         - Minimization: maximum steps, force tolerance and initial step size
 
@@ -343,8 +344,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         # each ligand uses the formal charge of its own file instead
         form.getParam('netCharge').condition.set('False')
 
-        grpFix = form.addGroup('PDBFixer', condition=f'inputFrom=={INPUT_MOLS}')
-        self._definePDBFixerParams(grpFix)
+        grpPrep = form.addGroup('Preprocess structure', condition=f'inputFrom=={INPUT_MOLS}')
+        self._definePreprocessParams(grpPrep)
 
         grpSys = form.addGroup('System Preparation',
                                condition=f'inputFrom=={INPUT_MOLS}')
@@ -395,8 +396,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         mmpbsaSteps = []  # Collect all MMPBSA calculation steps
 
         if self.inputFrom.get() == INPUT_MOLS:
-            if self.usesPDBFixer():
-                self._insertFunctionStep(self.pdbFixerStep)
+            if self.usesPreprocessing():
+                self._insertFunctionStep(self.preprocessStructureStep)
             cStep = self._insertFunctionStep(self.convertInputStep)
 
             # Track parametrization steps by molName to avoid redundant parametrization
@@ -834,8 +835,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         elif self.inputSetOfMols.get() is not None:
             summary.extend(self._getMolsSummary())
 
-        if summary and self.usesPDBFixer():
-            summary.insert(0, self.getPDBFixerSummary())
+        if summary and self.usesPreprocessing():
+            summary.insert(0, self.getPreprocessSummary())
         return summary or ['Protocol has not finished yet.']
 
     def _getGromacsSummary(self, calcModel):
@@ -945,9 +946,9 @@ class GromacsMmpbsa(GromacsSystemPrep):
             f.write('sanitize: False\n')
         return paramsFile
 
-    def usesPDBFixer(self):
+    def usesPreprocessing(self):
       # Only the docked-molecules mode builds the system from the receptor structure
-      return self.inputFrom.get() == INPUT_MOLS and self.usePDBFixer.get()
+      return self.inputFrom.get() == INPUT_MOLS and super().usesPreprocessing()
 
     def getLigParamFile(self):
       return os.path.abspath(self._getExtraPath('addHydrogens.txt'))

@@ -29,14 +29,14 @@
 """
 This module will prepare the system for the simulation
 """
-import os, subprocess, shutil, uuid
+import os, subprocess, shutil, uuid, json
 
 from pyworkflow.protocol import params
 from pyworkflow.utils import Message
 from pwem.convert import AtomicStructHandler
 
 from pwchem import Plugin as pwchemPlugin
-from pwchem.utils import runOpenBabel, removeStartWithLines
+from pwchem.utils import runOpenBabel, removeStartWithLines, cleanPDB
 from pwchem.protocols import ProtocolLigandParametrization
 from pwchem.constants import OPENBABEL_DIC
 
@@ -162,9 +162,9 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     --------
     The protocol performs the following steps:
 
-    1. Optional structure repair with PDBFixer
-       - Adds missing atoms and residues
-       - Replaces non-standard residues
+    1. Optional structure preprocessing
+       - PDBFixer: adds missing atoms and residues, replaces non-standard residues
+       - Removes waters, hetero residues (e.g. a crystal ligand) and unselected chains
 
     2. Optional ligand parametrization
        - The selected docked ligand is parametrized with ACPYPE (GAFF/GAFF2)
@@ -191,8 +191,13 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     inputStructure / inputSetOfMols, inputLigand:
         Structure, or set of docked molecules and the name of the ligand to prepare.
 
+    Preprocess structure (waters, HETATM, het2keep, rchains, chain_name):
+        Same cleaning as pwchem's target preparation. Removing the HETATM is needed when the
+        receptor still holds a crystal ligand: pdb2gmx has no topology for it. Ions or cofactors
+        to simulate can be kept with het2keep.
+
     usePDBFixer (addAtoms, addRes, repNonStd, extraClean):
-        Repair the input structure before the preparation. "Heavy" atoms is recommended,
+        Repair the input structure before the cleaning. "Heavy" atoms is recommended,
         since pdb2gmx adds the hydrogens of the chosen force field itself. Missing residues
         are only detected from the SEQRES records of the input.
 
@@ -218,8 +223,9 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     Workflow
     --------
-    1. pdbFixerStep (optional):
-       - Runs PDBFixer on the input receptor; the repaired file is used in every later step
+    1. preprocessStructureStep (optional):
+       - Runs PDBFixer and/or removes waters, hetero residues and chains from the input receptor;
+         the resulting file is used in every later step
 
     2. parametrizeLigandStep (only with docked molecules):
        - Adds hydrogens to the ligand and runs ACPYPE
@@ -249,7 +255,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     Key Features
     ------------
     - Apo systems and protein-ligand complexes from docking results
-    - Structure repair with PDBFixer
+    - Structure cleaning and repair with PDBFixer
     - Wide choice of GROMACS force fields and water models
     - Capping, disulfide bond and ion handling
 
@@ -292,8 +298,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                       label='Ligand to prepare: ',
                       help='Specific ligand to prepare in the system')
 
-        group = form.addGroup('PDBFixer')
-        self._definePDBFixerParams(group)
+        group = form.addGroup('Preprocess structure')
+        self._definePreprocessParams(group)
 
         group = form.addGroup('Force field')
         self._defineFFParams(group)
@@ -323,6 +329,24 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         group = form.addGroup('SS bonds')
         self._defineSSBondsParams(group)
 
+    def _definePreprocessParams(self, group):
+        """Cleaning options of pwchem's target preparation (same names and defaults) followed by PDBFixer"""
+        group.addParam("waters", params.BooleanParam, label='Remove waters: ', default=False,
+                       help='Remove all water molecules from the input structure (the system is solvated later)')
+        group.addParam("HETATM", params.BooleanParam, label='Remove ligands HETATM: ', default=False,
+                       help='Remove the ligands and HETATM contained in the input structure (e.g. a co-crystallized '
+                            'ligand), as pdb2gmx can only parametrize the residues of the force field.\n'
+                            'Ions and cofactors to simulate can be kept with the next parameter.')
+        group.addParam('het2keep', params.StringParam, condition='HETATM', default='',
+                       label='Heteroatom residues to keep: ', expertLevel=params.LEVEL_ADVANCED,
+                       help='Heteroatom residues to keep in the structure (comma-separated), e.g. metal ions such '
+                            'as ZN or MG. They must be parametrized by the chosen force field.')
+        group.addParam("rchains", params.BooleanParam, label='Select specific chains: ', default=False,
+                       help='Keep only the chains selected')
+        group.addParam("chain_name", params.StringParam, label="Keep chains: ", condition="rchains==True",
+                       help="Select the chain(s) you want to keep in the structure")
+        self._definePDBFixerParams(group)
+
     def _definePDBFixerParams(self, group):
         group.addParam("usePDBFixer", params.BooleanParam, label='Use PDBFixer: ', default=False,
                        help='Repair the input structure with PDBFixer before the system preparation: add missing '
@@ -331,7 +355,7 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                        label="Add missing atoms: ", choices=['All', 'Heavy', 'Hydrogen', 'None'],
                        help='Missing atoms to add with PDBFixer.\nHeavy is recommended: pdb2gmx adds the hydrogens '
                             'of the chosen force field itself, and hydrogens named by PDBFixer may not match it.')
-        group.addParam('addRes', params.BooleanParam, default=True,
+        group.addParam('addRes', params.BooleanParam, default=False,
                        label="Add missing residues: ", condition="usePDBFixer",
                        help='Use PDBFixer to add missing residues. They are only detected from the SEQRES records '
                             'of the input PDB, so structures without them (e.g. predicted models) are not modified.')
@@ -430,8 +454,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
     # --------------------------- STEPS functions ------------------------------
     def _insertAllSteps(self):
         # Insert processing steps
-        if self.usesPDBFixer():
-          self._insertFunctionStep(self.pdbFixerStep)
+        if self.usesPreprocessing():
+          self._insertFunctionStep(self.preprocessStructureStep)
         if self.inputFrom.get() == LIGAND:
           self._insertFunctionStep(self.parametrizeLigandStep)
         self._insertFunctionStep(self.PDB2GMXStep)
@@ -441,7 +465,18 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             self._insertFunctionStep(self.addIonsStep)
         self._insertFunctionStep(self.createOutputStep)
 
-    def pdbFixerStep(self):
+    def preprocessStructureStep(self):
+        """PDBFixer repair and/or cleaning of the receptor, written to the file every later step uses"""
+        outFile = self.getPreprocessedFile()
+        inFile = self.getOriginalReceptorFile()
+        if self.usePDBFixer.get():
+          self.runPDBFixer(outFile)
+          inFile = outFile
+        if self.cleansStructure():
+          cleanPDB(inFile, outFile, self.waters.get(), self.HETATM.get(), self.getChainsToKeep(),
+                   self.getHetResiduesToKeep(), singleModel=0)
+
+    def runPDBFixer(self, outFile):
         addResStr = ' --add-residues' if self.addRes else ''
         repNStdStr = ' --replace-nonstandard' if self.repNonStd else ''
         addAtomsStr = self.getEnumText("addAtoms").lower()
@@ -450,7 +485,6 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         inFile = self.getRawInputFile()
         if os.path.splitext(inFile)[1].lower() not in ['.pdb', '.cif', '.mmcif']:
           inFile = self.getOriginalReceptorFile()
-        outFile = self.getPdbfixerFile()
         args = f'{inFile} --add-atoms={addAtomsStr}{addResStr}{repNStdStr} --output {outFile}'
         pwchemPlugin.runOPENBABEL(self, 'pdbfixer', args=args, cwd=self._getExtraPath())
 
@@ -670,7 +704,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
             ions = self.getInputIonResidues()
         except Exception:
             ions = set()
-        missingIons = sorted(ions - gromacsPlugin.getForceFieldResidues(mainFF))
+        ffResidues = gromacsPlugin.getForceFieldResidues(mainFF)
+        missingIons = sorted(ions - ffResidues)
         if missingIons:
             alternatives = [ff for ff in gromacsPlugin.getForceFieldsWithResidues(missingIons)
                             if ff in GROMACS_LIST]
@@ -680,6 +715,19 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
                           'Installed force fields defining all of them: {}'.format(', '.join(alternatives))
                           if alternatives else 'No installed force field defines all of them: remove them '
                                                'from the input structure or add a custom topology entry.'))
+
+        if not (self.usePDBFixer.get() and self.repNonStd.get()):
+            try:
+                hetRes = self.getInputHetResidues()
+            except Exception:
+                hetRes = {}
+            missingHet = sorted(resName for resName, nAtoms in hetRes.items()
+                                if nAtoms > 1 and resName not in ffResidues)
+            if missingHet:
+                vals.append('Force field {} has no topology entry for the hetero residue(s) {} kept in the input '
+                            'structure, so pdb2gmx will fail on them.\nRemove them with "Remove ligands HETATM" '
+                            '(a ligand must be simulated as the docked input ligand) or replace non-standard '
+                            'residues with PDBFixer.'.format(mainFF, ', '.join(missingHet)))
 
         if self.placeIons.get() != 0:
             ionsDic = {'amber': [CA, CL, CS, K, LI, MG, NA, RB, ZN],
@@ -746,8 +794,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         summary = []
 
         if self.isFinished():
-            if self.usesPDBFixer():
-                summary.append(self.getPDBFixerSummary())
+            if self.usesPreprocessing():
+                summary.append(self.getPreprocessSummary())
             summary.append("This protocol has created a processed gro file with Main force field: *%s* and " \
                            "Water Force Field *%s*." % (GROMACS_MAINFF_NAME[self.mainForceField.get()],
                                                       GROMACS_WATERFF_NAME[self.waterForceField.get()]))
@@ -793,20 +841,46 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       return [mol.__str__() for mol in mols] if mols is not None else []
 
     def getInputReceptorFile(self):
-      '''Receptor file the system is built from: the PDBFixer output once that step has run'''
-      if self.usesPDBFixer() and os.path.exists(self.getPdbfixerFile()):
-        return self.getPdbfixerFile()
+      '''Receptor file the system is built from: the preprocessed one once that step has run'''
+      if self.usesPreprocessing() and os.path.exists(self.getPreprocessedFile()):
+        return self.getPreprocessedFile()
       return self.getOriginalReceptorFile()
 
-    def usesPDBFixer(self):
-      return self.usePDBFixer.get()
+    def usesPreprocessing(self):
+      return self.usePDBFixer.get() or self.cleansStructure()
 
-    def getPDBFixerSummary(self):
-      return 'The input structure was repaired with PDBFixer (missing atoms: {}, missing residues: {}, ' \
-             'non-standard residues replaced: {}).'.format(self.getEnumText('addAtoms'), 'yes' if self.addRes else 'no',
-                                                           'yes' if self.repNonStd else 'no')
+    def cleansStructure(self):
+      return self.waters.get() or self.HETATM.get() or self.rchains.get()
 
-    def getPdbfixerFile(self):
+    def getChainsToKeep(self):
+      '''Model-chain ids selected with the chain wizard (None keeps all), parsed as pwchem's target preparation'''
+      if not self.rchains.get():
+        return None
+      chainJson = json.loads(self.chain_name.get())
+      if 'chain' in chainJson:
+        return [f'{chainJson["model"]}-{chainJson["chain"].upper().strip()}']
+      return [mChain.strip() for mChain in chainJson["model-chain"].upper().split(',')]
+
+    def getHetResiduesToKeep(self):
+      return [het.strip() for het in self.het2keep.get().split(',') if het.strip()]
+
+    def getPreprocessSummary(self):
+      summary = []
+      if self.usePDBFixer.get():
+        summary.append('The input structure was repaired with PDBFixer (missing atoms: {}, missing residues: {}, '
+                       'non-standard residues replaced: {}).'.format(self.getEnumText('addAtoms'),
+                                                                     'yes' if self.addRes else 'no',
+                                                                     'yes' if self.repNonStd else 'no'))
+      removed = [name for name, flag in [('waters', self.waters.get()), ('HETATM', self.HETATM.get())] if flag]
+      if removed:
+        kept = self.getHetResiduesToKeep() if self.HETATM.get() else []
+        summary.append('Removed from the input structure: {}{}.'.format(
+          ', '.join(removed), ' (kept: {})'.format(', '.join(kept)) if kept else ''))
+      if self.rchains.get():
+        summary.append('Chains kept: {}.'.format(', '.join(self.getChainsToKeep())))
+      return ' '.join(summary)
+
+    def getPreprocessedFile(self):
       inName = os.path.splitext(os.path.basename(self.getRawInputFile()))[0]
       return os.path.abspath(self._getExtraPath(inName + '.pdb'))
 
@@ -944,9 +1018,13 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         return PDB.is_aa(resName, standard=True) or resName in NUCLEIC_RESNAMES
 
     def getInputIonResidues(self):
-        """Residue names of the free ions and metals."""
-        if self.usesPDBFixer() and self.extraClean.get():
-            return set()
+        """Residue names of the free ions and metals left after the preprocessing."""
+        return {resName for resName, nAtoms in self.getInputHetResidues().items() if nAtoms == 1}
+
+    def getInputHetResidues(self):
+        """Hetero residues (no waters) that reach pdb2gmx, with their number of atoms"""
+        if self.usePDBFixer.get() and self.extraClean.get():
+            return {}
         inputFile = self.getRawInputFile()
         ext = os.path.splitext(inputFile)[1].lower() if inputFile else ''
         if ext in ['.cif', '.mmcif']:
@@ -954,11 +1032,15 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
         elif ext == '.pdb':
             parser = PDB.PDBParser(QUIET=True)
         else:
-            return set()
+            return {}
 
         structure = parser.get_structure('structure', inputFile)
-        return {res.get_resname().strip() for res in next(iter(structure)).get_residues()
-                if res.id[0] not in [' ', 'W'] and len(list(res.get_atoms())) == 1}
+        hetRes = {res.get_resname().strip(): len(list(res.get_atoms()))
+                  for res in next(iter(structure)).get_residues() if res.id[0] not in [' ', 'W']}
+        if self.HETATM.get():
+            hetRes = {resName: nAtoms for resName, nAtoms in hetRes.items()
+                      if resName in self.getHetResiduesToKeep()}
+        return hetRes
 
     def getRawInputFile(self):
         """Input structure as given, with no format conversion (usable before the run starts)."""
