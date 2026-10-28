@@ -41,7 +41,7 @@ from pyworkflow.object import Float, String
 import pyworkflow.object as pwobj
 from pwem.protocols import EMProtocol
 
-from pwchem.utils import getBaseName, convertToSdf, runOpenBabel
+from pwchem.utils import getBaseName, convertToSdf
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import RDKIT_DIC
 
@@ -469,7 +469,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
         ligand is flagged as failed instead of raising, so the run continues
         and only its poses are skipped downstream."""
         try:
-            molFile = self.addSpecificlLigandHydrogens(molFile, molName)
+            molFile = self.addHydrogens(molFile)
             kwargs = self.getParameters()
 
             args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
@@ -958,21 +958,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
       if not os.path.exists(lDir):
         os.mkdir(lDir)
       return lDir
-
-    def addSpecificlLigandHydrogens(self, inpFile, molName):
-      sysbaseName = os.path.basename(inpFile).split('.')[0]
-
-      tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
-      inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
-
-      args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
-      args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
-      replaceInFile(inpMol2File, 'UNL1', 'LIG')
-      return inpMol2File
 
     def getLigParamDir(self, molName):
         lDir = os.path.abspath(os.path.join(self.getLigandFileDir(), f'{molName}.acpype'))

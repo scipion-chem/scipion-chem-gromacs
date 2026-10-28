@@ -38,7 +38,7 @@ from pwem.convert import AtomicStructHandler
 from pwchem import Plugin as pwchemPlugin
 from pwchem.utils import runOpenBabel, removeStartWithLines, cleanPDB
 from pwchem.protocols import ProtocolLigandParametrization
-from pwchem.constants import OPENBABEL_DIC
+from pwchem.constants import OPENBABEL_DIC, RDKIT_DIC
 
 from gromacs import Plugin as gromacsPlugin
 import gromacs.objects as grobj
@@ -893,7 +893,8 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
       if not inputStructure.endswith('.pdb'):
         inputPdb = self.getInputPDBFile(inputStructure)
         if not os.path.exists(inputPdb):
-          inputStructure = self.convertReceptor2PDB(inputStructure, inputPdb)
+          self.convertReceptor2PDB(inputStructure, inputPdb)
+        inputStructure = inputPdb
       return inputStructure
 
     def convertReceptor2PDB(self, proteinFile, oFile):
@@ -913,17 +914,27 @@ class GromacsSystemPrep(ProtocolLigandParametrization):
 
     def addHydrogens(self, inpFile):
       sysbaseName = os.path.basename(inpFile).split('.')[0]
-      tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
       inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
 
-      args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
+      if self.isMeekoPdbqt(inpFile):
+        # pdbqt has no bond orders: Meeko rebuilds the whole molecule from the SMILES it wrote in the file
+        sdfFile = os.path.abspath(self._getTmpPath(sysbaseName + '.sdf'))
+        pwchemPlugin.runCondaCommand(self, f'{os.path.abspath(inpFile)} -s {sdfFile}', RDKIT_DIC, 'mk_export.py',
+                                     cwd=self._getTmpPath())
+        inpFile = sdfFile
 
-      args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
+      args = f'{os.path.abspath(inpFile)} -h -O {inpMol2File}'
       runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
 
       replaceInFile(inpMol2File, 'UNL1', 'LIG')
       return inpMol2File
+
+    @staticmethod
+    def isMeekoPdbqt(molFile):
+      if not molFile.endswith('.pdbqt'):
+        return False
+      with open(molFile) as f:
+        return any(line.startswith('REMARK SMILES') for line in f)
 
     def getLigandName(self):
       return self.getSpecifiedMol().getMolName()
