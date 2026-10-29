@@ -42,10 +42,79 @@ from gromacs.objects import GromacsSystem
 
 class GromacsModifySystem(EMProtocol):
     """
-    This protocol modifies a gromacs system trajectory and/or coordinates:
-        - Cleans from waters and ions
-        - Subsamples trajectory and applies filters
-        - Fits trajectory to initial structure
+    AI Generated:
+
+    Protocol to modify the structure and trajectory of a GROMACS system.
+
+    It applies the usual trajectory post-processing operations with gmx trjconv and
+    gmx filter, producing a new GromacsSystem ready for analysis or visualization.
+
+    Overview
+    --------
+    The available operations, applied in this order, are:
+
+    1. PBC correction of the trajectory
+    2. Cleaning: keep only the protein (and ligand), removing waters and ions
+    3. Fitting to the reference structure
+    4. Cutting between two times
+    5. Subsampling of the frames
+    6. Low-pass or high-pass filtering
+
+    Input
+    -----
+    gromacsSystem:
+        GromacsSystem with the structure and (optionally) the trajectory to modify.
+
+    correctPBC:
+        Three-step trjconv correction: whole molecules, continuous path (nojump), and
+        centering on the protein (or protein-ligand complex) with compact wrapping.
+        Requires the .tpr file of the system.
+
+    cleaning:
+        Keep only the protein, or the protein-ligand complex when the system has a
+        ligand (Protein_<ligand> group of the system index).
+
+    doFit / fitting:
+        Fit the frames to the reference structure (rot+trans, rotxy+transxy,
+        translation, transxy or progressive).
+
+    doDrop / firstTime, lastTime, timeUnit:
+        Keep only the frames between two times (0 means from the first / until the last).
+
+    doSubsample / subsampleF:
+        Keep one frame every N.
+
+    doFiltering / filter, filterF:
+        Low-pass (with its filter length) or high-pass filtering of the trajectory.
+
+    Workflow
+    --------
+    1. modifySystem:
+       - Extracts the cleaned structure with editconf, if requested
+       - Corrects the PBC jumps, if requested
+       - Runs a single trjconv with the cleaning, fitting, cutting and subsampling options,
+         using the index file of the system
+       - Runs gmx filter, if requested
+
+    2. createOutputStep:
+       - Creates the new GromacsSystem and reads the time and frame range of its trajectory
+
+    Output
+    ------
+    outputSystem:
+        GromacsSystem with the modified structure and trajectory and the topology of the
+        input system.
+
+    Key Features
+    ------------
+    - Standard PBC correction procedure
+    - Protein-ligand aware cleaning
+    - Fitting, cutting, subsampling and filtering in one protocol
+
+    Notes
+    -----
+    - The low-pass filter length must be at least 2
+    - If the input system has no trajectory, only the structure is modified
     """
     _label = 'System modification'
 
@@ -116,7 +185,6 @@ class GromacsModifySystem(EMProtocol):
         system = self.gromacsSystem.get()
         inputStructure = os.path.abspath(system.getFileName())
         inputTrajectory = system.getTrajectoryFile()
-        # Cleaning keeps the protein-ligand complex; its group (Protein_<ligandID>) only exists in the system index
         indexFile = gromacsPlugin.ensureIndexFile(self)
         outputGroup = system.getComplexGroup() if self.cleaning.get() else 'System'
 
@@ -124,6 +192,12 @@ class GromacsModifySystem(EMProtocol):
             params = " editconf -f {} -n {} -o {}".format(inputStructure, indexFile, self.getCleanStructureFile())
             gromacsPlugin.runGromacsPrintf(self, printfValues=[outputGroup],
                                            args=params, cwd=self._getPath())
+            if system.getTprFile():
+                # A .tpr with only the kept atoms, as the one of the input has all the waters and ions
+                params = " convert-tpr -s {} -n {} -o {}".format(os.path.abspath(system.getTprFile()), indexFile,
+                                                                self.getCleanTprFile())
+                gromacsPlugin.runGromacsPrintf(self, printfValues=[outputGroup],
+                                               args=params, cwd=self._getPath())
         else:
             shutil.copy(inputStructure, self.getCleanStructureFile())
 
@@ -164,9 +238,7 @@ class GromacsModifySystem(EMProtocol):
                 filterArgs = 'filter -f {}'.format(auxTrj)
                 if self.filter.get() == 0:
                     filterArgs += ' -nf {}'.format(self.filterF.get())
-
                 filterArgs += self.getFilteringArgs(self.getCleanTrajectoryFile(), self.getCleanStructureFile())
-
                 if '-fit' in filterArgs:
                     gromacsPlugin.runGromacsPrintf(self, printfValues=['Protein'],
                                                    args=filterArgs, cwd=self._getPath())
@@ -175,15 +247,23 @@ class GromacsModifySystem(EMProtocol):
             else:
                 shutil.copy(auxTrj, self.getCleanTrajectoryFile())
 
-
-
     def createOutputStep(self):
+      inSystem = self.gromacsSystem.get()
       outSystem = GromacsSystem()
-      outSystem.setSystemFile(self.getCleanStructureFile())
-      outSystem.setTopologyFile(self.gromacsSystem.get().getTopologyFile())
-      if self.gromacsSystem.get().getTrajectoryFile():
+      outSystem.setSystemFile(os.path.relpath(self.getCleanStructureFile()))
+      outSystem.setTopologyFile(inSystem.getTopologyFile())
+      if inSystem.getTrajectoryFile():
           outSystem.setTrajectoryFile(os.path.relpath(self.getCleanTrajectoryFile()))
           outSystem.readTrjInfo(protocol=self, outDir=self._getExtraPath())
+
+      if inSystem.getMinimizedFile():
+          outSystem.setMinimizedFile(inSystem.getMinimizedFile())
+      if inSystem.getTprFile():
+          outSystem.setTprFile(os.path.relpath(self.getCleanTprFile()) if self.cleaning else inSystem.getTprFile())
+      outSystem.setLigandID(inSystem.getLigandID())
+      outSystem.setLigTopologyFile(inSystem.getLigTopologyFile())
+      outSystem.setChainNames(inSystem.getChainNames())
+      outSystem.setChainLengths(inSystem.getChainLengths())
 
       self._defineOutputs(outputSystem=outSystem)
 
@@ -231,6 +311,9 @@ class GromacsModifySystem(EMProtocol):
         inputStructure = self.gromacsSystem.get().getFileName()
         name, ext = os.path.splitext(inputStructure)
         return os.path.abspath(self._getPath(os.path.basename(name)) + ext)
+
+    def getCleanTprFile(self):
+        return os.path.abspath(self._getPath('cleanSystem.tpr'))
 
     def getCleanTrajectoryFile(self):
         inputTrajectory = self.gromacsSystem.get().getTrajectoryFile()

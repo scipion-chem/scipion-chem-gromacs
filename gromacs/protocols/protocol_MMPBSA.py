@@ -41,7 +41,7 @@ from pyworkflow.object import Float, String
 import pyworkflow.object as pwobj
 from pwem.protocols import EMProtocol
 
-from pwchem.utils import getBaseName, convertToSdf, runOpenBabel
+from pwchem.utils import getBaseName, convertToSdf
 from pwchem import Plugin as pwchemPlugin
 from pwchem.constants import RDKIT_DIC
 
@@ -53,7 +53,7 @@ from multiprocessing import cpu_count
 
 from gromacs.protocols.protocol_system_prep import (
     GromacsSystemPrep,
-    replaceInFile,
+    replaceInFile, getMol2FormalCharge,
     GROMACS_LIST, GROMACS_MAINFF_NAME,
     GROMACS_WATERS_LIST, GROMACS_WATERFF_NAME,
     GROMACS_AMBER03, GROMACS_TIP3P,
@@ -83,14 +83,105 @@ SCRIPT_LIGPREP_NAME = 'rdkit_addHydrogens.py'
 
 class GromacsMmpbsa(GromacsSystemPrep):
     """
-    Protein-ligand MM/PBSA / MM/GBSA binding free energy via gmx_MMPBSA.
+    AI Generated:
 
-    Mode A (Gromacs System): requires a finished MD trajectory.
-    Mode B (Docked Molecules): parametrizes the ligand, builds and solvates
-    the complex, minimizes it, and runs a single-frame MMPBSA calculation.
+    Protocol to estimate protein-ligand binding free energies with MM/PBSA or MM/GBSA,
+    using gmx_MMPBSA.
+
+    It works in two modes:
+    - Gromacs System (post-MD): binding energy averaged over the frames of a finished MD
+      trajectory of a protein-ligand complex
+    - Docked Molecules: fast rescoring of docking poses; each pose is built into a solvated
+      GROMACS system, minimized, and evaluated on that single frame
 
     Reference: Valdes-Tresanco et al., J. Chem. Theory Comput. 2021.
     https://valdes-tresanco-ms.github.io/gmx_MMPBSA/dev/
+
+    Overview
+    --------
+    1. Input preparation
+       - Gromacs System: PBC correction and optional fitting of the trajectory
+       - Docked Molecules: ligand parametrization, system building and minimization
+
+    2. Index creation
+       - Receptor (Protein) and ligand groups, merged into the complex group
+
+    3. gmx_MMPBSA input writing
+       - Solvation model, entropy correction and decomposition settings
+
+    4. gmx_MMPBSA execution and result parsing
+
+    Input
+    -----
+    inputFrom:
+        Gromacs System (post-MD) or Docked Molecules.
+
+    gromacsSystem:
+        GromacsSystem with a trajectory, .tpr, topology and ligand topology.
+
+    inputSetOfMols:
+        Set of docked molecules; its receptor file is used to build every complex.
+
+    Calculation (calcType, igb, temperature, saltCon):
+        MM/GBSA (with the GB model: HCT, OBC-I, OBC-II, GBn, GBn2) or MM/PBSA, temperature
+        and salt concentration.
+
+    Entropy correction (entropyType, ieSegment, normal mode settings):
+        None, Interaction Entropy (over the last segment % of frames) or Normal Mode
+        Analysis (frame selection and minimization settings).
+
+    Per-residue decomposition (doDecomp, decompResidues, decompScheme, decompVerb):
+        Energy decomposition per residue or per atom, for the selected residues (e.g.
+        "within 6" Angstroms of the ligand).
+
+    Trajectory preprocessing (Gromacs System mode):
+        Optional rot+trans fitting and the frame range and interval to evaluate.
+
+    Docked Molecules mode settings:
+        - Ligand parametrization (ACPYPE): charge method, multiplicity, atom types and
+          quantum program; the net charge of each ligand is read from its own file
+        - Receptor preprocessing: removal of waters, hetero residues (e.g. a crystal ligand) and chains,
+          and PDBFixer repair
+        - Force field, water model and box of the system
+        - Minimization: maximum steps, force tolerance and initial step size
+
+    Workflow
+    --------
+    Gromacs System mode:
+        1. makePreprocessingIndexStep: index with the Protein_<ligand> complex group
+        2. preprocInputStep: PBC correction (-pbc mol -center) and optional fitting
+        3. writeMmpbsaInputStep: gmx_MMPBSA input file with the chosen settings
+        4. runMmpbsaStep: gmx_MMPBSA over the selected frames
+
+    Docked Molecules mode:
+        1. pdbFixerStep (optional): repairs the receptor
+        2. convertInputStep: prepares the ligands and adds their hydrogens
+        3. parametrizeSpecificLigandStep: ACPYPE once per unique ligand; ligands that cannot
+           be parametrized are flagged and their poses skipped
+        4. Per pose, in parallel: prepareSystemStep (pdb2gmx, ligand merging, box,
+           solvation and minimization), index creation, input writing and gmx_MMPBSA run
+
+    Output
+    ------
+    outputSystem (Gromacs System mode):
+        Copy of the input system with the binding free energy and the results file.
+
+    outputSmallMolecules (Docked Molecules mode):
+        Copy of the input set with the MMGBSA_deltaG or MMPBSA_deltaG attribute (kcal/mol)
+        on each pose that was successfully evaluated.
+
+    Key Features
+    ------------
+    - MD-based and docking-pose-based binding free energies
+    - GB and PB solvation models, entropy corrections and energy decomposition
+    - Robust batch processing: failed ligands do not stop the other poses
+    - MPI parallelization of gmx_MMPBSA
+
+    Notes
+    -----
+    - Docked Molecules results come from a single minimized frame: useful to rank poses,
+      less accurate than averaging over an MD trajectory
+    - The summary lists the binding free energy of the system or of each pose
     """
     _label = 'MM/PBSA free energy calculation'
     stepsExecutionMode = params.STEPS_PARALLEL
@@ -249,6 +340,12 @@ class GromacsMmpbsa(GromacsSystemPrep):
         self._defineTrajPreprocParams(trajPreprocGroup)
 
         self._defineACPYPEparams(form, condition=f'inputFrom=={INPUT_MOLS}')
+        # One net charge for the whole set would be wrong for every ligand with a different one:
+        # each ligand uses the formal charge of its own file instead
+        form.getParam('netCharge').condition.set('False')
+
+        grpPrep = form.addGroup('Preprocess structure', condition=f'inputFrom=={INPUT_MOLS}')
+        self._definePreprocessParams(grpPrep)
 
         grpSys = form.addGroup('System Preparation',
                                condition=f'inputFrom=={INPUT_MOLS}')
@@ -299,6 +396,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         mmpbsaSteps = []  # Collect all MMPBSA calculation steps
 
         if self.inputFrom.get() == INPUT_MOLS:
+            if self.usesPreprocessing():
+                self._insertFunctionStep(self.preprocessStructureStep)
             cStep = self._insertFunctionStep(self.convertInputStep)
 
             # Track parametrization steps by molName to avoid redundant parametrization
@@ -370,13 +469,12 @@ class GromacsMmpbsa(GromacsSystemPrep):
         ligand is flagged as failed instead of raising, so the run continues
         and only its poses are skipped downstream."""
         try:
-            molFile = self.addSpecificlLigandHydrogens(molFile, molName)
+            molFile = self.addHydrogens(molFile)
             kwargs = self.getParameters()
 
             args = f'-i {molFile} -b {molName} -c {kwargs["chargeMethod"]} ' \
                    f'-m {kwargs["multip"]} -a {kwargs["atomType"]} -q {kwargs["qprog"]} -o gmx'
-            if 'netCharge' in kwargs:
-                args += f' -n {kwargs["netCharge"]}'
+            args += f' -n {getMol2FormalCharge(molFile)}'
             pwchemPlugin.runACPYPE(self, args=args, cwd=self.getLigandFileDir())
         except Exception as e:
             self.warning(f'Parametrization raised for {molName}: {e}')
@@ -492,8 +590,7 @@ class GromacsMmpbsa(GromacsSystemPrep):
             inputTrj   = os.path.abspath(gromacsSys.getTrajectoryFile())
             lastTpr    = os.path.abspath(gromacsSys.getTprFile())
             ndxFile    = os.path.abspath(self._getExtraPath(PREPROC_NDX))
-            ligName    = gromacsSys.getLigandID()
-            mergedGrp  = f'Protein_{ligName}'
+            mergedGrp  = gromacsSys.getComplexGroup()
             procTrj    = os.path.abspath(self._getPath('processTraj.xtc'))
 
             noPBC = os.path.abspath(self._getExtraPath('noPBC.xtc'))
@@ -738,6 +835,8 @@ class GromacsMmpbsa(GromacsSystemPrep):
         elif self.inputSetOfMols.get() is not None:
             summary.extend(self._getMolsSummary())
 
+        if summary and self.usesPreprocessing():
+            summary.insert(0, self.getPreprocessSummary())
         return summary or ['Protocol has not finished yet.']
 
     def _getGromacsSummary(self, calcModel):
@@ -847,6 +946,10 @@ class GromacsMmpbsa(GromacsSystemPrep):
             f.write('sanitize: False\n')
         return paramsFile
 
+    def usesPreprocessing(self):
+      # Only the docked-molecules mode builds the system from the receptor structure
+      return self.inputFrom.get() == INPUT_MOLS and super().usesPreprocessing()
+
     def getLigParamFile(self):
       return os.path.abspath(self._getExtraPath('addHydrogens.txt'))
 
@@ -855,21 +958,6 @@ class GromacsMmpbsa(GromacsSystemPrep):
       if not os.path.exists(lDir):
         os.mkdir(lDir)
       return lDir
-
-    def addSpecificlLigandHydrogens(self, inpFile, molName):
-      sysbaseName = os.path.basename(inpFile).split('.')[0]
-
-      tmpFile = os.path.abspath(self._getTmpPath(sysbaseName + '.pdb'))
-      inpMol2File = os.path.abspath(self._getExtraPath(sysbaseName + '.mol2'))
-
-      args = f'{os.path.abspath(inpFile)} -O {tmpFile}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
-      args = f'{os.path.abspath(tmpFile)} -h -O {inpMol2File}'
-      runOpenBabel(protocol=self, args=args, cwd=self._getTmpPath())
-
-      replaceInFile(inpMol2File, 'UNL1', 'LIG')
-      return inpMol2File
 
     def getLigParamDir(self, molName):
         lDir = os.path.abspath(os.path.join(self.getLigandFileDir(), f'{molName}.acpype'))

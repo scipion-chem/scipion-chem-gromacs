@@ -121,6 +121,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
                             'Protein represented as NewCartoon and waters as dots')
 
     def _defineAnalysisParams(self, form):
+      sectionLabel = 'Trajectory analysis'
+      form.lastSection = form.getSection(sectionLabel) or form.addSection(sectionLabel)
       group = form.addGroup('Gromacs analysis')
       group.addParam('displayAnalysis', params.EnumParam,
                      choices=self._analysis, default=0,
@@ -414,7 +416,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
     def getStageFiles(self, stage, tpr=False):
       if stage == 'All':
         system = self.getMDSystem()
-        groFile, trjFile, tprFile = system.getOriStructFile(), system.getTrajectoryFile(), system.getTprFile()
+        groFile = system.getOriStructFile() or system.getSystemFile()
+        trjFile, tprFile = system.getTrajectoryFile(), system.getTprFile()
       else:
         groFile, _, tprFile = self.protocol.getPrevFinishedStageFiles(stage)
         trjFile = self.protocol._getExtraPath('{}/{}_corrected.xtc'.format(stage, stage))
@@ -496,7 +499,8 @@ class GromacsSimulationViewer(GromacsSystemPViewer):
         elif choice == 'Minimized structure' and hasattr(system, 'getMinimizedFile'):
             refFile = system.getMinimizedFile()
         elif choice == 'Initial structure':
-            refFile = system.getSystemFile()
+            # The system file of a simulation is its final frame; the initial one is stored apart
+            refFile = system.getOriStructFile() or system.getSystemFile()
         else:
             refFile = None
         if refFile and os.path.exists(refFile):

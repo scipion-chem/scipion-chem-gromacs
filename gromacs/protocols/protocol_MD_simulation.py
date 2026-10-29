@@ -48,8 +48,91 @@ from multiprocessing import cpu_count
 
 class GromacsMDSimulation(EMProtocol):
     """
-    This protocol will perform energy minimization on the system previosly prepared by the protocol "system prepartion".
-    This step is necessary to energy minize the system in order to avoid unwanted conformations.
+    AI Generated:
+
+    Protocol to run a Molecular Dynamics workflow on a GROMACS system.
+
+    The simulation is defined as an ordered list of stages (energy minimizations, NVT and
+    NPT simulations) that are run one after the other with gmx grompp and gmx mdrun, each
+    one starting from the final state of the previous one.
+
+    Overview
+    --------
+    1. Workflow definition
+       - Each stage is configured in the form and added to the workflow with the
+         "Insert step" wizard; stages can also be inspected ("Watch") or deleted
+
+    2. Stage execution
+       - An .mdp file is generated for each stage and run with grompp + mdrun
+
+    3. Output creation
+       - Final system, concatenated trajectory and last frame structure
+
+    Input
+    -----
+    gromacsSystem:
+        GromacsSystem to simulate (from "System preparation", "import system" or a
+        previous simulation).
+
+    prevTrj:
+        Concatenate the trajectory of the input system before the new one.
+
+    cptTime / gmxMPI / extraMaxwarn:
+        Checkpoint interval (allows continuing a stopped run), use of the MPI GROMACS
+        build, and extra grompp warnings to allow for warnings specific to the system.
+
+    Stage parameters:
+        - ensemType: Energy min, NVT or NPT
+        - integrator, nStepsMin, emTol, emStep: minimization settings (steep or cg)
+        - temperature, thermostat, tau-t, nsttcouple: temperature coupling
+        - pressure, barostat, tau-p, nstpcouple, coupleStyle: pressure coupling
+          (isotropic or semiisotropic, recommended for membranes)
+        - simTime, timeStep, timeNeigh: simulation length, dt and neighbor list update
+        - saveTrj, trajInterval: whether the stage saves its trajectory, and how often
+
+    Restraints:
+        Position restraints on an index group with a given force constant. New groups can
+        be created from a structural ROI, from chain residues or from a custom make_ndx
+        command, using the wizards.
+
+    Workflow
+    --------
+    1. simulateStageStep (one per stage):
+       - Generates the stage .mdp file and, if restraints are set, the position restraint
+         file of the chosen group, included in the molecule it belongs to
+       - Runs gmx grompp, allowing the warnings known for the system and stage
+       - Runs gmx mdrun (CPU or GPU, threads or MPI) with checkpoints
+       - Discards the trajectory of the stages that do not save it
+
+    2. createOutputStep:
+       - Concatenates the trajectories of the last consecutive stages that saved one and
+         makes their molecules whole across the periodic boundaries
+       - Exports the last frame and the last minimized structure (without water)
+
+    Output
+    ------
+    outputSystem:
+        GromacsSystem containing:
+        - topology, index file and .tpr of the last stage
+        - concatenated trajectory (.xtc), if any stage saved it
+        - last energy-minimized structure
+
+    lastFrameStruct:
+        AtomStruct with the last frame of the simulation, without waters.
+
+    Key Features
+    ------------
+    - Multi-stage workflows (minimization, NVT and NPT equilibration, production)
+    - Several thermostats and barostats, isotropic and semiisotropic coupling
+    - Flexible position restraints
+    - GPU, MPI and checkpoint support
+
+    Notes
+    -----
+    - The summary lists every stage with its main settings, restraints, temperature and
+      whether its trajectory is saved
+    - The form warns about thermostat/barostat choices not recommended for equilibration
+      or production, and about Nose-Hoover coupling constants
     """
     _label = 'Run MD simulation'
     _ensemTypes = ['Energy min', 'NVT',  'NPT']
@@ -108,6 +191,13 @@ class GromacsMDSimulation(EMProtocol):
         form.addParam('gmxMPI', params.BooleanParam, default=False,
                        label="Use MPI program: ",
                        help='Use MPI program during simulation stage.')
+
+        form.addParam('extraMaxwarn', params.IntParam, default=0,
+                       expertLevel=params.LEVEL_ADVANCED,
+                       label='Extra allowed grompp warnings: ',
+                       help='Increase if grompp fails with "Too many warnings" for a warning specific to your '
+                            'system that this protocol does not already know to expect (e.g. a long bond at a '
+                            'fusion protein junction). Check the warning is harmless before raising this.')
 
         group = form.addGroup('Ensemble')
         group.addParam('ensemType', params.EnumParam,
@@ -293,7 +383,10 @@ class GromacsMDSimulation(EMProtocol):
 
     def createOutputStep(self):
         lastGroFile, lastTopoFile, lastTprFile = self.getPrevFinishedStageFiles()
-        oriGroFile = self.gromacsSystem.get().getSystemFile()
+        # Initial structure of the system: kept along a chain of simulations (the input system file would be the
+        # final frame of the previous one)
+        inSystem = self.gromacsSystem.get()
+        oriGroFile = inSystem.getOriStructFile() or inSystem.getSystemFile()
 
         localGroFile, localTopFile = self._getPath('outputSystem.gro'), self._getPath('systemTopology.top')
         shutil.copyfile(lastGroFile, localGroFile), shutil.copyfile(lastTopoFile, localTopFile)
@@ -306,7 +399,8 @@ class GromacsMDSimulation(EMProtocol):
         self._convertGroToPdbNoWat(localGroFile, localPdbFile)
         finalAtomStruct = AtomStruct(filename=os.path.relpath(localPdbFile))
 
-        outSystem = GromacsSystem(filename=oriGroFile, tprFile=lastTprFile)
+        # The system is the final (relaxed)
+        outSystem = GromacsSystem(filename=localGroFile, oriStructFile=oriGroFile, tprFile=lastTprFile)
         outSystem.setTopologyFile(localTopFile)
         outSystem.setLigTopologyFile(self.gromacsSystem.get().getLigTopologyFile())
         outSystem.setLigandID(self.gromacsSystem.get().getLigandID())
@@ -359,8 +453,11 @@ class GromacsMDSimulation(EMProtocol):
   
         if msjDic['restraints'] not in ['', 'None']:
           sumStr += ', restraint on {}'.format(msjDic['restraints'])
-        sumStr += ', {} K\n'.format(msjDic['temperature'])
-        return sumStr
+        sumStr += ', {} K'.format(msjDic['temperature'])
+        if ensemType != 'Energy min':
+          sumStr += ', trajectory saved every {} ps'.format(msjDic['trajInterval']) if msjDic['saveTrj'] \
+            else ', trajectory not saved'
+        return sumStr + '\n'
 
     def createSummary(self, msjDic=None):
         '''Creates the displayed summary from the internal state of the steps'''
@@ -564,10 +661,11 @@ class GromacsMDSimulation(EMProtocol):
 
     def addDefaultForMissing(self, msjDic):
       '''Add default values for missing parameters in the msjDic'''
-      paramDic = self.getStageParamsDic()
-      for pName in paramDic.keys():
+      for pName, param in self.getStageParamsDic().items():
         if pName not in msjDic:
-          msjDic[pName] = paramDic[pName].default
+          # Typed value (param.default holds it as text: 'False' would be truthy); enums are stored by label
+          value = param.paramClass(param.getDefault()).get()
+          msjDic[pName] = param.choices[value] if isinstance(param, params.EnumParam) else value
       return msjDic
 
     def generateMDPFile(self, msjDic, mdpStage):
@@ -678,7 +776,7 @@ class GromacsMDSimulation(EMProtocol):
           os.link(ligTopFile, lTopFile)
 
         #Manage warnings
-        nWarns = self.countWarns(stageNum)
+        nWarns = self.countWarns(stageNum) + self.extraMaxwarn.get()
         print('{} warnings in stage {}'.format(nWarns, stageNum))
         if nWarns >= 1:
             command += ' -maxwarn {}'.format(nWarns)
