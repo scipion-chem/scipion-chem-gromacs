@@ -250,7 +250,7 @@ class GromacsModifySystem(EMProtocol):
     def createOutputStep(self):
       inSystem = self.gromacsSystem.get()
       outSystem = GromacsSystem()
-      outSystem.setSystemFile(self.getCleanStructureFile())
+      outSystem.setSystemFile(os.path.relpath(self.getCleanStructureFile()))
       outSystem.setTopologyFile(inSystem.getTopologyFile())
       if inSystem.getTrajectoryFile():
           outSystem.setTrajectoryFile(os.path.relpath(self.getCleanTrajectoryFile()))
@@ -259,7 +259,7 @@ class GromacsModifySystem(EMProtocol):
       if inSystem.getMinimizedFile():
           outSystem.setMinimizedFile(inSystem.getMinimizedFile())
       if inSystem.getTprFile():
-          outSystem.setTprFile(self.getCleanTprFile() if self.cleaning else inSystem.getTprFile())
+          outSystem.setTprFile(os.path.relpath(self.getCleanTprFile()) if self.cleaning else inSystem.getTprFile())
       outSystem.setLigandID(inSystem.getLigandID())
       outSystem.setLigTopologyFile(inSystem.getLigTopologyFile())
       outSystem.setChainNames(inSystem.getChainNames())
